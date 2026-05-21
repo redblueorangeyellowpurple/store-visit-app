@@ -9,7 +9,6 @@ import {
   persistVisitSection,
   getFullVisit,
   getLastVisitDatePerStore,
-  deleteVisit,
   V2_PROMPT_COLUMN,
   type V2PromptKey,
   type Visit,
@@ -170,7 +169,7 @@ function buildIntroBanner(storeName: string, total: number): string {
     `📍 *Visit at ${storeName}* — ${total} quick questions.\n\n` +
     `_📸 Photos welcome anytime · 💾 Answers save as you go_\n` +
     `_← Back on any question to redo the previous one (clears its photos too)_\n` +
-    `_/cancel discards the visit (text + photos)_`
+    `_/cancel pauses — draft saved for 7 days, run /visit to pick up_`
   );
 }
 
@@ -441,12 +440,14 @@ export async function visitFlow(
     }
 
     if (resolved === 'cancel') {
-      await conversation.external(async () => {
+      // Pause — keep the draft + already-uploaded photos. Clear in-memory
+      // collection so stray photos after exit don't attach to this paused
+      // visit. The 7-day TTL sweeps it if the CM never returns.
+      await conversation.external(() => {
         setActiveSection(telegramId, null);
         discardPhotoCollection(telegramId);
-        await deleteVisit(createdVisitId);
       });
-      await ctx.reply("🗑️ Visit discarded — text and photos wiped. Run /visit when you're ready 👍");
+      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
       return;
     }
     if (resolved === 'back') {
@@ -495,12 +496,11 @@ export async function visitFlow(
     const upd = await conversation.wait();
 
     if (upd.message?.text === '/cancel') {
-      await conversation.external(async () => {
+      await conversation.external(() => {
         setActiveSection(telegramId, null);
         discardPhotoCollection(telegramId);
-        await deleteVisit(createdVisitId);
       });
-      await ctx.reply("🗑️ Visit discarded — text and photos wiped. Run /visit when you're ready 👍");
+      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
       return;
     }
     if (upd.message?.photo) {

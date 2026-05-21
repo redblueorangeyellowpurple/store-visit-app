@@ -26,7 +26,7 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
     `🕒 /myvisits — your last 5 visits\n` +
     `🔗 /links — store objective + asset verification links\n` +
     `✏️ /nickname — set your display name\n` +
-    `🚫 /cancel — discard the current visit (text + photos)\n` +
+    `🚫 /cancel — pause the visit (draft saved for 7 days)\n` +
     managerBlock +
     adminBlock + `\n` +
     `📝 *How /visit works*\n\n` +
