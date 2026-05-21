@@ -154,7 +154,7 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 function formatPrompt(idx: number, total: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
   return (
-    `*Q${idx + 1} of ${total}*  ${p.emoji}  *${p.question}*\n\n` +
+    `*Q${idx + 1}/${total}*  ${p.emoji}  *${p.question}*\n\n` +
     `_${p.cue}_\n\n${bullets}`
   );
 }
@@ -391,6 +391,12 @@ export async function visitFlow(
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
         await conversation.external(() => handleIncomingPhoto(telegramId, fileId));
+        const caption = upd.message.caption ?? null;
+        if (caption) {
+          textValue = caption;
+          resolved = 'text';
+          break;
+        }
         continue;
       }
       if (upd.callbackQuery) {
