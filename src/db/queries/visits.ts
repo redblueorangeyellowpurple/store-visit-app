@@ -289,9 +289,11 @@ export async function updateVisitSections(
 
 // Returns the most recent unlocked visit by this CM within the resume window.
 // Used by /visit to offer Resume / Start-fresh when a draft is open.
+// Window matches the stale-draft TTL (purgeStaleDrafts) so any draft visible
+// here is also one we haven't auto-deleted yet.
 export async function getDraftVisit(
   cmTelegramId: number,
-  windowHours = 6,
+  windowHours = 7 * 24,
 ): Promise<(Visit & { store_name: string }) | null> {
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
@@ -342,6 +344,34 @@ export async function setVisitFollowUpText(
     return false;
   }
   return true;
+}
+
+// Sweeps this CM's unlocked drafts older than the TTL. Called at the top of
+// /visit so abandoned drafts disappear silently — no notification, no value
+// was ever locked, so it's effectively scratch work. Runs storage cleanup
+// best-effort; a row-only delete still leaves no functional draft behind.
+export async function purgeStaleDrafts(
+  cmTelegramId: number,
+  days = 7,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: stale } = await supabase
+    .from('visits')
+    .select('id')
+    .eq('cm_telegram_id', cmTelegramId)
+    .eq('is_locked', false)
+    .lt('created_at', cutoff);
+
+  const ids = (stale ?? []).map((r: { id: string }) => r.id);
+  if (ids.length === 0) return 0;
+
+  let purged = 0;
+  for (const id of ids) {
+    const ok = await deleteVisit(id);
+    if (ok) purged++;
+  }
+  return purged;
 }
 
 export async function deleteVisit(visitId: string): Promise<boolean> {

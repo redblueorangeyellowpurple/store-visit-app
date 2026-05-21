@@ -76,6 +76,21 @@ export async function handleIncomingPhoto(telegramId: number, fileId: string): P
   }
 }
 
+// Called after back-nav wipes a section's photos in the DB. Keeps the running
+// total accurate so the final "📸 N photos saved" tally matches reality.
+// Saturating subtract — never goes below 0 even if state drifted.
+export function adjustSavedCount(telegramId: number, delta: number): void {
+  const c = collections.get(telegramId);
+  if (c) c.savedCount = Math.max(0, c.savedCount + delta);
+}
+
+// Called on /cancel — DB rows + storage files are deleted elsewhere
+// (deleteVisit cascades); this just clears the in-memory collection so the
+// next /visit doesn't inherit stale state.
+export function discardPhotoCollection(telegramId: number): void {
+  collections.delete(telegramId);
+}
+
 // Called at the end of the visit flow. Returns total photos saved for this
 // visit, then tears down the collection.
 export async function awaitPhotoUpload(visitId: string): Promise<number> {

@@ -9,10 +9,12 @@ import {
   persistVisitSection,
   getFullVisit,
   getLastVisitDatePerStore,
+  deleteVisit,
   V2_PROMPT_COLUMN,
   type V2PromptKey,
   type Visit,
 } from '../../db/queries/visits.js';
+import { deletePhotosBySection } from '../../db/queries/photos.js';
 import { setVisitCMs } from '../../db/queries/visit-cms.js';
 import { getActivePlan, consumePlan } from '../../db/queries/visit-plans.js';
 import { listFollowUpsForVisit } from '../../db/queries/visit-follow-ups.js';
@@ -26,6 +28,8 @@ import {
   handleIncomingPhoto,
   setActiveSection,
   awaitPhotoUpload,
+  adjustSavedCount,
+  discardPhotoCollection,
 } from '../photo-collection.js';
 import { sendVisitDetails } from '../visit-details.js';
 import { broadcastVisitLocked } from '../../notifications/visit-broadcast.js';
@@ -118,8 +122,10 @@ function followUpDeepLink(visitId: string): string | null {
 function buildPromptKeyboard(
   visitId: string,
   prompt: PromptDef,
+  showBack: boolean,
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
+  if (showBack) kb.text('← Back', `prompt:back:${prompt.key}`);
   kb.text('Skip', `prompt:skip:${prompt.key}`);
   if (prompt.showTrainingButton) {
     const link = trainingDeepLink(visitId);
@@ -163,7 +169,8 @@ function buildIntroBanner(storeName: string, total: number): string {
   return (
     `📍 *Visit at ${storeName}* — ${total} quick questions.\n\n` +
     `_📸 Photos welcome anytime · 💾 Answers save as you go_\n` +
-    `_/cancel pauses and saves a draft_`
+    `_← Back on any question to redo the previous one (clears its photos too)_\n` +
+    `_/cancel discards the visit (text + photos)_`
   );
 }
 
@@ -362,11 +369,20 @@ export async function visitFlow(
     display_stock: visit.display_stock,
   };
 
-  for (let i = 0; i < PROMPTS.length; i++) {
+  // Q-loop is a while (not for) so ← Back can rewind `i`. Once the CM rewinds,
+  // we always re-ask that question (auto-skip-filled is disabled mid-flow) so
+  // they can re-answer rather than silently fast-forwarding past their own
+  // edit. Later prompts they didn't touch keep their saved answers.
+  let i = 0;
+  let hasNavigatedBack = false;
+  while (i < PROMPTS.length) {
     const p = PROMPTS[i];
 
-    // Resume: skip already-filled prompts
-    if (answers[p.key]) {
+    // Resume: skip already-filled prompts — but only on the initial forward
+    // pass. After a back-nav, re-prompt regardless so the CM lands where they
+    // expect.
+    if (answers[p.key] && !hasNavigatedBack) {
+      i++;
       continue;
     }
 
@@ -374,10 +390,10 @@ export async function visitFlow(
 
     await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
-      reply_markup: buildPromptKeyboard(createdVisitId, p),
+      reply_markup: buildPromptKeyboard(createdVisitId, p, i > 0),
     });
 
-    let resolved: 'text' | 'skip' | 'cancel' = 'text';
+    let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
     let textValue: string | null = null;
 
     promptWait: while (true) {
@@ -406,6 +422,11 @@ export async function visitFlow(
           resolved = 'skip';
           break promptWait;
         }
+        if (data === `prompt:back:${p.key}`) {
+          await upd.answerCallbackQuery('Going back');
+          resolved = 'back';
+          break promptWait;
+        }
         // Other callbacks (e.g. Log Training URL button has no callback;
         // viewlast/viewvisit handled at bot.ts level) — ignore politely.
         await upd.answerCallbackQuery().catch(() => {});
@@ -420,16 +441,39 @@ export async function visitFlow(
     }
 
     if (resolved === 'cancel') {
-      await conversation.external(() => setActiveSection(telegramId, null));
-      await ctx.reply("👋 No worries — saved as draft. Run /visit anytime to pick up where you left off.");
+      await conversation.external(async () => {
+        setActiveSection(telegramId, null);
+        discardPhotoCollection(telegramId);
+        await deleteVisit(createdVisitId);
+      });
+      await ctx.reply("🗑️ Visit discarded — text and photos wiped. Run /visit when you're ready 👍");
       return;
     }
+    if (resolved === 'back') {
+      // Wipe the previous prompt's photos + answer, then rewind. Q1 hides the
+      // Back button (showBack = i > 0), so this branch can't fire when i = 0.
+      const target = PROMPTS[i - 1];
+      const targetSection = sectionKeyForPrompt(target.key);
+      const removed = await conversation.external(() =>
+        deletePhotosBySection(createdVisitId, targetSection),
+      );
+      if (removed > 0) {
+        await conversation.external(() => adjustSavedCount(telegramId, -removed));
+      }
+      await conversation.external(() => persistVisitSection(createdVisitId, target.key, null));
+      answers[target.key] = null;
+      hasNavigatedBack = true;
+      i--;
+      continue;
+    }
     if (resolved === 'skip') {
+      i++;
       continue;
     }
     // text path
     answers[p.key] = textValue;
     await conversation.external(() => persistVisitSection(createdVisitId, p.key, textValue));
+    i++;
   }
 
   // ── Follow-up close-out ───────────────────────────────────────────────────
@@ -451,8 +495,12 @@ export async function visitFlow(
     const upd = await conversation.wait();
 
     if (upd.message?.text === '/cancel') {
-      await conversation.external(() => setActiveSection(telegramId, null));
-      await ctx.reply("👋 No worries — saved as draft. Run /visit anytime to pick up where you left off.");
+      await conversation.external(async () => {
+        setActiveSection(telegramId, null);
+        discardPhotoCollection(telegramId);
+        await deleteVisit(createdVisitId);
+      });
+      await ctx.reply("🗑️ Visit discarded — text and photos wiped. Run /visit when you're ready 👍");
       return;
     }
     if (upd.message?.photo) {

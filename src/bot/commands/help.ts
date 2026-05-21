@@ -26,7 +26,7 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
     `🕒 /myvisits — your last 5 visits\n` +
     `🔗 /links — store objective + asset verification links\n` +
     `✏️ /nickname — set your display name\n` +
-    `🚫 /cancel — stop what you're doing\n` +
+    `🚫 /cancel — discard the current visit (text + photos)\n` +
     managerBlock +
     adminBlock + `\n` +
     `📝 *How /visit works*\n\n` +
@@ -34,6 +34,7 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
     `🎉 Good News · 👥 People & Training\n` +
     `🔍 Competitor Insights · 📦 Display & Stock\n\n` +
     `Each prompt has a *Skip* button if there's nothing to flag.\n` +
+    `Tap *← Back* to redo the previous question (clears its photos too).\n` +
     `Send photos any time — they tag to whichever prompt is active.\n` +
     `Close out with one-line or mini-app follow-ups.\n\n` +
     `💡 _Names, numbers, and specifics make your notes 10× more useful._`,

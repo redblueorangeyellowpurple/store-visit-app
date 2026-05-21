@@ -20,7 +20,7 @@ import { visitFlow } from './conversations/visit-flow.js';
 import { joinRequestFlow } from './conversations/join-request.js';
 import { initPhotoCollection, isCollecting, handleIncomingPhoto } from './photo-collection.js';
 import { startEditSession, isEditing, getEditSession, clearEditSession } from './edit-session.js';
-import { getVisitInfo, updateVisitSections, updateVisitGrade, updateVisitGradeComments, deleteVisit, getDraftVisit } from '../db/queries/visits.js';
+import { getVisitInfo, updateVisitSections, updateVisitGrade, updateVisitGradeComments, deleteVisit, getDraftVisit, purgeStaleDrafts } from '../db/queries/visits.js';
 import { approvePendingCM, rejectPendingCM, getCMRecord, type CM } from '../db/queries/cms.js';
 import { parseTemplate, filledCount } from '../utils/parse-template.js';
 import { sendVisitDetails } from './visit-details.js';
@@ -50,6 +50,9 @@ export function createBot(): Bot<BotContext> {
   async function startVisitFlow(ctx: BotContext): Promise<void> {
     const user = requireAuth(ctx);
     if (!user || !ctx.from) return;
+    // Sweep abandoned drafts older than the resume window. Silent — no value
+    // was ever locked, so the CM doesn't need to know.
+    await purgeStaleDrafts(ctx.from.id).catch((e) => console.error('purgeStaleDrafts:', e));
     const draft = await getDraftVisit(ctx.from.id);
     if (draft) {
       await ctx.reply(
