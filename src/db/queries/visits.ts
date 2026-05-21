@@ -287,6 +287,19 @@ export async function updateVisitSections(
   return true;
 }
 
+// Returns true while the visit row is still unlocked. Used by the visit
+// conversation's follow-up wait loop to bail out silently if the mini-app
+// has already finalized this visit via the Save & Submit endpoint.
+export async function isVisitStillOpen(visitId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('visits')
+    .select('is_locked')
+    .eq('id', visitId)
+    .maybeSingle();
+  if (error || !data) return false;
+  return !data.is_locked;
+}
+
 // Returns the most recent unlocked visit by this CM within the resume window.
 // Used by /visit to offer Resume / Start-fresh when a draft is open.
 // Window matches the stale-draft TTL (purgeStaleDrafts) so any draft visible

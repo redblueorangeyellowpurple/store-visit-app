@@ -5,6 +5,7 @@ import { getStoresForCM } from '../../db/queries/stores.js';
 import { searchStoresByName, getStoreById } from '../../db/queries/stores.js';
 import {
   createVisit,
+  isVisitStillOpen,
   lockVisit,
   persistVisitSection,
   getFullVisit,
@@ -136,10 +137,11 @@ function buildPromptKeyboard(
 }
 
 function buildFollowUpKeyboard(visitId: string): InlineKeyboard {
-  // Push 1: keep Done as honest interim. Push 2 wires auto-finalize when
-  // user closes mini-app (mini-app→bot HTTP signal), then Done goes away.
+  // ← Back rewinds to Q4. ✓ Done finalises the visit. Mini-app Save & Submit
+  // does the same finalisation via /api/visit/:id/finalize, so this Done
+  // button and the mini-app are interchangeable end-states.
   const kb = new InlineKeyboard();
-  kb.text('Skip', 'followup:skip').text('✅ Done', 'followup:done').row();
+  kb.text('← Back', 'followup:back').text('✓ Done', 'followup:done').row();
   const link = followUpDeepLink(visitId);
   if (link) kb.url('📌 Add Follow-Ups in App', link);
   return kb;
@@ -370,12 +372,14 @@ export async function visitFlow(
     display_stock: visit.display_stock,
   };
 
-  // Q-loop is a while (not for) so ← Back can rewind `i`. Once the CM rewinds,
-  // we always re-ask that question (auto-skip-filled is disabled mid-flow) so
-  // they can re-answer rather than silently fast-forwarding past their own
-  // edit. Later prompts they didn't touch keep their saved answers.
+  // Two-phase loop: questions (Q1..Q4) then follow-up close-out. The outer
+  // `mainFlow` wrap lets the follow-up step's ← Back rewind into the Q-loop
+  // at Q4. `continue mainFlow` from the follow-up body re-enters the Q-loop.
   let i = 0;
   let hasNavigatedBack = false;
+  let followUpsAdded = 0;
+
+  mainFlow: while (true) {
   while (i < PROMPTS.length) {
     const p = PROMPTS[i];
 
@@ -494,11 +498,18 @@ export async function visitFlow(
     },
   );
 
-  let followUpsAdded = 0;
   let hintShown = false;
 
   followUpLoop: while (true) {
     const upd = await conversation.wait();
+
+    // Mini-app Save & Submit may have finalised this visit out-of-band via
+    // /api/visit/:id/finalize. If so, the endpoint already sent the done
+    // message — we just exit silently to avoid double-finalising.
+    const stillOpen = await conversation.external(() =>
+      isVisitStillOpen(createdVisitId),
+    );
+    if (!stillOpen) return;
 
     if (upd.message?.text === '/cancel') {
       await conversation.external(() => {
@@ -519,12 +530,29 @@ export async function visitFlow(
     }
     if (upd.callbackQuery) {
       const data = upd.callbackQuery.data ?? '';
-      if (data === 'followup:skip') {
-        await upd.answerCallbackQuery('Skipped');
-        break followUpLoop;
+      if (data === 'followup:back') {
+        // Wipe Q4 (last prompt) photos + answer, rewind into the Q-loop.
+        const target = PROMPTS[PROMPTS.length - 1];
+        const targetSection = sectionKeyForPrompt(target.key);
+        const removed = await conversation.external(() =>
+          deletePhotosBySection(createdVisitId, targetSection),
+        );
+        if (removed > 0) {
+          await conversation.external(() => adjustSavedCount(telegramId, -removed));
+        }
+        await conversation.external(() =>
+          persistVisitSection(createdVisitId, target.key, null),
+        );
+        answers[target.key] = null;
+        hasNavigatedBack = true;
+        i = PROMPTS.length - 1;
+        await upd.answerCallbackQuery('Going back');
+        continue mainFlow;
       }
       if (data === 'followup:done') {
-        // Pick up rows the user added via the mini-app.
+        // Single Done path — whether or not the user added follow-ups in
+        // the mini-app, this finalises the visit. Reading the rows here
+        // gives us a count for the summary message.
         const items = await conversation.external(() =>
           listFollowUpsForVisit(createdVisitId),
         );
@@ -548,6 +576,9 @@ export async function visitFlow(
       );
     }
   }
+
+  break mainFlow;
+  } // end mainFlow
 
   await conversation.external(() => setActiveSection(telegramId, null));
 
