@@ -7,7 +7,6 @@ import {
   createVisit,
   lockVisit,
   persistVisitSection,
-  setVisitFollowUpText,
   getFullVisit,
   getLastVisitDatePerStore,
   V2_PROMPT_COLUMN,
@@ -16,10 +15,7 @@ import {
 } from '../../db/queries/visits.js';
 import { setVisitCMs } from '../../db/queries/visit-cms.js';
 import { getActivePlan, consumePlan } from '../../db/queries/visit-plans.js';
-import {
-  createFollowUp,
-  listFollowUpsForVisit,
-} from '../../db/queries/visit-follow-ups.js';
+import { listFollowUpsForVisit } from '../../db/queries/visit-follow-ups.js';
 import {
   buildStorePicker,
   buildSearchResultsPicker,
@@ -43,6 +39,7 @@ interface PromptDef {
   emoji: string;
   question: string;
   cue: string;
+  bullets: string[];
   showTrainingButton?: boolean;
 }
 
@@ -50,27 +47,47 @@ const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
     emoji: '🎉',
-    question: 'Any wins today?',
-    cue: 'Sales moved, SM breakthrough, customer compliment, staff Good News…',
+    question: 'Good News',
+    cue: 'Any wins today? Even small ones — share the story.',
+    bullets: [
+      'A staff sold something and wants to share the story',
+      "A customer's eyes lit up because of a great demo",
+      'Momentum on something from your last visit',
+    ],
   },
   {
     key: 'people_training',
     emoji: '👥',
-    question: 'People & training today?',
-    cue: "Who'd you engage, what did you talk about, how did they respond?\nTrained someone on specific products? Tap *Log Training* to record details.",
+    question: 'People & Training',
+    cue: 'Who did you connect with, and what did you coach them on?',
+    bullets: [
+      'What were they curious about, struggling with, or excited about',
+      'What did you train or affirm — pitch, product, demo technique',
+      'Did anything click — how did they respond?',
+    ],
     showTrainingButton: true,
   },
   {
     key: 'competitor',
-    emoji: '🔍',
-    question: 'Competition doing anything?',
-    cue: 'Bose / Sony / JBL — promos, products, POS, gossip from staff…',
+    emoji: '🕵️',
+    question: 'Competition',
+    cue: "Eyes on Bose / Sony / JBL — what's moving on the floor?",
+    bullets: [
+      'New product, promo, POSM, or activity in-store',
+      'What staff are telling you — direct quotes if you caught them',
+      'Customer reactions — anyone waiting on a competitor discount?',
+    ],
   },
   {
     key: 'display_stock',
     emoji: '📦',
-    question: 'Display & Stock — anything to flag?',
-    cue: 'Display health, stock levels, POSM/buzz materials up, new spaces conquered?',
+    question: 'Display & Stock',
+    cue: 'How are we showing up in this store today?',
+    bullets: [
+      "Stock — any gaps that'll hurt the weekend?",
+      'Display health — broken, dusty, or pushed to the back?',
+      'New spaces conquered — endcap, hero shelf, demo zone?',
+    ],
   },
 ];
 
@@ -93,23 +110,23 @@ function followUpDeepLink(visitId: string): string | null {
 function buildPromptKeyboard(
   visitId: string,
   prompt: PromptDef,
-  showSkipRest: boolean,
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
+  kb.text('Skip', `prompt:skip:${prompt.key}`);
   if (prompt.showTrainingButton) {
     const link = trainingDeepLink(visitId);
-    if (link) kb.url('📋 Log Training', link).row();
+    if (link) kb.url('🎓 Log Training', link);
   }
-  kb.text('Skip', `prompt:skip:${prompt.key}`);
-  if (showSkipRest) kb.text('Skip rest →', 'prompt:skiprest');
   return kb;
 }
 
 function buildFollowUpKeyboard(visitId: string): InlineKeyboard {
+  // Push 1: keep Done as honest interim. Push 2 wires auto-finalize when
+  // user closes mini-app (mini-app→bot HTTP signal), then Done goes away.
   const kb = new InlineKeyboard();
+  kb.text('Skip', 'followup:skip').text('✅ Done', 'followup:done').row();
   const link = followUpDeepLink(visitId);
-  if (link) kb.url('📋 Add in Mini-App', link).row();
-  kb.text('Skip', 'followup:skip').text('✅ Done', 'followup:done');
+  if (link) kb.url('📌 Add Follow-Ups in App', link);
   return kb;
 }
 
@@ -117,7 +134,7 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (config.broadcast.botUsername) {
     const base = `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}`;
-    kb.url('🔍 Open in mini-app', `${base}?startapp=visit_${visitId}`).row();
+    kb.url('📱 Open in mini-app', `${base}?startapp=visit_${visitId}`).row();
     // Edit deep-links into the mini-app editor (4 sections + photos +
     // follow-ups), bypassing the legacy bot-side step picker / template-paste.
     kb.url('✏️ Edit', `${base}?startapp=visit_${visitId}_edit`);
@@ -127,7 +144,19 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 }
 
 function formatPrompt(idx: number, total: number, p: PromptDef): string {
-  return `*${idx + 1}/${total}* ${p.emoji} *${p.question}*\n_${p.cue}_`;
+  const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
+  return (
+    `*Step ${idx + 1} of ${total}*  ${p.emoji}  *${p.question}*\n\n` +
+    `_${p.cue}_\n\n${bullets}`
+  );
+}
+
+function buildIntroBanner(storeName: string, total: number): string {
+  return (
+    `📍 *Visit at ${storeName}* — ${total} quick questions.\n\n` +
+    `_📸 Photos welcome anytime · 💾 Answers save as you go_\n` +
+    `_/cancel pauses and saves a draft_`
+  );
 }
 
 // Visits use the visit_photos.section_key enum 'follow_up' for the close-out
@@ -185,7 +214,7 @@ export async function visitFlow(
       const update = await conversation.wait();
 
       if (update.message?.text === '/cancel') {
-        await ctx.reply("No worries — come back whenever you're ready 👋");
+        await ctx.reply("👋 No worries — come back whenever you're ready.");
         return;
       }
       if (!update.callbackQuery) continue;
@@ -194,7 +223,7 @@ export async function visitFlow(
 
       if (data === 'cancel') {
         await update.answerCallbackQuery();
-        await ctx.reply("No worries — come back whenever you're ready 👋");
+        await ctx.reply("👋 No worries — come back whenever you're ready.");
         return;
       }
 
@@ -214,7 +243,7 @@ export async function visitFlow(
         while (true) {
           const searchMsg = await conversation.wait();
           if (searchMsg.message?.text === '/cancel') {
-            await ctx.reply("No worries — come back whenever you're ready 👋");
+            await ctx.reply("👋 No worries — come back whenever you're ready.");
             return;
           }
           const term = searchMsg.message?.text?.trim();
@@ -236,7 +265,7 @@ export async function visitFlow(
           const pick = await conversation.wait();
 
           if (pick.message?.text === '/cancel') {
-            await ctx.reply("No worries — come back whenever you're ready 👋");
+            await ctx.reply("👋 No worries — come back whenever you're ready.");
             return;
           }
           if (!pick.callbackQuery) continue;
@@ -245,7 +274,7 @@ export async function visitFlow(
 
           if (pickData === 'cancel') {
             await pick.answerCallbackQuery();
-            await ctx.reply("No worries — come back whenever you're ready 👋");
+            await ctx.reply("👋 No worries — come back whenever you're ready.");
             return;
           }
           if (pickData === 'search:back') {
@@ -310,6 +339,12 @@ export async function visitFlow(
     startPhotoCollection(telegramId, createdVisitId, storeId, storeName, PROMPTS.length);
   });
 
+  // Intro banner — only on fresh visits, not resumes (resume already shown the
+  // "▶️ Resuming…" line and the CM knows where they are).
+  if (!resumeVisitId) {
+    await ctx.reply(buildIntroBanner(storeName, PROMPTS.length), { parse_mode: 'Markdown' });
+  }
+
   // ── 4 prompts ─────────────────────────────────────────────────────────────
   const answers: Partial<Record<V2PromptKey, string | null>> = {
     good_news: visit.good_news,
@@ -317,8 +352,6 @@ export async function visitFlow(
     competitor: visit.competitors,
     display_stock: visit.display_stock,
   };
-
-  let consecutiveSkips = 0;
 
   for (let i = 0; i < PROMPTS.length; i++) {
     const p = PROMPTS[i];
@@ -330,13 +363,12 @@ export async function visitFlow(
 
     await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
 
-    const showSkipRest = consecutiveSkips >= 2 && i < PROMPTS.length - 1;
     await ctx.reply(formatPrompt(i, PROMPTS.length, p), {
       parse_mode: 'Markdown',
-      reply_markup: buildPromptKeyboard(createdVisitId, p, showSkipRest),
+      reply_markup: buildPromptKeyboard(createdVisitId, p),
     });
 
-    let resolved: 'text' | 'skip' | 'skiprest' | 'cancel' = 'text';
+    let resolved: 'text' | 'skip' | 'cancel' = 'text';
     let textValue: string | null = null;
 
     promptWait: while (true) {
@@ -359,11 +391,6 @@ export async function visitFlow(
           resolved = 'skip';
           break promptWait;
         }
-        if (data === 'prompt:skiprest') {
-          await upd.answerCallbackQuery('Skipped the rest');
-          resolved = 'skiprest';
-          break promptWait;
-        }
         // Other callbacks (e.g. Log Training URL button has no callback;
         // viewlast/viewvisit handled at bot.ts level) — ignore politely.
         await upd.answerCallbackQuery().catch(() => {});
@@ -379,20 +406,14 @@ export async function visitFlow(
 
     if (resolved === 'cancel') {
       await conversation.external(() => setActiveSection(telegramId, null));
-      await ctx.reply('No worries — visit saved as draft. Run /visit to resume.');
+      await ctx.reply("👋 No worries — saved as draft. Run /visit anytime to pick up where you left off.");
       return;
     }
-    if (resolved === 'skiprest') {
-      consecutiveSkips++;
-      break;
-    }
     if (resolved === 'skip') {
-      consecutiveSkips++;
       continue;
     }
     // text path
     answers[p.key] = textValue;
-    consecutiveSkips = 0;
     await conversation.external(() => persistVisitSection(createdVisitId, p.key, textValue));
   }
 
@@ -400,9 +421,8 @@ export async function visitFlow(
   await conversation.external(() => setActiveSection(telegramId, 'follow_up'));
 
   await ctx.reply(
-    `✓ *Any follow-ups before we close?*\n` +
-      `_Stock orders, emails, demos to plan, revisits…_\n` +
-      `Type one line (quick) OR tap *Add in Mini-App* for multiple with due dates.`,
+    `✓ *Follow-ups before we close?*\n\n` +
+      `_Anything to act on for this store? Add as tasks in the app — assign owner + due date, the team can see them._`,
     {
       parse_mode: 'Markdown',
       reply_markup: buildFollowUpKeyboard(createdVisitId),
@@ -410,14 +430,14 @@ export async function visitFlow(
   );
 
   let followUpsAdded = 0;
-  let typedFollowUp: string | null = null;
+  let hintShown = false;
 
   followUpLoop: while (true) {
     const upd = await conversation.wait();
 
     if (upd.message?.text === '/cancel') {
       await conversation.external(() => setActiveSection(telegramId, null));
-      await ctx.reply('No worries — visit saved as draft. Run /visit to resume.');
+      await ctx.reply("👋 No worries — saved as draft. Run /visit anytime to pick up where you left off.");
       return;
     }
     if (upd.message?.photo) {
@@ -433,7 +453,7 @@ export async function visitFlow(
         break followUpLoop;
       }
       if (data === 'followup:done') {
-        // If the mini-app was used it has already inserted rows; pick up count.
+        // Pick up rows the user added via the mini-app.
         const items = await conversation.external(() =>
           listFollowUpsForVisit(createdVisitId),
         );
@@ -446,33 +466,15 @@ export async function visitFlow(
       await upd.answerCallbackQuery().catch(() => {});
       continue;
     }
+    // Typed follow-ups removed — guide the user to the app. Show the hint
+    // once per loop so we don't spam if they keep typing.
     const text = upd.message?.caption ?? upd.message?.text ?? null;
-    if (text) {
-      typedFollowUp = text;
-      const saved = await conversation.external(async () => {
-        const row = await createFollowUp({
-          visit_id: createdVisitId,
-          store_id: storeId,
-          cm_telegram_id: telegramId,
-          title: text,
-        });
-        if (row) await setVisitFollowUpText(createdVisitId, text);
-        return row !== null;
-      });
-      if (saved) {
-        followUpsAdded = 1;
-        await ctx.reply(
-          `✓ Got it — added "${text.slice(0, 60)}${text.length > 60 ? '…' : ''}"`,
-          {
-            reply_markup: new InlineKeyboard()
-              .text('Skip', 'followup:skip')
-              .text('✅ Done', 'followup:done'),
-          },
-        );
-      } else {
-        await ctx.reply("Couldn't save that follow-up — try once more 🙏");
-      }
-      continue;
+    if (text && !hintShown) {
+      hintShown = true;
+      await ctx.reply(
+        `_Add follow-ups in the app so you can assign an owner and due date 👇_`,
+        { parse_mode: 'Markdown' },
+      );
     }
   }
 
