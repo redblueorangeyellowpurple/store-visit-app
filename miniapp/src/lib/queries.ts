@@ -680,6 +680,87 @@ export async function markFollowUpDoneMA(id: string): Promise<boolean> {
   return !error;
 }
 
+// ── Mini-app finalize (Save & Done) ────────────────────────────────────────
+// These helpers back the `/api/m/visit/[id]/finalize` endpoint, which is
+// what the follow-up page calls when the CM taps "Save & Done". They mirror
+// what the bot's followUp loop does on the ✓ Done callback: lock the visit,
+// gather counts for the summary message, find the manager broadcast chat.
+
+export async function lockVisitMA(visitId: string): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("visits")
+    .update({ is_locked: true, locked_at: nowIso, submitted_at: nowIso })
+    .eq("id", visitId)
+    .eq("is_locked", false); // idempotent — only locks if still open
+  if (error) {
+    console.error("lockVisitMA error:", error);
+    return false;
+  }
+  return true;
+}
+
+export async function countVisitPhotosMA(visitId: string): Promise<number> {
+  const { count } = await supabase
+    .from("visit_photos")
+    .select("id", { count: "exact", head: true })
+    .eq("visit_id", visitId);
+  return count ?? 0;
+}
+
+export interface FinalizeVisitContext {
+  store_name: string;
+  store_chain: string | null;
+  cm_telegram_id: number;
+  cms: { telegram_id: number; role: "lead" | "co"; name: string }[];
+}
+
+export async function getFinalizeContext(
+  visitId: string,
+): Promise<FinalizeVisitContext | null> {
+  const { data, error } = await supabase
+    .from("visits")
+    .select("cm_telegram_id, stores(name, chain)")
+    .eq("id", visitId)
+    .single();
+  if (error || !data) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v = data as any;
+
+  const { data: vcRows } = await supabase
+    .from("visit_cms")
+    .select("cm_telegram_id, role, cms(full_name, nickname)")
+    .eq("visit_id", visitId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cms = ((vcRows ?? []) as any[])
+    .map((r) => ({
+      telegram_id: r.cm_telegram_id as number,
+      role: r.role as "lead" | "co",
+      name:
+        (r.cms?.nickname as string | null) ??
+        (r.cms?.full_name as string | null) ??
+        "Unknown",
+    }))
+    .sort((a, b) => (a.role === "lead" ? -1 : b.role === "lead" ? 1 : 0));
+
+  return {
+    store_name: v.stores?.name ?? "Unknown store",
+    store_chain: v.stores?.chain ?? null,
+    cm_telegram_id: v.cm_telegram_id,
+    cms,
+  };
+}
+
+export async function getBroadcastChatIdMA(): Promise<string | null> {
+  const { data } = await supabase
+    .from("settings")
+    .select("value")
+    .eq("key", "broadcast_chat_id")
+    .maybeSingle();
+  const dbVal = (data?.value as string | null) ?? null;
+  return dbVal ?? process.env.BROADCAST_CHAT_ID ?? null;
+}
+
 // Hard delete. DB-first → storage-second so storage hiccups don't leave
 // orphan rows. Mirrors src/db/queries/visits.ts:deleteVisit.
 export async function deleteVisitMA(visitId: string): Promise<boolean> {

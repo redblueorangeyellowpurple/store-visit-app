@@ -72,7 +72,7 @@ export default function FollowUpFormPage({
     setNextId((n) => n + 1);
   }
 
-  async function saveAll() {
+  async function saveAndDone() {
     if (!initData) return;
     const payload = items
       .map((it) => ({
@@ -81,36 +81,45 @@ export default function FollowUpFormPage({
         due_date: it.due_date.trim() || null,
       }))
       .filter((it) => it.title);
-    if (payload.length === 0) {
-      setError("Add at least one follow-up title.");
-      return;
-    }
+    // Empty submission is valid — CM is saying "no follow-ups, finalize now."
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/m/visit/${id}/followup`, {
+      // Save first (only if there are items). Skip on empty so the
+      // followup endpoint's "at least one" guard doesn't 400.
+      if (payload.length > 0) {
+        const saveRes = await fetch(`/api/m/visit/${id}/followup`, {
+          method: "POST",
+          headers: {
+            Authorization: `tma ${initData}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ items: payload }),
+        });
+        if (!saveRes.ok) {
+          const body = await saveRes.json().catch(() => ({}));
+          setError(body.error ?? `Save failed (${saveRes.status})`);
+          return;
+        }
+      }
+      // Finalize — locks the visit + the bot sends the done message.
+      const finalRes = await fetch(`/api/m/visit/${id}/finalize`, {
         method: "POST",
-        headers: {
-          Authorization: `tma ${initData}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ items: payload }),
+        headers: { Authorization: `tma ${initData}` },
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? `Failed (${res.status})`);
+      if (!finalRes.ok) {
+        const body = await finalRes.json().catch(() => ({}));
+        setError(body.error ?? `Submit failed (${finalRes.status})`);
         return;
       }
-      const body = await res.json().catch(() => ({}));
-      const count = Array.isArray(body.items) ? body.items.length : payload.length;
-      setSavedCount(count);
+      setSavedCount(payload.length);
       // Telegram WebApp close — returns user to the bot chat. Falls back to
       // navigating to the visit page in browsers (e.g. dev preview).
       const tg = (window as Window & {
         Telegram?: { WebApp?: { close?: () => void } };
       }).Telegram?.WebApp;
       if (tg?.close) {
-        setTimeout(() => tg.close?.(), 600);
+        setTimeout(() => tg.close?.(), 800);
       }
     } finally {
       setSaving(false);
@@ -203,7 +212,9 @@ export default function FollowUpFormPage({
         )}
         {savedCount !== null && (
           <p className="text-center text-[12px] text-emerald-600 font-semibold">
-            ✓ Saved {savedCount} follow-up{savedCount === 1 ? "" : "s"}. Returning to bot…
+            ✓ Submitted{savedCount > 0
+              ? ` — ${savedCount} follow-up${savedCount === 1 ? "" : "s"} saved`
+              : ""}. Returning to bot…
           </p>
         )}
 
@@ -216,12 +227,16 @@ export default function FollowUpFormPage({
           </Link>
           <button
             type="button"
-            onClick={saveAll}
+            onClick={saveAndDone}
             disabled={saving || savedCount !== null}
             className="flex-1 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
             style={{ background: "var(--color-tc-600)" }}
           >
-            {saving ? "Saving…" : savedCount !== null ? "Saved" : "Save All"}
+            {saving
+              ? "Submitting…"
+              : savedCount !== null
+                ? "Submitted"
+                : "Save & Done"}
           </button>
         </div>
       </div>
