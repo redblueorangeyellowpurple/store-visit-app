@@ -1,10 +1,24 @@
 "use client";
 
 import { use, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { initTelegram } from "../../../telegram-init";
 import { useSwipeBack } from "@/lib/useSwipeBack";
+import TrainingEditor, {
+  parseProductsCsv,
+  type TrainedStaffRow,
+} from "@/components/TrainingEditor";
+
+interface FollowUpRow {
+  id: string;
+  title: string;
+  notes: string | null;
+  due_date: string | null;
+  status: "open" | "done" | "cancelled";
+  closed_at: string | null;
+}
 
 interface FullVisit {
   id: string;
@@ -19,6 +33,8 @@ interface FullVisit {
   buzz_plan: string | null;
   photo_count: number;
   is_locked: boolean;
+  trained_staff: TrainedStaffRow[];
+  follow_ups: FollowUpRow[];
 }
 
 type SectionKey =
@@ -162,6 +178,8 @@ export default function EditVisitPage({
   const [uploadingFor, setUploadingFor] = useState<PhotoSection>(null);
   const [movingPhotoId, setMovingPhotoId] = useState<string | null>(null);
   const [openMoveMenuFor, setOpenMoveMenuFor] = useState<string | null>(null);
+  const [canEditTraining, setCanEditTraining] = useState(false);
+  const [editingTraining, setEditingTraining] = useState(false);
   // One hidden input per section so the file picker knows which section_key
   // to attach. Keyed by the photo enum value.
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -183,6 +201,7 @@ export default function EditVisitPage({
       const data = await res.json();
       setVisit(data.visit);
       setPhotos((data.photos ?? []) as PhotoRow[]);
+      setCanEditTraining(Boolean(data.canEditTraining));
       setFields({
         good_news: data.visit.good_news ?? "",
         people_training: data.visit.people_training ?? "",
@@ -193,6 +212,18 @@ export default function EditVisitPage({
       });
     })().catch((e) => setError(String(e)));
   }, [id]);
+
+  async function refetchVisit() {
+    if (!initDataStr) return;
+    const fresh = await fetch(`/api/m/visit/${id}`, {
+      headers: { Authorization: `tma ${initDataStr}` },
+    });
+    if (!fresh.ok) return;
+    const data = await fresh.json();
+    setVisit(data.visit);
+    setPhotos((data.photos ?? []) as PhotoRow[]);
+    setCanEditTraining(Boolean(data.canEditTraining));
+  }
 
   async function handleSave() {
     if (!initDataStr || !visit || saving) return;
@@ -523,34 +554,133 @@ export default function EditVisitPage({
           </div>
         )}
 
-        {/* Follow-ups manager — go to the structured form */}
-        <div className="rounded-[18px] border border-ink-100 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-section-pink-bg)] text-sm">
-                ✅
-              </span>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#C0185A]">
-                Follow-ups
-              </span>
+        {/* Follow-ups — list existing + link to the add form */}
+        {(() => {
+          const followUps = visit.follow_ups ?? [];
+          const openCount = followUps.filter((f) => f.status === "open").length;
+          return (
+            <div className="rounded-[18px] border border-ink-100 bg-white p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-section-pink-bg)] text-sm">
+                    ✅
+                  </span>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#C0185A]">
+                    {`Follow-ups (${openCount} open)`}
+                  </span>
+                </div>
+                <Link
+                  href={`/m/visit/${id}/followup`}
+                  className="rounded-full bg-[var(--color-section-pink-bg)] px-2.5 py-0.5 text-[11px] font-bold text-[#C0185A]"
+                >
+                  + Add
+                </Link>
+              </div>
+              {followUps.length === 0 ? (
+                <p className="text-[12px] italic text-ink-300">No follow-ups for this visit.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {followUps.map((f) => (
+                    <li key={f.id} className="flex items-start gap-2 text-[13px]">
+                      <span className="mt-0.5 text-ink-300">
+                        {f.status === "done" ? "☑" : "☐"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`leading-relaxed ${f.status === "done" ? "text-ink-300 line-through" : "text-ink-700"}`}>
+                          {f.title}
+                        </p>
+                        {(f.due_date || f.notes) && (
+                          <p className="text-[11px] text-ink-300 mt-0.5">
+                            {f.due_date && <span>Due {f.due_date}</span>}
+                            {f.due_date && f.notes && <span> · </span>}
+                            {f.notes && <span>{f.notes}</span>}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={() => router.push(`/m/visit/${id}/followup`)}
-              className="rounded-full bg-[var(--color-section-pink-bg)] px-2.5 py-0.5 text-[11px] font-bold text-[#C0185A]"
-            >
-              Manage
-            </button>
-          </div>
-          <p className="mt-2 text-[12px] text-ink-300">
-            Structured follow-ups live in their own form. Tap Manage to add or update them.
-          </p>
-        </div>
+          );
+        })()}
+
+        {/* Trained Staff — list + open the shared editor sheet */}
+        {(() => {
+          const trainedStaff = visit.trained_staff ?? [];
+          if (trainedStaff.length === 0 && !canEditTraining) return null;
+          return (
+            <div className="rounded-[18px] border border-ink-100 bg-white p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-section-teal-bg)] text-sm">
+                    🎓
+                  </span>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[var(--color-section-teal-fg)]">
+                    Trained Staff
+                  </span>
+                </div>
+                {canEditTraining && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingTraining(true)}
+                    className="rounded-full bg-[var(--color-section-teal-bg)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--color-section-teal-fg)]"
+                  >
+                    {trainedStaff.length > 0 ? "Edit details" : "+ Add training"}
+                  </button>
+                )}
+              </div>
+              {trainedStaff.length === 0 ? (
+                <p className="text-[12px] italic text-ink-300">No staff trained yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {trainedStaff.map((s) => {
+                    const products = parseProductsCsv(s.products);
+                    return (
+                      <li key={s.staff_id} className="rounded-xl border border-ink-100 px-3 py-2.5">
+                        <p className="text-[13px] font-bold text-ink-700">{s.name}</p>
+                        {products.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {products.map((p) => (
+                              <span
+                                key={p}
+                                className="rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-semibold"
+                              >
+                                {p}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {s.response ? (
+                          <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">{s.response}</p>
+                        ) : products.length === 0 ? (
+                          <p className="mt-1 text-[12px] italic text-ink-300">No training details yet</p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
 
         {error && (
           <p className="text-center text-[12px] text-rose-600">{error}</p>
         )}
       </div>
+
+      {/* Training editor — same sheet the view page opens */}
+      {initDataStr && (
+        <TrainingEditor
+          open={editingTraining}
+          onClose={() => setEditingTraining(false)}
+          onSaved={() => { refetchVisit().catch(() => {}); }}
+          visitId={id}
+          initData={initDataStr}
+          trainedStaff={visit.trained_staff ?? []}
+        />
+      )}
 
       {/* Sticky save bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-ink-100 px-4 py-3 safe-area-bottom">
