@@ -128,7 +128,9 @@ function buildPromptKeyboard(
   kb.text('Skip', `prompt:skip:${prompt.key}`);
   if (prompt.showTrainingButton) {
     const link = trainingDeepLink(visitId);
-    if (link) kb.url('🎓 Log Training', link);
+    // .row() drops the URL button onto its own line. Three buttons on one row
+    // get truncated on narrow phone widths.
+    if (link) kb.row().url('🎓 Log Training', link);
   }
   return kb;
 }
