@@ -29,15 +29,22 @@ function joinNames(names: string[]): string {
 }
 
 function buildDoneKeyboard(visitId: string) {
+  // Matches the bot's buildDoneKeyboard in src/bot/conversations/visit-flow.ts
+  // exactly — same env-var names, same row layout (Open on row 1,
+  // Edit + Delete sharing row 2).
   const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-  const shortName = process.env.TELEGRAM_MINIAPP_SHORTNAME;
+  const shortName = process.env.TELEGRAM_MINIAPP_SHORT_NAME || 'miniapp';
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
-  if (botUsername && shortName) {
+  if (botUsername) {
     const base = `https://t.me/${botUsername}/${shortName}`;
     rows.push([{ text: "📱 Open in mini-app", url: `${base}?startapp=visit_${visitId}` }]);
-    rows.push([{ text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` }]);
+    rows.push([
+      { text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` },
+      { text: "🗑️ Delete", callback_data: `delete:${visitId}` },
+    ]);
+  } else {
+    rows.push([{ text: "🗑️ Delete", callback_data: `delete:${visitId}` }]);
   }
-  rows.push([{ text: "🗑️ Delete", callback_data: `delete:${visitId}` }]);
   return { inline_keyboard: rows };
 }
 
@@ -101,7 +108,7 @@ export async function POST(
   // ── Broadcast to manager group (best-effort) ────────────────────────────
   if (broadcastChatId) {
     const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-    const shortName = process.env.TELEGRAM_MINIAPP_SHORTNAME;
+    const shortName = process.env.TELEGRAM_MINIAPP_SHORT_NAME || 'miniapp';
     const lead = ctx.cms.find((c) => c.role === "lead");
     const cos = ctx.cms.filter((c) => c.role === "co");
     const allNames = [lead?.name ?? "Someone", ...cos.map((c) => c.name)];
@@ -109,19 +116,18 @@ export async function POST(
       ? `${ctx.store_name} @ ${ctx.store_chain}`
       : ctx.store_name;
     const broadcastText = `✅ ${joinNames(allNames)} visited ${storeLabel}`;
-    const broadcastKb =
-      botUsername && shortName
-        ? {
-            inline_keyboard: [
-              [
-                {
-                  text: "View visit",
-                  url: `https://t.me/${botUsername}/${shortName}?startapp=visit_${id}`,
-                },
-              ],
+    const broadcastKb = botUsername
+      ? {
+          inline_keyboard: [
+            [
+              {
+                text: "View visit",
+                url: `https://t.me/${botUsername}/${shortName}?startapp=visit_${id}`,
+              },
             ],
-          }
-        : undefined;
+          ],
+        }
+      : undefined;
     await sendTelegramMessage(broadcastChatId, broadcastText, {
       reply_markup: broadcastKb,
       link_preview_options: { is_disabled: true },
