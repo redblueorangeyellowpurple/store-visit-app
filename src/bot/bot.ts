@@ -96,7 +96,13 @@ export function createBot(): Bot<BotContext> {
     const telegramId = ctx.from?.id ?? 0;
     if (!isCollecting(telegramId)) return;
     const p = ctx.message?.photo;
-    if (p) await handleIncomingPhoto(telegramId, p[p.length - 1].file_id);
+    if (p) {
+      await handleIncomingPhoto(
+        telegramId,
+        p[p.length - 1].file_id,
+        ctx.message?.media_group_id,
+      );
+    }
   });
 
   // Edit mode: CM resends filled template (notes) or comment (grade-comment)

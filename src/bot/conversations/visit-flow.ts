@@ -407,7 +407,10 @@ export async function visitFlow(
       if (upd.message?.photo) {
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
-        await conversation.external(() => handleIncomingPhoto(telegramId, fileId));
+        const mediaGroupId = upd.message.media_group_id;
+        await conversation.external(() =>
+          handleIncomingPhoto(telegramId, fileId, mediaGroupId),
+        );
         const caption = upd.message.caption ?? null;
         if (caption) {
           textValue = caption;
@@ -508,7 +511,10 @@ export async function visitFlow(
     if (upd.message?.photo) {
       const arr = upd.message.photo;
       const fileId = arr[arr.length - 1].file_id;
-      await conversation.external(() => handleIncomingPhoto(telegramId, fileId));
+      const mediaGroupId = upd.message.media_group_id;
+      await conversation.external(() =>
+        handleIncomingPhoto(telegramId, fileId, mediaGroupId),
+      );
       continue;
     }
     if (upd.callbackQuery) {

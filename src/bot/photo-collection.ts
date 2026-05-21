@@ -10,6 +10,11 @@ interface PhotoCollection {
   sections: number;
   currentSectionKey: SectionKey | null;
   savedCount: number;
+  // Pins each Telegram album (media_group_id) to whichever section was
+  // active when its first photo arrived. Telegram only attaches the caption
+  // to the first photo of an album; if that caption auto-advances the
+  // conversation, trailing photos would otherwise inherit the next section.
+  albumSections: Map<string, { section: SectionKey | null; ts: number }>;
 }
 
 // Process-level state — persists within Railway's single-process lifetime.
@@ -40,6 +45,7 @@ export function startPhotoCollection(
     sections,
     currentSectionKey: null,
     savedCount: 0,
+    albumSections: new Map(),
   });
 }
 
@@ -54,7 +60,11 @@ export function setActiveSection(telegramId: number, sectionKey: SectionKey | nu
   if (c) c.currentSectionKey = sectionKey;
 }
 
-export async function handleIncomingPhoto(telegramId: number, fileId: string): Promise<void> {
+export async function handleIncomingPhoto(
+  telegramId: number,
+  fileId: string,
+  mediaGroupId?: string,
+): Promise<void> {
   const c = collections.get(telegramId);
   if (!c) return;
   if (!botApi) {
@@ -62,15 +72,33 @@ export async function handleIncomingPhoto(telegramId: number, fileId: string): P
     return;
   }
 
+  // Resolve the section before the network hops so trailing album photos
+  // don't race against an in-flight section change.
+  let section: SectionKey | null = c.currentSectionKey;
+  if (mediaGroupId) {
+    const pinned = c.albumSections.get(mediaGroupId);
+    if (pinned) {
+      section = pinned.section;
+    } else {
+      c.albumSections.set(mediaGroupId, { section, ts: Date.now() });
+      // Drop stale entries (>30s old) so this map can't grow unbounded.
+      const cutoff = Date.now() - 30_000;
+      for (const [id, v] of c.albumSections) {
+        if (v.ts < cutoff) c.albumSections.delete(id);
+      }
+    }
+  }
+
   // Eager per-photo upload. No mid-flow ack — the final visit-done message
-  // reports the total via awaitPhotoUpload().
+  // reports the total via awaitPhotoUpload(). Only count saves that actually
+  // landed in the DB so the tally matches reality.
   try {
     const file = await botApi.getFile(fileId);
     const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
     const resp = await fetch(url);
     const buffer = Buffer.from(await resp.arrayBuffer());
-    await uploadVisitPhoto(c.visitId, buffer, c.storeId, c.currentSectionKey);
-    c.savedCount++;
+    const saved = await uploadVisitPhoto(c.visitId, buffer, c.storeId, section);
+    if (saved) c.savedCount++;
   } catch (err) {
     console.error('[photos] upload error:', err);
   }
