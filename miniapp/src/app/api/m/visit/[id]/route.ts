@@ -32,6 +32,7 @@ export async function GET(
   // by section_key without re-mapping paths.
   const signedUrls = await signPhotoUrls(visit.photo_paths);
   const photosWithUrls = visit.photos.map((p, i) => ({
+    id: p.id,
     storage_path: p.storage_path,
     section_key: p.section_key,
     url: signedUrls[i] ?? null,

@@ -72,6 +72,7 @@ export interface VisitFollowUpRow {
 }
 
 export interface VisitPhotoRow {
+  id: string;
   storage_path: string;
   section_key:
     | 'good_news'
@@ -81,6 +82,8 @@ export interface VisitPhotoRow {
     | 'follow_up'
     | null;
 }
+
+export type PhotoSectionKey = NonNullable<VisitPhotoRow['section_key']>;
 
 export interface FullVisit extends VisitSummary {
   store_id: string;
@@ -528,13 +531,14 @@ export async function getFullVisitForCM(
 
   const { data: photos } = await supabase
     .from("visit_photos")
-    .select("storage_path, section_key")
+    .select("id, storage_path, section_key")
     .eq("visit_id", visitId)
     .order("created_at");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const photoRows: VisitPhotoRow[] = ((photos ?? []) as any[])
     .map((p) => ({
+      id: p.id as string,
       storage_path: p.storage_path as string,
       section_key: (p.section_key as VisitPhotoRow["section_key"]) ?? null,
     }))
@@ -901,12 +905,63 @@ export async function insertVisitPhoto(
   visitId: string,
   storagePath: string,
   fileSize?: number,
+  sectionKey?: PhotoSectionKey | null,
+): Promise<{ id: string } | null> {
+  const { data, error } = await supabase
+    .from("visit_photos")
+    .insert({
+      visit_id: visitId,
+      storage_path: storagePath,
+      ...(fileSize !== undefined && { file_size: fileSize }),
+      ...(sectionKey !== undefined && { section_key: sectionKey }),
+    })
+    .select("id")
+    .single();
+  if (error || !data) return null;
+  return { id: (data as { id: string }).id };
+}
+
+// Hard-delete a single visit photo (row + storage object). Scoped by
+// (visitId, photoId) so a leaked id can't be used to reach into another visit.
+export async function deleteVisitPhoto(
+  visitId: string,
+  photoId: string,
 ): Promise<boolean> {
-  const { error } = await supabase.from("visit_photos").insert({
-    visit_id: visitId,
-    storage_path: storagePath,
-    ...(fileSize !== undefined && { file_size: fileSize }),
-  });
+  const { data, error: selErr } = await supabase
+    .from("visit_photos")
+    .select("storage_path")
+    .eq("id", photoId)
+    .eq("visit_id", visitId)
+    .maybeSingle();
+  if (selErr || !data) return false;
+  const path = (data as { storage_path: string | null }).storage_path;
+
+  const { error: delErr } = await supabase
+    .from("visit_photos")
+    .delete()
+    .eq("id", photoId)
+    .eq("visit_id", visitId);
+  if (delErr) return false;
+
+  if (path) {
+    const { error: storErr } = await supabase.storage.from("sva-photos").remove([path]);
+    if (storErr) console.error("deleteVisitPhoto storage cleanup:", storErr);
+  }
+  return true;
+}
+
+// Update the section_key on a single photo — used by the mini-app editor when
+// the CM re-homes an "Other photos" thumb into a structured section.
+export async function updateVisitPhotoSection(
+  visitId: string,
+  photoId: string,
+  sectionKey: PhotoSectionKey | null,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("visit_photos")
+    .update({ section_key: sectionKey })
+    .eq("id", photoId)
+    .eq("visit_id", visitId);
   return !error;
 }
 
