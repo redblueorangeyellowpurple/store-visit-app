@@ -37,10 +37,10 @@ function buildDoneKeyboard(visitId: string) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
   if (botUsername) {
     const base = `https://t.me/${botUsername}/${shortName}`;
-    rows.push([{ text: "📱 Open in mini-app", url: `${base}?startapp=visit_${visitId}` }]);
+    rows.push([{ text: "📱 Open In Mini-App", url: `${base}?startapp=visit_${visitId}` }]);
     rows.push([
-      { text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` },
       { text: "🗑️ Delete", callback_data: `delete:${visitId}` },
+      { text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` },
     ]);
   } else {
     rows.push([{ text: "🗑️ Delete", callback_data: `delete:${visitId}` }]);

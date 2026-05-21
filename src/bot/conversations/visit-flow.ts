@@ -151,12 +151,14 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (config.broadcast.botUsername) {
     const base = `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}`;
-    kb.url('📱 Open in mini-app', `${base}?startapp=visit_${visitId}`).row();
+    kb.url('📱 Open In Mini-App', `${base}?startapp=visit_${visitId}`).row();
     // Edit deep-links into the mini-app editor (4 sections + photos +
     // follow-ups), bypassing the legacy bot-side step picker / template-paste.
+    kb.text('🗑️ Delete', `delete:${visitId}`);
     kb.url('✏️ Edit', `${base}?startapp=visit_${visitId}_edit`);
+  } else {
+    kb.text('🗑️ Delete', `delete:${visitId}`);
   }
-  kb.text('🗑️ Delete', `delete:${visitId}`);
   return kb;
 }
 
