@@ -58,6 +58,7 @@ export interface VisitTrainedStaff {
   staff_id: string;
   name: string;
   products: string | null;
+  response: string | null;
 }
 
 export interface VisitFollowUpRow {
@@ -562,7 +563,7 @@ export async function getFullVisitForCM(
 
   const { data: vsRows } = await supabase
     .from("visit_staff")
-    .select("staff_id, products_trained_on, was_trained, staff(name)")
+    .select("staff_id, products_trained_on, training_response, was_trained, staff(name)")
     .eq("visit_id", visitId)
     .eq("was_trained", true);
 
@@ -572,6 +573,7 @@ export async function getFullVisitForCM(
       staff_id: r.staff_id as string,
       name: (r.staff?.name as string | null) ?? "Unknown",
       products: (r.products_trained_on as string | null) ?? null,
+      response: (r.training_response as string | null) ?? null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -747,7 +749,7 @@ export async function getStoreStaffForVisit(visitId: string): Promise<StoreStaff
 
 export async function setVisitTrainedStaff(
   visitId: string,
-  trained: Array<{ staff_id: string; products: string | null }>,
+  trained: Array<{ staff_id: string; products: string | null; response: string | null }>,
 ): Promise<boolean> {
   // Delete existing trained rows for this visit, then insert the new set.
   const { error: delErr } = await supabase
@@ -766,6 +768,7 @@ export async function setVisitTrainedStaff(
     staff_id: t.staff_id,
     was_trained: true,
     products_trained_on: t.products && t.products.trim() ? t.products.trim() : null,
+    training_response: t.response && t.response.trim() ? t.response.trim() : null,
   }));
   const { error: insErr } = await supabase.from("visit_staff").insert(rows);
   if (insErr) {

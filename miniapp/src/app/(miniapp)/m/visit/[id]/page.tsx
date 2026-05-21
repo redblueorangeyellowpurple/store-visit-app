@@ -17,6 +17,7 @@ interface TrainedStaff {
   staff_id: string;
   name: string;
   products: string | null;
+  response: string | null;
 }
 
 interface FollowUpRow {
@@ -141,27 +142,59 @@ function fmtDate(dateStr: string): string {
   });
 }
 
-// Starter product list — Wilson will supply the full catalogue later.
-const PRODUCT_SUGGESTIONS = [
-  "Marshall Acton III",
-  "Marshall Stanmore III",
-  "Marshall Woburn III",
-  "Marshall Emberton II",
-  "Marshall Major V",
-  "Marshall Motif II",
-  "Marshall Willen",
-  "B&W Px7 S2e",
-  "B&W Px8",
-  "B&W Zeppelin",
-  "B&W Pi8",
-  "Sonos Era 100",
-  "Sonos Era 300",
-  "Sonos Arc Ultra",
-  "Sonos Beam",
-  "Sonos Move 2",
-  "Sonos Roam 2",
-  "Sonos Ace",
-];
+// Product catalogue — three brands TC actively sells through CMs.
+// Free-text "Others" entry handles anything outside this list (the dropdown
+// always offers an "Add custom" row when no exact match is found).
+// Wilson will vet in Step 4; eventually this moves to a reference table
+// managed in the dashboard (Step 5).
+const PRODUCT_CATALOGUE: Record<string, string[]> = {
+  Marshall: [
+    "Marshall Acton III",
+    "Marshall Stanmore III",
+    "Marshall Woburn III",
+    "Marshall Emberton II",
+    "Marshall Willen",
+    "Marshall Middleton",
+    "Marshall Tufton",
+    "Marshall Kilburn II",
+    "Marshall Major V",
+    "Marshall Motif II",
+    "Marshall Monitor III A.N.C",
+  ],
+  "B&W": [
+    "B&W Px7 S2e",
+    "B&W Px8",
+    "B&W Pi8",
+    "B&W Pi6",
+    "B&W Zeppelin",
+    "B&W Panorama 3",
+    "B&W 700 S3",
+    "B&W 600 S3",
+    "B&W Formation Wedge",
+  ],
+  Sonos: [
+    "Sonos Era 100",
+    "Sonos Era 300",
+    "Sonos Arc Ultra",
+    "Sonos Beam (Gen 2)",
+    "Sonos Ray",
+    "Sonos Move 2",
+    "Sonos Roam 2",
+    "Sonos Ace",
+    "Sonos Sub Mini",
+    "Sonos Sub (Gen 3)",
+    "Sonos Five",
+    "Sonos Port",
+  ],
+};
+
+function parseProductsCsv(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 export default function VisitPage({
   params,
@@ -180,6 +213,9 @@ export default function VisitPage({
   const [savingCMs, setSavingCMs] = useState(false);
   const [editingTraining, setEditingTraining] = useState(false);
   const [trainingDrafts, setTrainingDrafts] = useState<Record<string, string>>({});
+  const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({});
+  const [productSearch, setProductSearch] = useState<Record<string, string>>({});
+  const [openCombo, setOpenCombo] = useState<string | null>(null);
   const [taggedStaffIds, setTaggedStaffIds] = useState<Set<string>>(new Set());
   const [storeStaff, setStoreStaff] = useState<{ id: string; name: string }[] | null>(null);
   const [savingTraining, setSavingTraining] = useState(false);
@@ -263,13 +299,18 @@ export default function VisitPage({
 
   function openTrainingEditor() {
     if (!data) return;
-    const drafts: Record<string, string> = {};
+    const products: Record<string, string> = {};
+    const responses: Record<string, string> = {};
     const tagged = new Set<string>();
     for (const s of data.visit.trained_staff) {
-      drafts[s.staff_id] = s.products ?? "";
+      products[s.staff_id] = s.products ?? "";
+      responses[s.staff_id] = s.response ?? "";
       tagged.add(s.staff_id);
     }
-    setTrainingDrafts(drafts);
+    setTrainingDrafts(products);
+    setResponseDrafts(responses);
+    setProductSearch({});
+    setOpenCombo(null);
     setTaggedStaffIds(tagged);
     setAddingStaff(false);
     setNewStaffName("");
@@ -326,6 +367,7 @@ export default function VisitPage({
       const trained = Array.from(taggedStaffIds).map((staff_id) => ({
         staff_id,
         products: trainingDrafts[staff_id] ?? "",
+        response: responseDrafts[staff_id] ?? "",
       }));
       const res = await fetch(`/api/m/visit/${id}/training`, {
         method: "PATCH",
@@ -673,16 +715,31 @@ export default function VisitPage({
               <p className="text-[12px] italic text-ink-300">No staff trained yet.</p>
             ) : (
               <ul className="space-y-2">
-                {trainedStaff.map((s) => (
-                  <li key={s.staff_id} className="rounded-xl border border-ink-100 px-3 py-2">
-                    <p className="text-[13px] font-bold text-ink-700">{s.name}</p>
-                    {s.products ? (
-                      <p className="mt-0.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">{s.products}</p>
-                    ) : (
-                      <p className="mt-0.5 text-[12px] italic text-ink-300">No product details yet</p>
-                    )}
-                  </li>
-                ))}
+                {trainedStaff.map((s) => {
+                  const products = parseProductsCsv(s.products);
+                  return (
+                    <li key={s.staff_id} className="rounded-xl border border-ink-100 px-3 py-2.5">
+                      <p className="text-[13px] font-bold text-ink-700">{s.name}</p>
+                      {products.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {products.map((p) => (
+                            <span
+                              key={p}
+                              className="rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-semibold"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {s.response ? (
+                        <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">{s.response}</p>
+                      ) : products.length === 0 ? (
+                        <p className="mt-1 text-[12px] italic text-ink-300">No training details yet</p>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -696,7 +753,7 @@ export default function VisitPage({
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl px-5 pt-5 pb-8 shadow-xl max-h-[85vh] flex flex-col">
             <div className="w-8 h-1 bg-ink-200 rounded-full mx-auto mb-4" />
             <h2 className="text-base font-extrabold text-ink-700 mb-1">Training</h2>
-            <p className="text-[11px] text-ink-300 mb-3">Tap staff you trained. Add product details below each name.</p>
+            <p className="text-[11px] text-ink-300 mb-3">Tap staff you trained, then pick products + add how they responded.</p>
 
             <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-2">
               {storeStaff === null ? (
@@ -706,10 +763,36 @@ export default function VisitPage({
               ) : (
                 storeStaff.map((s) => {
                   const tagged = taggedStaffIds.has(s.id);
-                  const draft = trainingDrafts[s.id] ?? "";
-                  const present = new Set(
-                    draft.split(/[,\n]/).map((p) => p.trim().toLowerCase()).filter(Boolean),
-                  );
+                  const productsRaw = trainingDrafts[s.id] ?? "";
+                  const selected = parseProductsCsv(productsRaw);
+                  const selectedLc = new Set(selected.map((p) => p.toLowerCase()));
+                  const search = productSearch[s.id] ?? "";
+                  const searchLc = search.trim().toLowerCase();
+                  const comboOpen = openCombo === s.id;
+                  const responseDraft = responseDrafts[s.id] ?? "";
+
+                  const addProduct = (name: string) => {
+                    const trimmed = name.trim();
+                    if (!trimmed) return;
+                    if (selectedLc.has(trimmed.toLowerCase())) return;
+                    setTrainingDrafts((curr) => {
+                      const existing = (curr[s.id] ?? "").trim();
+                      const sep = existing === "" ? "" : ", ";
+                      return { ...curr, [s.id]: existing + sep + trimmed };
+                    });
+                    setProductSearch((curr) => ({ ...curr, [s.id]: "" }));
+                  };
+                  const removeProduct = (name: string) => {
+                    setTrainingDrafts((curr) => ({
+                      ...curr,
+                      [s.id]: parseProductsCsv(curr[s.id] ?? "")
+                        .filter((p) => p.toLowerCase() !== name.toLowerCase())
+                        .join(", "),
+                    }));
+                  };
+                  const hasExactMatch = Object.values(PRODUCT_CATALOGUE)
+                    .some((items) => items.some((p) => p.toLowerCase() === searchLc));
+
                   return (
                     <div key={s.id} className={`rounded-xl border ${tagged ? "border-[var(--color-tc-200)] bg-[var(--color-tc-50)]" : "border-ink-100 bg-white"}`}>
                       <button
@@ -725,42 +808,116 @@ export default function VisitPage({
                         </span>
                       </button>
                       {tagged && (
-                        <div className="px-3 pb-3 pt-1">
-                          <div className="flex flex-wrap gap-1.5 mb-1.5">
-                            {PRODUCT_SUGGESTIONS.map((brand) => {
-                              const added = present.has(brand.toLowerCase());
-                              return (
-                                <button
-                                  key={brand}
-                                  type="button"
-                                  onClick={() => {
-                                    if (added) return;
-                                    setTrainingDrafts((curr) => {
-                                      const existing = curr[s.id] ?? "";
-                                      const sep = existing.trim() === "" ? "" : ", ";
-                                      return { ...curr, [s.id]: existing + sep + brand };
-                                    });
+                        <div className="px-3 pb-3 pt-1 space-y-3">
+                          {/* Searchable multi-select dropdown */}
+                          <div>
+                            <label className="block text-[10px] font-extrabold uppercase tracking-wider text-ink-400 mb-1.5">
+                              Products trained on
+                            </label>
+                            <div className="relative">
+                              <div
+                                className="flex flex-wrap items-center gap-1.5 rounded-xl border border-ink-100 bg-white px-2 py-1.5 min-h-[40px] cursor-text"
+                                onClick={() => setOpenCombo(s.id)}
+                              >
+                                {selected.map((p) => (
+                                  <span
+                                    key={p}
+                                    className="inline-flex items-center gap-1 rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-bold"
+                                  >
+                                    {p}
+                                    <button
+                                      type="button"
+                                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); removeProduct(p); }}
+                                      className="text-[var(--color-tc-600)] opacity-60 hover:opacity-100 leading-none"
+                                      aria-label={`Remove ${p}`}
+                                    >×</button>
+                                  </span>
+                                ))}
+                                <input
+                                  type="text"
+                                  value={search}
+                                  onFocus={() => setOpenCombo(s.id)}
+                                  onChange={(e) => {
+                                    setProductSearch((curr) => ({ ...curr, [s.id]: e.target.value }));
+                                    setOpenCombo(s.id);
                                   }}
-                                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold border transition-colors ${
-                                    added
-                                      ? "bg-white border-[var(--color-tc-200)] text-[var(--color-tc-600)]"
-                                      : "bg-white border-ink-100 text-ink-500"
-                                  }`}
-                                >
-                                  {added ? "✓ " : "+ "}{brand}
-                                </button>
-                              );
-                            })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      if (search.trim()) addProduct(search);
+                                    } else if (e.key === "Backspace" && search === "" && selected.length > 0) {
+                                      removeProduct(selected[selected.length - 1]);
+                                    }
+                                  }}
+                                  placeholder={selected.length === 0 ? "Search products, or type a custom name…" : ""}
+                                  className="flex-1 min-w-[120px] bg-transparent text-[13px] text-ink-700 placeholder:text-ink-300 focus:outline-none py-0.5"
+                                />
+                              </div>
+                              {comboOpen && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onMouseDown={() => setOpenCombo(null)} />
+                                  <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-[200px] overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-lg p-1">
+                                    {Object.entries(PRODUCT_CATALOGUE).map(([brand, items]) => {
+                                      const matches = items.filter((p) => !searchLc || p.toLowerCase().includes(searchLc));
+                                      if (matches.length === 0) return null;
+                                      return (
+                                        <div key={brand}>
+                                          <div className="px-2 pt-2 pb-0.5 text-[9px] font-extrabold uppercase tracking-wider text-ink-300">
+                                            {brand}
+                                          </div>
+                                          {matches.map((p) => {
+                                            const isSelected = selectedLc.has(p.toLowerCase());
+                                            return (
+                                              <button
+                                                key={p}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                  e.preventDefault();
+                                                  if (isSelected) removeProduct(p);
+                                                  else addProduct(p);
+                                                }}
+                                                className={`w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] hover:bg-ink-50 flex items-center justify-between ${
+                                                  isSelected ? "font-bold text-[var(--color-tc-600)]" : "text-ink-700"
+                                                }`}
+                                              >
+                                                <span>{p}</span>
+                                                {isSelected && <span>✓</span>}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })}
+                                    {searchLc && !hasExactMatch && (
+                                      <button
+                                        type="button"
+                                        onMouseDown={(e) => { e.preventDefault(); addProduct(search); }}
+                                        className="w-full text-left rounded-lg px-2.5 py-2 text-[12px] mt-1 border-t border-ink-100 text-ink-500 hover:bg-ink-50"
+                                      >
+                                        + Add &ldquo;<span className="font-bold text-ink-700">{search}</span>&rdquo; as custom product
+                                      </button>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <textarea
-                            value={draft}
-                            onChange={(e) =>
-                              setTrainingDrafts((curr) => ({ ...curr, [s.id]: e.target.value }))
-                            }
-                            placeholder="Tap a brand above, or type your own"
-                            rows={2}
-                            className="w-full resize-none rounded-lg border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
-                          />
+
+                          {/* Response textarea */}
+                          <div>
+                            <label className="block text-[10px] font-extrabold uppercase tracking-wider text-ink-400 mb-1.5">
+                              How was the response?
+                            </label>
+                            <textarea
+                              value={responseDraft}
+                              onChange={(e) =>
+                                setResponseDrafts((curr) => ({ ...curr, [s.id]: e.target.value }))
+                              }
+                              placeholder="What clicked? Any objections? Anything they said back?"
+                              rows={2}
+                              className="w-full resize-none rounded-lg border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

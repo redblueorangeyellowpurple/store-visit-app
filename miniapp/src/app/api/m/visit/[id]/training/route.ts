@@ -2,7 +2,7 @@ import { authedCMFromRequest } from "@/lib/miniapp-auth";
 import { getFullVisitForCM, setVisitTrainedStaff, getStoreStaffForVisit } from "@/lib/queries";
 
 interface SetTrainedPayload {
-  trained: Array<{ staff_id: string; products: string | null }>;
+  trained: Array<{ staff_id: string; products: string | null; response: string | null }>;
 }
 
 export async function PATCH(
@@ -37,6 +37,7 @@ export async function PATCH(
     .map((t) => ({
       staff_id: t.staff_id,
       products: typeof t.products === "string" ? t.products : null,
+      response: typeof t.response === "string" ? t.response : null,
     }));
 
   const ok = await setVisitTrainedStaff(id, clean);
