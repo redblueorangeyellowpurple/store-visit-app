@@ -151,10 +151,10 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
   return kb;
 }
 
-function formatPrompt(idx: number, total: number, p: PromptDef): string {
+function formatPrompt(idx: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
   return (
-    `*Q${idx + 1}/${total}*  ${p.emoji}  *${p.question}*\n\n` +
+    `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
     `_${p.cue}_\n\n${bullets}`
   );
 }
@@ -372,7 +372,7 @@ export async function visitFlow(
 
     await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
 
-    await ctx.reply(formatPrompt(i, PROMPTS.length, p), {
+    await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
       reply_markup: buildPromptKeyboard(createdVisitId, p),
     });
