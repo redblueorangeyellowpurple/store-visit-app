@@ -6,19 +6,18 @@ interface PhotoCollection {
   visitId: string;
   storeId: string;
   storeName: string;
+  chatId: number;
   sections: number;
-  fileIds: string[];
-  fileSectionMap: Map<string, SectionKey | null>;
   currentSectionKey: SectionKey | null;
-  timer: NodeJS.Timeout | null;
-  resolveDone: (n: number) => void;
+  savedCount: number;
+  // Photos arrive one-by-one even when sent as an album. Batch the "📸 saved"
+  // acknowledgment so albums produce one reply, not N.
+  ackTimer: NodeJS.Timeout | null;
+  ackPending: number;
 }
 
 // Process-level state — persists within Railway's single-process lifetime.
 const collections = new Map<number, PhotoCollection>();
-// Keyed by visitId so awaiters can read the saved count even after the
-// active collection has been deleted on finalize.
-const pendingResults = new Map<string, Promise<number>>();
 
 // Set once at startup via initPhotoCollection(bot.api).
 // Using bot.api directly avoids the grammY conversation replay wrapper,
@@ -34,39 +33,20 @@ export function startPhotoCollection(
   visitId: string,
   storeId: string,
   storeName: string,
+  chatId: number,
   sections: number,
-  initialPhotoFileIds?: readonly string[] | string | null,
 ): void {
-  const existing = collections.get(telegramId);
-  if (existing?.timer) clearTimeout(existing.timer);
-
-  let fileIds: string[];
-  if (Array.isArray(initialPhotoFileIds)) {
-    fileIds = initialPhotoFileIds.slice(0, 6);
-  } else if (typeof initialPhotoFileIds === 'string') {
-    fileIds = [initialPhotoFileIds];
-  } else {
-    fileIds = [];
-  }
-
-  let resolveDone!: (n: number) => void;
-  const done = new Promise<number>((r) => { resolveDone = r; });
-  pendingResults.set(visitId, done);
-
-  const fileSectionMap = new Map<string, SectionKey | null>();
-  for (const fid of fileIds) fileSectionMap.set(fid, null);
-
-  const collection: PhotoCollection = {
-    visitId, storeId, storeName, sections, fileIds,
-    fileSectionMap,
+  collections.set(telegramId, {
+    visitId,
+    storeId,
+    storeName,
+    chatId,
+    sections,
     currentSectionKey: null,
-    timer: null, resolveDone,
-  };
-  collections.set(telegramId, collection);
-
-  // Always start the debounce. If photos arrive they reset the timer;
-  // if none come in 2s, finalize immediately.
-  collection.timer = setTimeout(() => finalizeCollection(telegramId), 2000);
+    savedCount: 0,
+    ackTimer: null,
+    ackPending: 0,
+  });
 }
 
 export function isCollecting(telegramId: number): boolean {
@@ -81,53 +61,59 @@ export function setActiveSection(telegramId: number, sectionKey: SectionKey | nu
 }
 
 export async function handleIncomingPhoto(telegramId: number, fileId: string): Promise<void> {
-  const collection = collections.get(telegramId);
-  if (!collection) return;
-  if (collection.fileIds.length >= 6) return;
-
-  collection.fileIds.push(fileId);
-  collection.fileSectionMap.set(fileId, collection.currentSectionKey);
-
-  if (collection.timer) clearTimeout(collection.timer);
-  collection.timer = setTimeout(() => finalizeCollection(telegramId), 2000);
-}
-
-// Awaited by the visit conversation right before the Done message,
-// so the final reply can include the saved count instead of a stray
-// follow-up arriving later.
-export async function awaitPhotoUpload(visitId: string): Promise<number> {
-  const p = pendingResults.get(visitId);
-  if (!p) return 0;
-  const saved = await p;
-  pendingResults.delete(visitId);
-  return saved;
-}
-
-async function finalizeCollection(telegramId: number): Promise<void> {
-  const collection = collections.get(telegramId);
-  if (!collection) return;
-  collections.delete(telegramId);
-
+  const c = collections.get(telegramId);
+  if (!c) return;
   if (!botApi) {
     console.error('[photos] botApi not initialized — call initPhotoCollection(bot.api) at startup');
-    collection.resolveDone(0);
     return;
   }
 
-  let saved = 0;
-  for (const fileId of collection.fileIds) {
-    try {
-      const file = await botApi.getFile(fileId);
-      const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
-      const resp = await fetch(url);
-      const buffer = Buffer.from(await resp.arrayBuffer());
-      const sectionKey = collection.fileSectionMap.get(fileId) ?? null;
-      await uploadVisitPhoto(collection.visitId, buffer, collection.storeId, sectionKey);
-      saved++;
-    } catch (err) {
-      console.error('[photos] upload error:', err);
-    }
+  // Eager per-photo upload. We do not debounce: the previous batching design
+  // tore down the collection 2s after creation, silently dropping every photo
+  // sent after the user read the prompt.
+  try {
+    const file = await botApi.getFile(fileId);
+    const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
+    const resp = await fetch(url);
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    await uploadVisitPhoto(c.visitId, buffer, c.storeId, c.currentSectionKey);
+    c.savedCount++;
+    c.ackPending++;
+  } catch (err) {
+    console.error('[photos] upload error:', err);
+    return;
   }
 
-  collection.resolveDone(saved);
+  // Batch the acknowledgment: schedule (or reset) a 900ms timer that sends
+  // "📸 N saved" once the album finishes arriving.
+  if (c.ackTimer) clearTimeout(c.ackTimer);
+  c.ackTimer = setTimeout(() => {
+    const pending = c.ackPending;
+    c.ackPending = 0;
+    c.ackTimer = null;
+    if (botApi && pending > 0) {
+      botApi
+        .sendMessage(c.chatId, `📸 ${pending} ${pending === 1 ? 'photo' : 'photos'} saved`)
+        .catch((err) => console.error('[photos] ack send error:', err));
+    }
+  }, 900);
+}
+
+// Called at the end of the visit flow. Returns total photos saved for this
+// visit, then tears down the collection.
+export async function awaitPhotoUpload(visitId: string): Promise<number> {
+  for (const [telegramId, c] of collections) {
+    if (c.visitId === visitId) {
+      // Flush any in-flight ack so the count message lands before the Done
+      // banner.
+      if (c.ackTimer) {
+        clearTimeout(c.ackTimer);
+        c.ackTimer = null;
+      }
+      const saved = c.savedCount;
+      collections.delete(telegramId);
+      return saved;
+    }
+  }
+  return 0;
 }

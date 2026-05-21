@@ -43,6 +43,13 @@ interface PromptDef {
   showTrainingButton?: boolean;
 }
 
+// Prompt cues are deliberately written so the three intelligence-report
+// pillars surface naturally:
+//   • People (heart of CMs) → People & Training
+//   • Competitor analysis    → Competition
+//   • Market / Store         → Display & Stock
+// Keep wording concrete (named SMs, competitor brands, store closures) — vague
+// prompts yield vague answers and the digest goes empty.
 const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
@@ -59,11 +66,11 @@ const PROMPTS: PromptDef[] = [
     key: 'people_training',
     emoji: '👥',
     question: 'People & Training',
-    cue: 'Who did you connect with, and what did you coach them on?',
+    cue: 'Who did you connect with — and where are their heads at?',
     bullets: [
-      'What were they curious about, struggling with, or excited about',
-      'What did you train or affirm — pitch, product, demo technique',
-      'Did anything click — how did they respond?',
+      'Store Manager / promoter mood — championing us, blocking a brand, asking for help?',
+      'Praise from SM or staff — about us, our promoters, a recent demo',
+      'Anyone curious or stuck on a product — and how did you coach them through it?',
     ],
     showTrainingButton: true,
   },
@@ -71,22 +78,22 @@ const PROMPTS: PromptDef[] = [
     key: 'competitor',
     emoji: '🕵️',
     question: 'Competition',
-    cue: "Eyes on Bose / Sony / JBL — what's moving on the floor?",
+    cue: 'Bose / Sony / JBL / Denon — what shifted on the floor?',
     bullets: [
-      'New product, promo, POSM, or activity in-store',
-      'What staff are telling you — direct quotes if you caught them',
-      'Customer reactions — anyone waiting on a competitor discount?',
+      'New launch, promo, POSM, or pricing move (name the product if you saw it)',
+      'Competitor staff conquering new space — endcap, hero shelf, demo zone?',
+      'Customer reactions — anyone waiting on a competitor discount or comparing?',
     ],
   },
   {
     key: 'display_stock',
     emoji: '📦',
     question: 'Display & Stock',
-    cue: 'How are we showing up in this store today?',
+    cue: 'How is the store doing — and how are we showing up inside it?',
     bullets: [
-      "Stock — any gaps that'll hurt the weekend?",
-      'Display health — broken, dusty, or pushed to the back?',
-      'New spaces conquered — endcap, hero shelf, demo zone?',
+      'Channel-level signal — TV section quieter, foot traffic shifting, chain restructuring?',
+      "Stock — gaps that'll hurt the weekend, or display broken/dusty/pushed back?",
+      'New spaces we conquered — or lost — since your last visit',
     ],
   },
 ];
@@ -146,7 +153,7 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 function formatPrompt(idx: number, total: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
   return (
-    `*Step ${idx + 1} of ${total}*  ${p.emoji}  *${p.question}*\n\n` +
+    `*Q${idx + 1} of ${total}*  ${p.emoji}  *${p.question}*\n\n` +
     `_${p.cue}_\n\n${bullets}`
   );
 }
@@ -335,8 +342,9 @@ export async function visitFlow(
   // ── Start photo collection. Photos sent any time during the flow attach to
   //    whatever section is currently active (set per prompt).
   const createdVisitId = visit.id;
+  const chatId = ctx.chat?.id ?? telegramId;
   await conversation.external(() => {
-    startPhotoCollection(telegramId, createdVisitId, storeId, storeName, PROMPTS.length);
+    startPhotoCollection(telegramId, createdVisitId, storeId, storeName, chatId, PROMPTS.length);
   });
 
   // Intro banner — only on fresh visits, not resumes (resume already shown the
