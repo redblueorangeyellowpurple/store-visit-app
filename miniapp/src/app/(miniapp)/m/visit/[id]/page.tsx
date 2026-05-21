@@ -79,8 +79,9 @@ interface VisitPayload {
 
 interface MarketCM { telegram_id: number; name: string }
 
-// Visit-v2 section order. follow_up + buzz_plan kept so legacy visits still
-// render anything that lived in those columns (rendered only when populated).
+// Visit-v2 section order: 4 sections. Legacy buzz_plan column folds into the
+// People & Training card as an inline sub-block (going forward, CMs respond
+// about the buzz plan inside the people_training text itself).
 // The photo `section_key` enum uses 'competitor' (singular); the visits text
 // column uses 'competitors' (plural). photoSection maps from the text-section
 // key to the photo enum value.
@@ -88,9 +89,7 @@ type SectionKey =
   | "good_news"
   | "people_training"
   | "competitors"
-  | "display_stock"
-  | "follow_up"
-  | "buzz_plan";
+  | "display_stock";
 
 const SECTIONS: Array<{
   key: SectionKey;
@@ -131,22 +130,6 @@ const SECTIONS: Array<{
     icon: "📦",
     iconBgClass: "bg-[var(--color-section-green-bg)]",
     titleClass: "text-[var(--color-tier-t2-fg)]",
-  },
-  {
-    key: "follow_up",
-    photoSection: "follow_up",
-    label: "Follow-up (text)",
-    icon: "✅",
-    iconBgClass: "bg-[var(--color-section-pink-bg)]",
-    titleClass: "text-[#C0185A]",
-  },
-  {
-    key: "buzz_plan",
-    photoSection: null,
-    label: "Buzz Plan",
-    icon: "⚡",
-    iconBgClass: "bg-[var(--color-section-purple-bg)]",
-    titleClass: "text-[#5B2DB5]",
   },
 ];
 
@@ -419,21 +402,23 @@ export default function VisitPage({
       key === 'good_news' ||
       key === 'people_training' ||
       key === 'competitor' ||
-      key === 'display_stock' ||
-      key === 'follow_up'
+      key === 'display_stock'
     ) {
       const arr = photosBySection.get(key) ?? [];
       arr.push(p);
       photosBySection.set(key, arr);
     } else {
+      // 'follow_up' (legacy section) + NULL + unknown values all fall through.
       otherPhotos.push(p);
     }
   }
 
   // Render a section card only if it has text OR has tagged photos.
+  // Legacy buzz_plan column surfaces inside the People & Training card.
   const visibleSections = SECTIONS.filter((s) => {
     if (visit[s.key]) return true;
     if (s.photoSection && (photosBySection.get(s.photoSection)?.length ?? 0) > 0) return true;
+    if (s.key === 'people_training' && visit.buzz_plan) return true;
     return false;
   });
 
@@ -536,6 +521,16 @@ export default function VisitPage({
                   <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-500">
                     {visit[s.key] as string}
                   </p>
+                )}
+                {s.key === 'people_training' && visit.buzz_plan && (
+                  <div className="mt-3 rounded-lg border-l-2 border-[#5B2DB5] bg-[var(--color-section-purple-bg)]/40 px-3 py-2">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#5B2DB5] mb-1">
+                      ⚡ Buzz Plan
+                    </p>
+                    <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">
+                      {visit.buzz_plan}
+                    </p>
+                  </div>
                 )}
                 {sectionPhotos.length > 0 && (
                   <div className="mt-3 flex gap-2 overflow-x-auto -mx-1 px-1 scrollbar-hide">
