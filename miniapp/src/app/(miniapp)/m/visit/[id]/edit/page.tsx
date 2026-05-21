@@ -1,7 +1,6 @@
 "use client";
 
 import { use, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { initTelegram } from "../../../telegram-init";
@@ -10,6 +9,7 @@ import TrainingEditor, {
   parseProductsCsv,
   type TrainedStaffRow,
 } from "@/components/TrainingEditor";
+import FollowUpEditor from "@/components/FollowUpEditor";
 
 interface FollowUpRow {
   id: string;
@@ -180,6 +180,7 @@ export default function EditVisitPage({
   const [openMoveMenuFor, setOpenMoveMenuFor] = useState<string | null>(null);
   const [canEditTraining, setCanEditTraining] = useState(false);
   const [editingTraining, setEditingTraining] = useState(false);
+  const [editingFollowUps, setEditingFollowUps] = useState(false);
   // One hidden input per section so the file picker knows which section_key
   // to attach. Keyed by the photo enum value.
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -569,12 +570,13 @@ export default function EditVisitPage({
                     {`Follow-ups (${openCount} open)`}
                   </span>
                 </div>
-                <Link
-                  href={`/m/visit/${id}/followup`}
+                <button
+                  type="button"
+                  onClick={() => setEditingFollowUps(true)}
                   className="rounded-full bg-[var(--color-section-pink-bg)] px-2.5 py-0.5 text-[11px] font-bold text-[#C0185A]"
                 >
-                  + Add
-                </Link>
+                  {followUps.length > 0 ? "Edit details" : "+ Add"}
+                </button>
               </div>
               {followUps.length === 0 ? (
                 <p className="text-[12px] italic text-ink-300">No follow-ups for this visit.</p>
@@ -679,6 +681,21 @@ export default function EditVisitPage({
           visitId={id}
           initData={initDataStr}
           trainedStaff={visit.trained_staff ?? []}
+        />
+      )}
+
+      {/* Follow-up editor — same sheet the view page can also open */}
+      {initDataStr && (
+        <FollowUpEditor
+          open={editingFollowUps}
+          onClose={() => setEditingFollowUps(false)}
+          onSaved={() => { refetchVisit().catch(() => {}); }}
+          visitId={id}
+          initData={initDataStr}
+          followUps={(visit.follow_ups ?? []).map((f) => ({
+            ...f,
+            created_at: "",
+          }))}
         />
       )}
 

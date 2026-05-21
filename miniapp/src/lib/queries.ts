@@ -684,6 +684,57 @@ export async function markFollowUpDoneMA(id: string): Promise<boolean> {
   return !error;
 }
 
+export async function updateFollowUpFieldsMA(
+  visitId: string,
+  followUpId: string,
+  fields: { title?: string; notes?: string | null; due_date?: string | null; status?: 'open' | 'done' | 'cancelled' },
+): Promise<VisitFollowUpRow | null> {
+  const patch: Record<string, unknown> = {};
+  if (typeof fields.title === "string") patch.title = fields.title.trim();
+  if (fields.notes !== undefined) patch.notes = fields.notes && fields.notes.trim() ? fields.notes.trim() : null;
+  if (fields.due_date !== undefined) patch.due_date = fields.due_date && fields.due_date.trim() ? fields.due_date : null;
+  if (fields.status) {
+    patch.status = fields.status;
+    patch.closed_at = fields.status === "done" ? new Date().toISOString() : null;
+  }
+  if (Object.keys(patch).length === 0) return null;
+
+  const { data, error } = await supabase
+    .from("visit_follow_ups")
+    .update(patch)
+    .eq("id", followUpId)
+    .eq("visit_id", visitId)
+    .select("id, title, notes, due_date, status, closed_at, created_at")
+    .single();
+  if (error || !data) {
+    console.error("updateFollowUpFieldsMA error:", error);
+    return null;
+  }
+  const r = data as Record<string, unknown>;
+  return {
+    id: r.id as string,
+    title: r.title as string,
+    notes: (r.notes as string) ?? null,
+    due_date: (r.due_date as string) ?? null,
+    status: r.status as 'open' | 'done' | 'cancelled',
+    closed_at: (r.closed_at as string) ?? null,
+    created_at: r.created_at as string,
+  };
+}
+
+export async function deleteFollowUpMA(visitId: string, followUpId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from("visit_follow_ups")
+    .delete()
+    .eq("id", followUpId)
+    .eq("visit_id", visitId);
+  if (error) {
+    console.error("deleteFollowUpMA error:", error);
+    return false;
+  }
+  return true;
+}
+
 // ── Mini-app finalize (Save & Done) ────────────────────────────────────────
 // These helpers back the `/api/m/visit/[id]/finalize` endpoint, which is
 // what the follow-up page calls when the CM taps "Save & Done". They mirror
