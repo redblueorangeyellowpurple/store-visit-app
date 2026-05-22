@@ -50,10 +50,11 @@ interface PromptDef {
   showTrainingButton?: boolean;
 }
 
-// Cues lead with the *interpretation* ask ("what made it work?", "what does it
-// mean?") so the CM has to think, not just log. Bullets stay short — leading
-// questions, not literal examples — so they invite recall instead of pattern-
-// matching. Each prompt still aligns to one intelligence pillar:
+// Every cue ends with "...what does it mean for us?" — parallel structure
+// trains the CM to extract a team/business takeaway, not just log the event.
+// Bullets stay short — leading questions, not literal examples — so they
+// invite recall instead of pattern-matching. Each prompt still aligns to one
+// intelligence pillar:
 //   • Good News & Wins   → cross-cutting; warms the CM up
 //   • People & Training  → People (heart of CMs)
 //   • Competitors & Market → Competitor analysis
@@ -63,10 +64,10 @@ const PROMPTS: PromptDef[] = [
     key: 'good_news',
     emoji: '🎉',
     question: 'Good News & Wins',
-    cue: 'Any wins worth telling the team about — what happened, and what made it work?',
+    cue: 'Any good news or wins to share with the team — what happened, and what does it mean for us?',
     bullets: [
-      'A staff member or promoter who closed a sale',
-      'A new space or relationship that opened up',
+      'A store staff who closed a sale for us',
+      'A new relationship or space conquered',
       'A brand or product gaining momentum',
     ],
   },
@@ -74,11 +75,11 @@ const PROMPTS: PromptDef[] = [
     key: 'people_training',
     emoji: '👥',
     question: 'People & Training',
-    cue: 'Who did you engage today — what stood out, and what does it tell you?',
+    cue: 'Who did you engage today — what stood out, and what does it mean for us?',
     bullets: [
-      'A promoter or store staff you got to know',
-      'A coaching moment — what you walked them through (log specific trainings in the app 👇)',
-      "Mood read — who's championing us, blocking us, or asking for help",
+      'A new store staff that you got to know',
+      'A staff training with good response',
+      'A person complained/championed us',
     ],
     showTrainingButton: true,
   },
@@ -86,10 +87,10 @@ const PROMPTS: PromptDef[] = [
     key: 'competitor',
     emoji: '🕵️',
     question: 'Competitors & Market',
-    cue: 'Heard any juicy news about competitors or the market? What does it mean?',
+    cue: 'Heard any juicy news about competitors or the market? What does it mean for us?',
     bullets: [
-      'A competitor promoter being aggressive or strategic',
       "A competitor's launch, promo or discount",
+      'A great strategy competitors employed',
       'Market chatter from staff or customers',
     ],
   },
@@ -97,12 +98,12 @@ const PROMPTS: PromptDef[] = [
     key: 'display_stock',
     emoji: '📦',
     question: 'Display & Stock',
-    cue: 'How is the store standing out, and is there anything you would change?',
+    cue: 'How is the store standing out, and what does it mean for us?',
     photoHint: '📸 Snap photos of anything noteworthy',
     bullets: [
-      "Stock — gaps that'll hurt the weekend, or overstock",
-      'Display — broken, dusty, pushed back, or hero spot strong',
-      'Spaces conquered or lost since last visit',
+      'Stock: too many or too little of a product',
+      'Display: condition of spaces and stock',
+      'Any that were spaces conquered or lost',
     ],
   },
 ];
