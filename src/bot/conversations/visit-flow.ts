@@ -43,22 +43,25 @@ interface PromptDef {
   emoji: string;
   question: string;
   cue: string;
-  // Optional italic line rendered directly below the cue. Used on Display &
-  // Stock to nudge for photos at the right moment in the flow.
-  photoHint?: string;
+  // Optional italic line rendered at the bottom of the prompt, ABOVE the
+  // standardised photo nudge. Used by People & Training to point at the
+  // Log Training deep-link button.
+  footerHint?: string;
   bullets: string[];
   showTrainingButton?: boolean;
 }
 
-// Every cue ends with "...what does it mean for us?" — parallel structure
-// trains the CM to extract a team/business takeaway, not just log the event.
 // Bullets stay short — leading questions, not literal examples — so they
-// invite recall instead of pattern-matching. Each prompt still aligns to one
+// invite recall instead of pattern-matching. Each prompt aligns to one
 // intelligence pillar:
 //   • Good News & Wins   → cross-cutting; warms the CM up
 //   • People & Training  → People (heart of CMs)
 //   • Competitors & Market → Competitor analysis
 //   • Display & Stock     → Market / Store
+// formatPrompt appends a standardised "Add a photo at any time" italic line
+// at the bottom of every prompt. Per-question footerHint sits above it for
+// extras (currently just Log Training on Q2). James, 2026-05-22 SVA feedback:
+// instructions belong inside each question, not in the intro banner.
 const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
@@ -75,7 +78,8 @@ const PROMPTS: PromptDef[] = [
     key: 'people_training',
     emoji: '👥',
     question: 'People & Training',
-    cue: 'Who did you engage today — what stood out, and what does it mean for us?',
+    cue: 'Who did you engage today — how was the engagement, did you execute the buzz plan, and what did you train them on?',
+    footerHint: '🎓 Tap "Log Training" below to capture training details',
     bullets: [
       'A new store staff that you got to know',
       'A staff training with good response',
@@ -98,12 +102,11 @@ const PROMPTS: PromptDef[] = [
     key: 'display_stock',
     emoji: '📦',
     question: 'Display & Stock',
-    cue: 'How is the store standing out, and what does it mean for us?',
-    photoHint: '📸 Snap photos of anything noteworthy',
+    cue: 'How is our brand experience in store? Take photos of the layout!',
     bullets: [
-      'Stock: too many or too little of a product',
-      'Display: condition of spaces and stock',
-      'Any spaces that were conquered or lost',
+      'Demo units spoilt or missing',
+      'Displays that need refreshing or changing',
+      'New space conquered, or space lost',
     ],
   },
 ];
@@ -169,17 +172,22 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 
 function formatPrompt(idx: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
-  const photoLine = p.photoHint ? `\n_${p.photoHint}_` : '';
+  const footerLines: string[] = [];
+  if (p.footerHint) footerLines.push(`_${p.footerHint}_`);
+  footerLines.push('_📸 Add a photo at any time!_');
   return (
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
-    `_${p.cue}_${photoLine}\n\n${bullets}`
+    `_${p.cue}_\n\n${bullets}\n\n${footerLines.join('\n')}`
   );
 }
 
 function buildIntroBanner(storeName: string, total: number): string {
+  // Per-question prompts now carry the photo nudge (James, 2026-05-22). We
+  // keep the banner deliberately thin — CMs skim it; the durable instructions
+  // live in each Q.
   return (
     `📍 *Visit at ${storeName}* — ${total} quick questions.\n\n` +
-    `_📸 Photos welcome anytime · 💾 Answers save as you go_\n` +
+    `_💾 Answers save as you go_\n` +
     `_← Back on any question to redo the previous one (clears its photos too)_\n` +
     `_/cancel pauses — draft saved for 7 days, run /visit to pick up_`
   );
