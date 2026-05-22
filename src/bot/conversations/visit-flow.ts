@@ -43,39 +43,42 @@ interface PromptDef {
   emoji: string;
   question: string;
   cue: string;
+  // Optional italic line rendered directly below the cue. Used on Display &
+  // Stock to nudge for photos at the right moment in the flow.
+  photoHint?: string;
   bullets: string[];
   showTrainingButton?: boolean;
 }
 
-// Prompt cues are deliberately written so the three intelligence-report
-// pillars surface naturally:
-//   • People (heart of CMs) → People & Training
-//   • Competitor analysis    → Competition
-//   • Market / Store         → Display & Stock
-// Keep wording concrete (named SMs, competitor brands, store closures) — vague
-// prompts yield vague answers and the digest goes empty.
+// Cues lead with the *interpretation* ask ("what made it work?", "what does it
+// mean?") so the CM has to think, not just log. Bullets stay short — leading
+// questions, not literal examples — so they invite recall instead of pattern-
+// matching. Each prompt still aligns to one intelligence pillar:
+//   • Good News & Wins   → cross-cutting; warms the CM up
+//   • People & Training  → People (heart of CMs)
+//   • Competitors & Market → Competitor analysis
+//   • Display & Stock     → Market / Store
 const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
     emoji: '🎉',
-    question: 'Good News',
-    cue: 'Any wins — a sale, a great demo, a customer reaction worth catching?',
+    question: 'Good News & Wins',
+    cue: 'Any wins worth telling the team about — what happened, and what made it work?',
     bullets: [
-      'A sale that closed, even a small one',
-      "A customer who lit up at a demo",
-      'A staff member who really stepped up',
-      'Momentum on something you flagged last visit',
+      'A staff member or promoter who closed a sale',
+      'A new space or relationship that opened up',
+      'A brand or product gaining momentum',
     ],
   },
   {
     key: 'people_training',
     emoji: '👥',
     question: 'People & Training',
-    cue: 'Who did you talk to, and what stood out?',
+    cue: 'Who did you engage today — what stood out, and what does it tell you?',
     bullets: [
-      'SM / promoter mood — championing us, blocking a brand, asking for help',
-      'Staff Good News — someone sold something, someone helped a customer',
-      'What you coached them through — pitch, product, demo technique',
+      'A promoter or store staff you got to know',
+      'A coaching moment — what you walked them through (log specific trainings in the app 👇)',
+      "Mood read — who's championing us, blocking us, or asking for help",
     ],
     showTrainingButton: true,
   },
@@ -83,22 +86,23 @@ const PROMPTS: PromptDef[] = [
     key: 'competitor',
     emoji: '🕵️',
     question: 'Competitors & Market',
-    cue: 'Heard any juicy news about competitors or the market?',
+    cue: 'Heard any juicy news about competitors or the market? What does it mean?',
     bullets: [
-      'Bose dropped a new soundbar / Sony promo / JBL POSM going up',
-      'Harvey Norman closing stores, TV section quieter, foot traffic shifting',
-      'Someone overheard saying "I\'ll wait for the Bose discount" — quote it',
+      'A competitor promoter being aggressive or strategic',
+      "A competitor's launch, promo or discount",
+      'Market chatter from staff or customers',
     ],
   },
   {
     key: 'display_stock',
     emoji: '📦',
     question: 'Display & Stock',
-    cue: 'How is the store doing? Are we standing out?',
+    cue: 'How is the store standing out, and is there anything you would change?',
+    photoHint: '📸 Snap photos of anything noteworthy',
     bullets: [
-      "Stock — gaps that'll hurt the weekend",
-      'Display: broken, dusty, pushed back — or hero spot strong?',
-      'Spaces we conquered or lost since last visit',
+      "Stock — gaps that'll hurt the weekend, or overstock",
+      'Display — broken, dusty, pushed back, or hero spot strong',
+      'Spaces conquered or lost since last visit',
     ],
   },
 ];
@@ -164,9 +168,10 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 
 function formatPrompt(idx: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
+  const photoLine = p.photoHint ? `\n_${p.photoHint}_` : '';
   return (
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
-    `_${p.cue}_\n\n${bullets}`
+    `_${p.cue}_${photoLine}\n\n${bullets}`
   );
 }
 
