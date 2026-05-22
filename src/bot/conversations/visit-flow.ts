@@ -103,7 +103,7 @@ const PROMPTS: PromptDef[] = [
     bullets: [
       'Stock: too many or too little of a product',
       'Display: condition of spaces and stock',
-      'Any that were spaces conquered or lost',
+      'Any spaces that were conquered or lost',
     ],
   },
 ];
