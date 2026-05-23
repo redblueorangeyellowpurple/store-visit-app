@@ -186,13 +186,13 @@ function buildFollowUpKeyboard(opts: {
     kb.row();
   }
 
-  // Action row: Add follow-up + Submit
+  // Action row: Add Follow-Ups in App + Submit
   const link = followUpDeepLink(visitId);
-  if (link) kb.url('➕ Add follow-up', link);
+  if (link) kb.url('📌 Add Follow-Ups in App', link);
   kb.text('✓ Submit', 'followup:done').row();
 
-  // Nav row: Back + Cancel
-  kb.text('← Back', 'followup:back').text('✕ Cancel', 'followup:cancel');
+  // Nav row: Back
+  kb.text('← Back', 'followup:back');
 
   return kb;
 }
@@ -213,13 +213,13 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 }
 
 function formatPrompt(idx: number, p: PromptDef): string {
-  const bullets = p.bullets.map((b) => `• ${b}`).join('\n');
+  const bullets = p.bullets.map((b) => `_• ${b}_`).join('\n');
   const footerLines: string[] = [];
   if (p.footerHint) footerLines.push(`_${p.footerHint}_`);
   footerLines.push('_📸 Add a photo at any time!_');
   return (
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
-    `_${p.cue}_\n\n${bullets}\n\n${footerLines.join('\n')}`
+    `${p.cue}\n\n${bullets}\n\n${footerLines.join('\n')}`
   );
 }
 
@@ -662,15 +662,6 @@ export async function visitFlow(
           }
         });
         continue;
-      }
-      if (data === 'followup:cancel') {
-        await conversation.external(() => {
-          setActiveSection(telegramId, null);
-          discardPhotoCollection(telegramId);
-        });
-        await upd.answerCallbackQuery();
-        await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
-        return;
       }
       if (data === 'followup:back') {
         // Wipe Q4 (last prompt) photos + answer, rewind into the Q-loop.
