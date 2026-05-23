@@ -1,6 +1,7 @@
 import { Conversation } from '@grammyjs/conversations';
 import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../middleware/auth.js';
+import { QUICK_ACCESS_KEYBOARD } from '../commands/start.js';
 import { getStoresForCM } from '../../db/queries/stores.js';
 import { searchStoresByName, getStoreById } from '../../db/queries/stores.js';
 import {
@@ -173,9 +174,9 @@ function buildFollowUpKeyboard(opts: {
 
   // Per-item close buttons (one row each)
   for (const item of pageItems) {
-    const label = item.title.length > 32
-      ? `✅ Done: ${item.title.slice(0, 32)}…`
-      : `✅ Done: ${item.title}`;
+    const label = item.title.length > 36
+      ? `✅ ${item.title.slice(0, 36)}…`
+      : `✅ ${item.title}`;
     kb.text(label, `followup:complete:${item.id}`).row();
   }
 
@@ -186,13 +187,12 @@ function buildFollowUpKeyboard(opts: {
     kb.row();
   }
 
-  // Action row: Add Follow-Ups in App + Submit
+  // Add row: one long button by itself
   const link = followUpDeepLink(visitId);
-  if (link) kb.url('📌 Add Follow-Ups in App', link);
-  kb.text('✓ Submit', 'followup:done').row();
+  if (link) kb.url('📌 Add Follow-Ups in App', link).row();
 
-  // Nav row: Back
-  kb.text('← Back', 'followup:back');
+  // Nav row: Back (left) · Submit (right)
+  kb.text('← Back', 'followup:back').text('✓ Submit', 'followup:done');
 
   return kb;
 }
@@ -257,15 +257,17 @@ export async function visitFlow(
   if (resumeVisitId) {
     const existing = await conversation.external(() => getFullVisit(resumeVisitId));
     if (!existing || existing.cm_telegram_id !== telegramId) {
-      await ctx.reply("Couldn't find your draft visit — give /visit a fresh try 🙏");
+      await ctx.reply("Couldn't find your draft visit — give /visit a fresh try 🙏", { reply_markup: QUICK_ACCESS_KEYBOARD });
       return;
     }
     visit = existing;
     storeId = existing.store_id;
     storeName = existing.store_name;
+    // Hide quick-access keyboard so accidental taps during the visit don't
+    // pollute answers / fire /visit again.
     await ctx.reply(
       `▶️ *Resuming visit at ${storeName}* — picking up where you left off.`,
-      { parse_mode: 'Markdown' },
+      { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } },
     );
   } else {
     // ── Store pick (entry) ────────────────────────────────────────────────────
@@ -276,13 +278,20 @@ export async function visitFlow(
     });
 
     if (stores.length === 0) {
-      await ctx.reply("No stores assigned yet — ask your manager to set this up 🙏");
+      await ctx.reply("No stores assigned yet — ask your manager to set this up 🙏", { reply_markup: QUICK_ACCESS_KEYBOARD });
       return;
     }
 
     let page = 0;
+    // Split into two messages: first carries remove_keyboard (hides quick-access
+    // buttons so accidental taps don't fire /visit again mid-flow), second
+    // carries the store picker inline keyboard.
     await ctx.reply(
-      `${buildStoreContextMessage(stores, lastVisits)}\n\nWhich store did you visit?\n_/cancel to stop_`,
+      buildStoreContextMessage(stores, lastVisits),
+      { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } },
+    );
+    await ctx.reply(
+      `Which store did you visit?\n_/cancel to stop_`,
       { parse_mode: 'Markdown', reply_markup: buildStorePicker(stores, lastVisits, page) },
     );
 
@@ -290,7 +299,7 @@ export async function visitFlow(
       const update = await conversation.wait();
 
       if (update.message?.text === '/cancel') {
-        await ctx.reply("👋 No worries — come back whenever you're ready.");
+        await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
         return;
       }
       if (!update.callbackQuery) continue;
@@ -299,7 +308,7 @@ export async function visitFlow(
 
       if (data === 'cancel') {
         await update.answerCallbackQuery();
-        await ctx.reply("👋 No worries — come back whenever you're ready.");
+        await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
         return;
       }
 
@@ -319,7 +328,7 @@ export async function visitFlow(
         while (true) {
           const searchMsg = await conversation.wait();
           if (searchMsg.message?.text === '/cancel') {
-            await ctx.reply("👋 No worries — come back whenever you're ready.");
+            await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
             return;
           }
           const term = searchMsg.message?.text?.trim();
@@ -341,7 +350,7 @@ export async function visitFlow(
           const pick = await conversation.wait();
 
           if (pick.message?.text === '/cancel') {
-            await ctx.reply("👋 No worries — come back whenever you're ready.");
+            await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
             return;
           }
           if (!pick.callbackQuery) continue;
@@ -350,7 +359,7 @@ export async function visitFlow(
 
           if (pickData === 'cancel') {
             await pick.answerCallbackQuery();
-            await ctx.reply("👋 No worries — come back whenever you're ready.");
+            await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
             return;
           }
           if (pickData === 'search:back') {
@@ -400,7 +409,7 @@ export async function visitFlow(
     });
 
     if (!visit) {
-      await ctx.reply("Something went wrong — give /visit another try 🙏");
+      await ctx.reply("Something went wrong — give /visit another try 🙏", { reply_markup: QUICK_ACCESS_KEYBOARD });
       return;
     }
   }
@@ -515,7 +524,7 @@ export async function visitFlow(
         setActiveSection(telegramId, null);
         discardPhotoCollection(telegramId);
       });
-      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
+      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.", { reply_markup: QUICK_ACCESS_KEYBOARD });
       return;
     }
     if (resolved === 'back') {
@@ -562,8 +571,9 @@ export async function visitFlow(
     const clampedPage = Math.min(page, totalPages - 1);
     const pageItems = items.slice(clampedPage * FOLLOW_UP_PAGE_SIZE, (clampedPage + 1) * FOLLOW_UP_PAGE_SIZE);
     const prefix = items.length > 0
-      ? `📋 *${items.length} open from prior visits* — tap any you closed today:\n\n` +
-        pageItems.map(i => `• ${escapeMarkdown(i.title)}`).join('\n') + '\n\n'
+      ? `📋 *Tasks Open:*\n` +
+        pageItems.map(i => `• ${escapeMarkdown(i.title)}`).join('\n') +
+        `\n\n_Tap ✅ below to close!_\n\n`
       : '';
     return (
       prefix +
@@ -599,7 +609,7 @@ export async function visitFlow(
         setActiveSection(telegramId, null);
         discardPhotoCollection(telegramId);
       });
-      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
+      await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.", { reply_markup: QUICK_ACCESS_KEYBOARD });
       return;
     }
     if (upd.message?.photo) {
@@ -740,6 +750,12 @@ export async function visitFlow(
       reply_markup: buildDoneKeyboard(createdVisitId),
     },
   );
+
+  // Restore the quick-access reply keyboard hidden at the start of the flow.
+  await ctx.reply('_Ready for your next visit 👇_', {
+    parse_mode: 'Markdown',
+    reply_markup: QUICK_ACCESS_KEYBOARD,
+  });
 }
 
 // Re-export for callers that need to inspect prompt keys.

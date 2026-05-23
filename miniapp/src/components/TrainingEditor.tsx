@@ -183,14 +183,20 @@ export default function TrainingEditor({
   if (!open) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl px-5 pt-5 pb-8 shadow-xl max-h-[85vh] flex flex-col">
-        <div className="w-8 h-1 bg-ink-200 rounded-full mx-auto mb-4" />
-        <h2 className="text-base font-extrabold text-ink-700 mb-1">Training</h2>
-        <p className="text-[11px] text-ink-300 mb-3">Tap staff you trained, then pick products + add how they responded.</p>
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      <header className="bg-white border-b border-ink-100 px-5 pt-4 pb-3 shrink-0">
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-xs text-ink-300 font-medium flex items-center gap-1 mb-2"
+        >
+          ‹ Back to visit
+        </button>
+        <h1 className="text-xl font-extrabold text-ink-700 leading-tight">Training</h1>
+        <p className="mt-1 text-[12px] text-ink-400">Tap staff you trained, then pick products + add how they responded.</p>
+      </header>
 
-        <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-2">
+      <div className="flex-1 overflow-y-auto px-5 pt-4 pb-4 space-y-2">
           {storeStaff === null ? (
             <p className="text-center text-sm text-ink-300 py-6">Loading staff…</p>
           ) : storeStaff.length === 0 ? (
@@ -396,23 +402,22 @@ export default function TrainingEditor({
           )}
         </div>
 
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-xl py-3 text-sm font-bold bg-ink-100 text-ink-500"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={save}
-            disabled={savingTraining}
-            className="flex-1 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
-            style={{ background: "var(--color-tc-600)" }}
-          >
-            {savingTraining ? "Saving…" : "Save"}
-          </button>
-        </div>
+      <div className="flex gap-2 px-5 py-3 border-t border-ink-100 bg-white shrink-0">
+        <button
+          onClick={onClose}
+          className="flex-1 rounded-xl py-3 text-sm font-bold bg-ink-100 text-ink-500"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={save}
+          disabled={savingTraining}
+          className="flex-1 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+          style={{ background: "var(--color-tc-600)" }}
+        >
+          {savingTraining ? "Saving…" : "Save"}
+        </button>
       </div>
-    </>
+    </div>
   );
 }
