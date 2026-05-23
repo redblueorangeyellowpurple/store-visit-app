@@ -10,6 +10,7 @@ interface FollowUpItem {
   title: string;
   notes?: string | null;
   due_date?: string | null; // YYYY-MM-DD
+  assigned_to_telegram_id?: number | null;
 }
 
 function isCMOnVisit(
@@ -66,6 +67,8 @@ export async function POST(
       title,
       notes: typeof r.notes === "string" ? r.notes : null,
       due_date: typeof r.due_date === "string" ? r.due_date : null,
+      assigned_to_telegram_id:
+        typeof r.assigned_to_telegram_id === "number" ? r.assigned_to_telegram_id : null,
     });
   }
   if (items.length === 0) {

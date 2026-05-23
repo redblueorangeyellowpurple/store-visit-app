@@ -10,16 +10,28 @@ interface DraftItem {
   title: string;
   notes: string;
   due_date: string; // YYYY-MM-DD or ""
+  assigned_to_telegram_id: number | null;
 }
 
-function newDraft(id: number): DraftItem {
-  return { id, title: "", notes: "", due_date: "" };
+function newDraft(id: number, assignee: number | null): DraftItem {
+  return { id, title: "", notes: "", due_date: "", assigned_to_telegram_id: assignee };
 }
 
 interface VisitMeta {
   id: string;
   store_id: string;
   store_name: string;
+}
+
+interface CMOption {
+  telegram_id: number;
+  name: string;
+}
+
+interface WhoAmI {
+  telegram_id: number;
+  name: string;
+  market: string;
 }
 
 export default function FollowUpFormPage({
@@ -31,10 +43,12 @@ export default function FollowUpFormPage({
   const [meta, setMeta] = useState<VisitMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initData, setInitData] = useState<string | null>(null);
-  const [items, setItems] = useState<DraftItem[]>([newDraft(0)]);
+  const [items, setItems] = useState<DraftItem[]>([newDraft(0, null)]);
   const [nextId, setNextId] = useState(1);
   const [saving, setSaving] = useState(false);
   const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [me, setMe] = useState<WhoAmI | null>(null);
+  const [cms, setCms] = useState<CMOption[]>([]);
   useSwipeBack();
 
   useEffect(() => {
@@ -42,20 +56,33 @@ export default function FollowUpFormPage({
       const td = await initTelegram();
       if (!td) { setError("Open this from inside Telegram."); return; }
       setInitData(td);
-      const res = await fetch(`/api/m/visit/${id}`, {
-        headers: { Authorization: `tma ${td}` },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? `Failed (${res.status})`);
+      // Fetch visit meta, current CM, and assignee options in parallel.
+      const [visitRes, whoRes, cmsRes] = await Promise.all([
+        fetch(`/api/m/visit/${id}`, { headers: { Authorization: `tma ${td}` } }),
+        fetch(`/api/m/whoami`, { headers: { Authorization: `tma ${td}` } }),
+        fetch(`/api/m/cms`, { headers: { Authorization: `tma ${td}` } }),
+      ]);
+      if (!visitRes.ok) {
+        const body = await visitRes.json().catch(() => ({}));
+        setError(body.error ?? `Failed (${visitRes.status})`);
         return;
       }
-      const data = await res.json();
+      const data = await visitRes.json();
       setMeta({
         id: data.visit.id,
         store_id: data.visit.store_id,
         store_name: data.visit.store_name,
       });
+      if (whoRes.ok) {
+        const who = (await whoRes.json()) as WhoAmI;
+        setMe(who);
+        // Pre-fill default assignee on the seeded first item.
+        setItems((curr) => curr.map((it) => ({ ...it, assigned_to_telegram_id: who.telegram_id })));
+      }
+      if (cmsRes.ok) {
+        const j = await cmsRes.json();
+        setCms(j.cms ?? []);
+      }
     })().catch((e) => setError(String(e)));
   }, [id]);
 
@@ -68,7 +95,7 @@ export default function FollowUpFormPage({
   }
 
   function addAnother() {
-    setItems((curr) => [...curr, newDraft(nextId)]);
+    setItems((curr) => [...curr, newDraft(nextId, me?.telegram_id ?? null)]);
     setNextId((n) => n + 1);
   }
 
@@ -79,6 +106,7 @@ export default function FollowUpFormPage({
         title: it.title.trim(),
         notes: it.notes.trim() || null,
         due_date: it.due_date.trim() || null,
+        assigned_to_telegram_id: it.assigned_to_telegram_id ?? me?.telegram_id ?? null,
       }))
       .filter((it) => it.title);
     // Empty submission is valid — CM is saying "no follow-ups, finalize now."
@@ -151,7 +179,7 @@ export default function FollowUpFormPage({
           ‹ Back to visit
         </Link>
         <h1 className="text-xl font-extrabold text-ink-700 leading-tight">
-          Add Follow-ups
+          Add Follow-Ups
         </h1>
         <p className="mt-1 text-[12px] text-ink-400">{meta.store_name}</p>
       </header>
@@ -188,13 +216,38 @@ export default function FollowUpFormPage({
               className="mt-2 w-full resize-none rounded-lg border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
             />
             <div className="mt-2 flex items-center gap-2">
-              <label className="text-[11px] font-semibold text-ink-400">Due:</label>
+              <label className="text-[11px] font-semibold text-ink-400 w-12 shrink-0">Due:</label>
               <input
                 type="date"
                 value={it.due_date}
                 onChange={(e) => updateItem(i, { due_date: e.target.value })}
                 className="flex-1 rounded-lg border border-ink-100 bg-white px-2 py-1.5 text-[12px] text-ink-700 focus:border-[var(--color-tc-200)] focus:outline-none"
               />
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <label className="text-[11px] font-semibold text-ink-400 w-12 shrink-0">Assign:</label>
+              <select
+                value={it.assigned_to_telegram_id ?? ""}
+                onChange={(e) =>
+                  updateItem(i, {
+                    assigned_to_telegram_id: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className="flex-1 rounded-lg border border-ink-100 bg-white px-2 py-1.5 text-[12px] text-ink-700 focus:border-[var(--color-tc-200)] focus:outline-none"
+              >
+                {me && (
+                  <option value={me.telegram_id}>
+                    {me.name} (me)
+                  </option>
+                )}
+                {cms
+                  .filter((c) => c.telegram_id !== me?.telegram_id)
+                  .map((c) => (
+                    <option key={c.telegram_id} value={c.telegram_id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
         ))}

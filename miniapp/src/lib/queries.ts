@@ -69,6 +69,8 @@ export interface VisitFollowUpRow {
   status: 'open' | 'done' | 'cancelled';
   closed_at: string | null;
   created_at: string;
+  assigned_to_telegram_id: number | null;
+  assigned_to_name: string | null;
 }
 
 export interface VisitPhotoRow {
@@ -487,6 +489,26 @@ export async function getFilterOptionsForMarket(
   return { stores, cms, canFilterCM };
 }
 
+export interface CMOption {
+  telegram_id: number;
+  name: string;
+}
+
+export async function listCMsInMarket(market: string): Promise<CMOption[]> {
+  const { data, error } = await supabase
+    .from("cms")
+    .select("telegram_id, full_name, nickname")
+    .eq("market", market)
+    .eq("is_active", true)
+    .order("full_name");
+  if (error || !data) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any[]).map((c) => ({
+    telegram_id: c.telegram_id as number,
+    name: (c.nickname as string | null) ?? (c.full_name as string),
+  }));
+}
+
 export async function updateCMNickname(telegramId: number, nickname: string): Promise<boolean> {
   const { error } = await supabase
     .from("cms")
@@ -548,7 +570,7 @@ export async function getFullVisitForCM(
 
   const { data: followUpRows } = await supabase
     .from("visit_follow_ups")
-    .select("id, title, notes, due_date, status, closed_at, created_at")
+    .select("id, title, notes, due_date, status, closed_at, created_at, assigned_to_telegram_id, cms:assigned_to_telegram_id(full_name, nickname)")
     .eq("visit_id", visitId)
     .order("created_at", { ascending: true });
 
@@ -561,6 +583,8 @@ export async function getFullVisitForCM(
     status: r.status as 'open' | 'done' | 'cancelled',
     closed_at: (r.closed_at as string | null) ?? null,
     created_at: r.created_at as string,
+    assigned_to_telegram_id: (r.assigned_to_telegram_id as number | null) ?? null,
+    assigned_to_name: r.cms?.nickname ?? r.cms?.full_name ?? null,
   }));
 
   const viewerIsLead = cms.find((c) => c.role === 'lead')?.telegram_id === telegramId;
@@ -614,7 +638,12 @@ export async function getFullVisitForCM(
 export async function createFollowUpsForVisit(
   visitId: string,
   cmTelegramId: number,
-  items: Array<{ title: string; notes?: string | null; due_date?: string | null }>,
+  items: Array<{
+    title: string;
+    notes?: string | null;
+    due_date?: string | null;
+    assigned_to_telegram_id?: number | null;
+  }>,
 ): Promise<VisitFollowUpRow[]> {
   // Look up store_id from the visit so the API caller doesn't have to pass it.
   const { data: visit } = await supabase
@@ -630,6 +659,9 @@ export async function createFollowUpsForVisit(
       visit_id: visitId,
       store_id: (visit as { store_id: string }).store_id,
       cm_telegram_id: cmTelegramId,
+      // Default assignee = creator. Pre-migration this column doesn't exist
+      // yet; the DB will ignore unknown columns? No — it'll error. Wrap below.
+      assigned_to_telegram_id: i.assigned_to_telegram_id ?? cmTelegramId,
       title: i.title.trim(),
       notes: i.notes && i.notes.trim() ? i.notes.trim() : null,
       due_date: i.due_date && i.due_date.trim() ? i.due_date : null,
@@ -639,7 +671,7 @@ export async function createFollowUpsForVisit(
   const { data, error } = await supabase
     .from("visit_follow_ups")
     .insert(rows)
-    .select("id, title, notes, due_date, status, closed_at, created_at");
+    .select("id, title, notes, due_date, status, closed_at, created_at, assigned_to_telegram_id, cms:assigned_to_telegram_id(full_name, nickname)");
   if (error || !data) {
     console.error("createFollowUpsForVisit error:", error);
     return [];
@@ -653,6 +685,8 @@ export async function createFollowUpsForVisit(
     status: r.status,
     closed_at: r.closed_at ?? null,
     created_at: r.created_at,
+    assigned_to_telegram_id: r.assigned_to_telegram_id ?? null,
+    assigned_to_name: r.cms?.nickname ?? r.cms?.full_name ?? null,
   }));
 }
 
@@ -661,7 +695,7 @@ export async function listFollowUpsForVisitMA(
 ): Promise<VisitFollowUpRow[]> {
   const { data } = await supabase
     .from("visit_follow_ups")
-    .select("id, title, notes, due_date, status, closed_at, created_at")
+    .select("id, title, notes, due_date, status, closed_at, created_at, assigned_to_telegram_id, cms:assigned_to_telegram_id(full_name, nickname)")
     .eq("visit_id", visitId)
     .order("created_at", { ascending: true });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -673,6 +707,8 @@ export async function listFollowUpsForVisitMA(
     status: r.status,
     closed_at: r.closed_at ?? null,
     created_at: r.created_at,
+    assigned_to_telegram_id: r.assigned_to_telegram_id ?? null,
+    assigned_to_name: r.cms?.nickname ?? r.cms?.full_name ?? null,
   }));
 }
 
@@ -687,12 +723,19 @@ export async function markFollowUpDoneMA(id: string): Promise<boolean> {
 export async function updateFollowUpFieldsMA(
   visitId: string,
   followUpId: string,
-  fields: { title?: string; notes?: string | null; due_date?: string | null; status?: 'open' | 'done' | 'cancelled' },
+  fields: {
+    title?: string;
+    notes?: string | null;
+    due_date?: string | null;
+    status?: 'open' | 'done' | 'cancelled';
+    assigned_to_telegram_id?: number | null;
+  },
 ): Promise<VisitFollowUpRow | null> {
   const patch: Record<string, unknown> = {};
   if (typeof fields.title === "string") patch.title = fields.title.trim();
   if (fields.notes !== undefined) patch.notes = fields.notes && fields.notes.trim() ? fields.notes.trim() : null;
   if (fields.due_date !== undefined) patch.due_date = fields.due_date && fields.due_date.trim() ? fields.due_date : null;
+  if (fields.assigned_to_telegram_id !== undefined) patch.assigned_to_telegram_id = fields.assigned_to_telegram_id;
   if (fields.status) {
     patch.status = fields.status;
     patch.closed_at = fields.status === "done" ? new Date().toISOString() : null;
@@ -704,13 +747,13 @@ export async function updateFollowUpFieldsMA(
     .update(patch)
     .eq("id", followUpId)
     .eq("visit_id", visitId)
-    .select("id, title, notes, due_date, status, closed_at, created_at")
+    .select("id, title, notes, due_date, status, closed_at, created_at, assigned_to_telegram_id, cms:assigned_to_telegram_id(full_name, nickname)")
     .single();
   if (error || !data) {
     console.error("updateFollowUpFieldsMA error:", error);
     return null;
   }
-  const r = data as Record<string, unknown>;
+  const r = data as Record<string, unknown> & { cms?: { full_name?: string; nickname?: string } };
   return {
     id: r.id as string,
     title: r.title as string,
@@ -719,6 +762,8 @@ export async function updateFollowUpFieldsMA(
     status: r.status as 'open' | 'done' | 'cancelled',
     closed_at: (r.closed_at as string) ?? null,
     created_at: r.created_at as string,
+    assigned_to_telegram_id: (r.assigned_to_telegram_id as number | null) ?? null,
+    assigned_to_name: r.cms?.nickname ?? r.cms?.full_name ?? null,
   };
 }
 
