@@ -17,7 +17,12 @@ import {
 import { deletePhotosBySection } from '../../db/queries/photos.js';
 import { setVisitCMs } from '../../db/queries/visit-cms.js';
 import { getActivePlan, consumePlan } from '../../db/queries/visit-plans.js';
-import { listFollowUpsForVisit } from '../../db/queries/visit-follow-ups.js';
+import {
+  listFollowUpsForVisit,
+  listOpenFollowUpsForStore,
+  markFollowUpDone,
+  type VisitFollowUp,
+} from '../../db/queries/visit-follow-ups.js';
 import {
   buildStorePicker,
   buildSearchResultsPicker,
@@ -144,14 +149,51 @@ function buildPromptKeyboard(
   return kb;
 }
 
-function buildFollowUpKeyboard(visitId: string): InlineKeyboard {
-  // ← Back rewinds to Q4. ✓ Done finalises the visit. Mini-app Save & Submit
-  // does the same finalisation via /api/visit/:id/finalize, so this Done
-  // button and the mini-app are interchangeable end-states.
+// 5-per-page is the sweet spot for thumb-reachable buttons before pagination
+// adds enough cognitive load that we'd rather force a swipe than a scroll.
+const FOLLOW_UP_PAGE_SIZE = 5;
+
+// Telegram legacy Markdown parses `_ * ` ` `[` in body text. Bullet titles are
+// free-text user input — escape so a stray asterisk doesn't 400 the send.
+function escapeMarkdown(s: string): string {
+  return s.replace(/([_*`\[])/g, '\\$1');
+}
+
+function buildFollowUpKeyboard(opts: {
+  visitId: string;
+  openItems: VisitFollowUp[];
+  page: number;
+}): InlineKeyboard {
+  const { visitId, openItems, page } = opts;
+  const totalPages = Math.max(1, Math.ceil(openItems.length / FOLLOW_UP_PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages - 1);
+  const pageItems = openItems.slice(clampedPage * FOLLOW_UP_PAGE_SIZE, (clampedPage + 1) * FOLLOW_UP_PAGE_SIZE);
+
   const kb = new InlineKeyboard();
-  kb.text('← Back', 'followup:back').text('✓ Done', 'followup:done').row();
+
+  // Per-item close buttons (one row each)
+  for (const item of pageItems) {
+    const label = item.title.length > 32
+      ? `✅ Done: ${item.title.slice(0, 32)}…`
+      : `✅ Done: ${item.title}`;
+    kb.text(label, `followup:complete:${item.id}`).row();
+  }
+
+  // Pagination row (only if more than one page)
+  if (openItems.length > FOLLOW_UP_PAGE_SIZE) {
+    if (clampedPage > 0) kb.text('◀ Prev', `followup:page:${clampedPage - 1}`);
+    if (clampedPage < totalPages - 1) kb.text('Next ▶', `followup:page:${clampedPage + 1}`);
+    kb.row();
+  }
+
+  // Action row: Add follow-up + Submit
   const link = followUpDeepLink(visitId);
-  if (link) kb.url('📌 Add Follow-Ups in App', link);
+  if (link) kb.url('➕ Add follow-up', link);
+  kb.text('✓ Submit', 'followup:done').row();
+
+  // Nav row: Back + Cancel
+  kb.text('← Back', 'followup:back').text('✕ Cancel', 'followup:cancel');
+
   return kb;
 }
 
@@ -394,6 +436,7 @@ export async function visitFlow(
   let i = 0;
   let hasNavigatedBack = false;
   let followUpsAdded = 0;
+  let followUpsClosed = 0;
 
   mainFlow: while (true) {
   while (i < PROMPTS.length) {
@@ -505,14 +548,38 @@ export async function visitFlow(
   // ── Follow-up close-out ───────────────────────────────────────────────────
   await conversation.external(() => setActiveSection(telegramId, 'follow_up'));
 
-  await ctx.reply(
-    `✓ *Follow-ups before we close?*\n\n` +
-      `_Anything to act on for this store? Add as tasks in the app — assign owner + due date, the team can see them._`,
+  // Fetch all open follow-ups for this store, then exclude tasks created
+  // earlier in the same visit (don't let the CM close tasks they just added).
+  const allOpenItems = await conversation.external(() =>
+    listOpenFollowUpsForStore(storeId),
+  );
+  let openItems = allOpenItems.filter(item => item.visit_id !== createdVisitId);
+
+  let followUpPage = 0;
+
+  function buildFollowUpText(items: VisitFollowUp[], page: number): string {
+    const totalPages = Math.max(1, Math.ceil(items.length / FOLLOW_UP_PAGE_SIZE));
+    const clampedPage = Math.min(page, totalPages - 1);
+    const pageItems = items.slice(clampedPage * FOLLOW_UP_PAGE_SIZE, (clampedPage + 1) * FOLLOW_UP_PAGE_SIZE);
+    const prefix = items.length > 0
+      ? `📋 *${items.length} open from prior visits* — tap any you closed today:\n\n` +
+        pageItems.map(i => `• ${escapeMarkdown(i.title)}`).join('\n') + '\n\n'
+      : '';
+    return (
+      prefix +
+      `✓ *Follow-ups before we close?*\n\n` +
+      `_Anything to act on for this store? Add as tasks in the app — assign owner + due date, the team can see them._`
+    );
+  }
+
+  const followUpMsg = await ctx.reply(
+    buildFollowUpText(openItems, followUpPage),
     {
       parse_mode: 'Markdown',
-      reply_markup: buildFollowUpKeyboard(createdVisitId),
+      reply_markup: buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage }),
     },
   );
+  const followUpMessageId = followUpMsg.message_id;
 
   let hintShown = false;
 
@@ -546,6 +613,65 @@ export async function visitFlow(
     }
     if (upd.callbackQuery) {
       const data = upd.callbackQuery.data ?? '';
+      if (data.startsWith('followup:complete:')) {
+        const id = data.slice('followup:complete:'.length);
+        // Validate against current in-memory list — guards against stale
+        // buttons from prior message edits and against double-tap races
+        // (the second tap finds nothing to splice and exits cleanly).
+        if (!openItems.some(item => item.id === id)) {
+          await upd.answerCallbackQuery('Already closed');
+          continue;
+        }
+        // Splice + increment SYNCHRONOUSLY before any await so a rapid second
+        // tap on the same button hits the membership check above and is a no-op.
+        openItems = openItems.filter(item => item.id !== id);
+        followUpsClosed++;
+        const lastPage = Math.max(0, Math.ceil(openItems.length / FOLLOW_UP_PAGE_SIZE) - 1);
+        followUpPage = Math.min(followUpPage, lastPage);
+        await conversation.external(() => markFollowUpDone(id, createdVisitId));
+        await upd.answerCallbackQuery('Closed ✓');
+        const newText = buildFollowUpText(openItems, followUpPage);
+        const newKb = buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage });
+        await conversation.external(async () => {
+          try {
+            await ctx.api.editMessageText(chatId, followUpMessageId, newText, {
+              parse_mode: 'Markdown',
+              reply_markup: newKb,
+            });
+          } catch {
+            // Message may be too old / identical / already deleted — safe to ignore.
+          }
+        });
+        continue;
+      }
+      if (data.startsWith('followup:page:')) {
+        const n = parseInt(data.slice('followup:page:'.length), 10);
+        const lastPage = Math.max(0, Math.ceil(openItems.length / FOLLOW_UP_PAGE_SIZE) - 1);
+        followUpPage = Math.max(0, Math.min(n, lastPage));
+        await upd.answerCallbackQuery();
+        const newText = buildFollowUpText(openItems, followUpPage);
+        const newKb = buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage });
+        await conversation.external(async () => {
+          try {
+            await ctx.api.editMessageText(chatId, followUpMessageId, newText, {
+              parse_mode: 'Markdown',
+              reply_markup: newKb,
+            });
+          } catch {
+            // Same — Telegram 400 on no-change / stale message; safe to ignore.
+          }
+        });
+        continue;
+      }
+      if (data === 'followup:cancel') {
+        await conversation.external(() => {
+          setActiveSection(telegramId, null);
+          discardPhotoCollection(telegramId);
+        });
+        await upd.answerCallbackQuery();
+        await ctx.reply("👋 Paused — saved as a draft. Run /visit anytime in the next 7 days to pick up.");
+        return;
+      }
       if (data === 'followup:back') {
         // Wipe Q4 (last prompt) photos + answer, rewind into the Q-loop.
         const target = PROMPTS[PROMPTS.length - 1];
@@ -612,9 +738,12 @@ export async function visitFlow(
   const followUpLine = followUpsAdded > 0
     ? `\n✅ ${followUpsAdded} follow-up${followUpsAdded === 1 ? '' : 's'}`
     : '';
+  const closedLine = followUpsClosed > 0
+    ? `\n✓ ${followUpsClosed} closed`
+    : '';
 
   await ctx.reply(
-    `🎉 *${storeName}* logged ✓` + photoLine + followUpLine,
+    `🎉 *${storeName}* logged ✓` + photoLine + followUpLine + closedLine,
     {
       parse_mode: 'Markdown',
       reply_markup: buildDoneKeyboard(createdVisitId),
