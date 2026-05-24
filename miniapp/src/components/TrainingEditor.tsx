@@ -399,16 +399,24 @@ export default function TrainingEditor({
 
                       <div>
                         <label className="block text-[10px] font-extrabold uppercase tracking-wider text-ink-400 mb-1.5">
-                          How was the response?
+                          How was their response?
                         </label>
                         <textarea
+                          ref={(el) => {
+                            if (el) {
+                              el.style.height = "auto";
+                              el.style.height = el.scrollHeight + "px";
+                            }
+                          }}
                           value={responseDraft}
-                          onChange={(e) =>
-                            setResponseDrafts((curr) => ({ ...curr, [s.id]: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            e.currentTarget.style.height = "auto";
+                            e.currentTarget.style.height = e.currentTarget.scrollHeight + "px";
+                            setResponseDrafts((curr) => ({ ...curr, [s.id]: e.target.value }));
+                          }}
                           placeholder="What clicked? Any objections? Anything they said back?"
                           rows={2}
-                          className="w-full resize-none rounded-lg border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
+                          className="w-full resize-none overflow-hidden rounded-lg border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
                         />
                       </div>
                     </div>
