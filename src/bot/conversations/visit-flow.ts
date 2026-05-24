@@ -16,6 +16,7 @@ import {
   type Visit,
 } from '../../db/queries/visits.js';
 import { deletePhotosBySection } from '../../db/queries/photos.js';
+import { countTrainedStaff } from '../../db/queries/staff.js';
 import { setVisitCMs } from '../../db/queries/visit-cms.js';
 import { getActivePlan, consumePlan } from '../../db/queries/visit-plans.js';
 import {
@@ -733,18 +734,25 @@ export async function visitFlow(
     return await awaitPhotoUpload(createdVisitId);
   });
 
+  const trainedCount = await conversation.external(() =>
+    countTrainedStaff(createdVisitId),
+  );
+
   const photoLine = savedPhotos > 0
-    ? `\n📸 ${savedPhotos} ${savedPhotos === 1 ? 'photo' : 'photos'} saved`
+    ? `\n📸 ${savedPhotos} ${savedPhotos === 1 ? 'photo' : 'photos'} logged`
+    : '';
+  const trainingLine = trainedCount > 0
+    ? `\n🎓 ${trainedCount} training${trainedCount === 1 ? '' : 's'} logged`
     : '';
   const followUpLine = followUpsAdded > 0
-    ? `\n✅ ${followUpsAdded} follow-up${followUpsAdded === 1 ? '' : 's'}`
+    ? `\n✅ ${followUpsAdded} follow-up${followUpsAdded === 1 ? '' : 's'} logged`
     : '';
   const closedLine = followUpsClosed > 0
     ? `\n✓ ${followUpsClosed} closed`
     : '';
 
   await ctx.reply(
-    `🎉 *${storeName}* logged ✓` + photoLine + followUpLine + closedLine,
+    `🎉 *${storeName}* logged ✓` + photoLine + trainingLine + followUpLine + closedLine,
     {
       parse_mode: 'Markdown',
       reply_markup: buildDoneKeyboard(createdVisitId),

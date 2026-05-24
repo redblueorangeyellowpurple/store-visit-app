@@ -62,6 +62,154 @@ export function parseProductsCsv(raw: string | null | undefined): string[] {
 
 interface StoreStaff { id: string; name: string }
 
+// Full-screen picker for products. Stacks on top of the TrainingEditor sheet
+// (z-[60] over z-50). Replaces the inline combobox dropdown — the dropdown
+// blocked underlying-list scroll on iOS because the overlay caught touchmoves.
+function ProductPickerModal({
+  staffName,
+  initialSelected,
+  onClose,
+  onSave,
+}: {
+  staffName: string;
+  initialSelected: string[];
+  onClose: () => void;
+  onSave: (products: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>(initialSelected);
+  const [search, setSearch] = useState("");
+
+  const selectedLc = new Set(selected.map((p) => p.toLowerCase()));
+  const searchLc = search.trim().toLowerCase();
+  const hasExactMatch = Object.values(PRODUCT_CATALOGUE)
+    .some((items) => items.some((p) => p.toLowerCase() === searchLc));
+
+  const toggle = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSelected((curr) => {
+      if (curr.some((p) => p.toLowerCase() === trimmed.toLowerCase())) {
+        return curr.filter((p) => p.toLowerCase() !== trimmed.toLowerCase());
+      }
+      return [...curr, trimmed];
+    });
+  };
+
+  return (
+    <div className="fixed inset-x-0 top-0 h-dvh z-[60] bg-white flex flex-col">
+      <header className="bg-white border-b border-ink-100 px-5 pt-4 pb-3 shrink-0">
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-xs text-ink-300 font-medium flex items-center gap-1 mb-2"
+        >
+          ‹ Back
+        </button>
+        <h1 className="text-xl font-extrabold text-ink-700 leading-tight">Products</h1>
+        <p className="mt-1 text-[12px] text-ink-400">For {staffName} — tap to add or remove.</p>
+      </header>
+
+      <div className="px-5 pt-3 pb-2 shrink-0">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (search.trim()) {
+                toggle(search);
+                setSearch("");
+              }
+            }
+          }}
+          placeholder="Search or type a custom name…"
+          className="w-full rounded-xl border border-ink-100 bg-white px-3 py-2 text-[13px] text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
+        />
+        {selected.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {selected.map((p) => (
+              <span
+                key={p}
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-bold"
+              >
+                {p}
+                <button
+                  type="button"
+                  onClick={() => toggle(p)}
+                  className="text-[var(--color-tc-600)] opacity-60 leading-none"
+                  aria-label={`Remove ${p}`}
+                >×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 pb-4">
+        {Object.entries(PRODUCT_CATALOGUE).map(([brand, items]) => {
+          const matches = items.filter((p) => !searchLc || p.toLowerCase().includes(searchLc));
+          if (matches.length === 0) return null;
+          return (
+            <div key={brand} className="mb-1">
+              <div className="px-1 pt-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-ink-300">
+                {brand}
+              </div>
+              {matches.map((p) => {
+                const isSelected = selectedLc.has(p.toLowerCase());
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => toggle(p)}
+                    className={`w-full text-left rounded-lg px-3 py-2.5 text-[13px] flex items-center justify-between ${
+                      isSelected ? "bg-[var(--color-tc-50)] font-bold text-[var(--color-tc-600)]" : "text-ink-700"
+                    }`}
+                  >
+                    <span>{p}</span>
+                    {isSelected && <span>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+        {searchLc && !hasExactMatch && (
+          <button
+            type="button"
+            onClick={() => {
+              toggle(search);
+              setSearch("");
+            }}
+            className="w-full text-left rounded-lg px-3 py-2.5 text-[13px] mt-2 border-t border-ink-100 text-ink-500"
+          >
+            + Add &ldquo;<span className="font-bold text-ink-700">{search}</span>&rdquo; as custom product
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-2 px-5 py-3 border-t border-ink-100 bg-white shrink-0">
+        <button
+          onClick={onClose}
+          className="flex-1 rounded-xl py-3 text-sm font-bold bg-ink-100 text-ink-500"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            onSave(selected);
+            onClose();
+          }}
+          className="flex-1 rounded-xl py-3 text-sm font-bold text-white"
+          style={{ background: "var(--color-tc-600)" }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -89,8 +237,7 @@ export default function TrainingEditor({
   const [taggedStaffIds, setTaggedStaffIds] = useState<Set<string>>(new Set());
   const [trainingDrafts, setTrainingDrafts] = useState<Record<string, string>>({});
   const [responseDrafts, setResponseDrafts] = useState<Record<string, string>>({});
-  const [productSearch, setProductSearch] = useState<Record<string, string>>({});
-  const [openCombo, setOpenCombo] = useState<string | null>(null);
+  const [pickerStaffId, setPickerStaffId] = useState<string | null>(null);
   const [savingTraining, setSavingTraining] = useState(false);
   const [addingStaff, setAddingStaff] = useState(false);
   const [newStaffName, setNewStaffName] = useState("");
@@ -110,8 +257,7 @@ export default function TrainingEditor({
     }
     setTrainingDrafts(products);
     setResponseDrafts(responses);
-    setProductSearch({});
-    setOpenCombo(null);
+    setPickerStaffId(null);
     setTaggedStaffIds(tagged);
     setAddingStaff(false);
     setNewStaffName("");
@@ -183,7 +329,7 @@ export default function TrainingEditor({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+    <div className="fixed inset-x-0 top-0 h-dvh z-50 bg-white flex flex-col">
       <header className="bg-white border-b border-ink-100 px-5 pt-4 pb-3 shrink-0">
         <button
           type="button"
@@ -206,33 +352,7 @@ export default function TrainingEditor({
               const tagged = taggedStaffIds.has(s.id);
               const productsRaw = trainingDrafts[s.id] ?? "";
               const selected = parseProductsCsv(productsRaw);
-              const selectedLc = new Set(selected.map((p) => p.toLowerCase()));
-              const search = productSearch[s.id] ?? "";
-              const searchLc = search.trim().toLowerCase();
-              const comboOpen = openCombo === s.id;
               const responseDraft = responseDrafts[s.id] ?? "";
-
-              const addProduct = (name: string) => {
-                const trimmed = name.trim();
-                if (!trimmed) return;
-                if (selectedLc.has(trimmed.toLowerCase())) return;
-                setTrainingDrafts((curr) => {
-                  const existing = (curr[s.id] ?? "").trim();
-                  const sep = existing === "" ? "" : ", ";
-                  return { ...curr, [s.id]: existing + sep + trimmed };
-                });
-                setProductSearch((curr) => ({ ...curr, [s.id]: "" }));
-              };
-              const removeProduct = (name: string) => {
-                setTrainingDrafts((curr) => ({
-                  ...curr,
-                  [s.id]: parseProductsCsv(curr[s.id] ?? "")
-                    .filter((p) => p.toLowerCase() !== name.toLowerCase())
-                    .join(", "),
-                }));
-              };
-              const hasExactMatch = Object.values(PRODUCT_CATALOGUE)
-                .some((items) => items.some((p) => p.toLowerCase() === searchLc));
 
               return (
                 <div key={s.id} className={`rounded-xl border ${tagged ? "border-[var(--color-tc-200)] bg-[var(--color-tc-50)]" : "border-ink-100 bg-white"}`}>
@@ -254,93 +374,27 @@ export default function TrainingEditor({
                         <label className="block text-[10px] font-extrabold uppercase tracking-wider text-ink-400 mb-1.5">
                           Products trained on
                         </label>
-                        <div className="relative">
-                          <div
-                            className="flex flex-wrap items-center gap-1.5 rounded-xl border border-ink-100 bg-white px-2 py-1.5 min-h-[40px] cursor-text"
-                            onClick={() => setOpenCombo(s.id)}
-                          >
-                            {selected.map((p) => (
-                              <span
-                                key={p}
-                                className="inline-flex items-center gap-1 rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-bold"
-                              >
-                                {p}
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); removeProduct(p); }}
-                                  className="text-[var(--color-tc-600)] opacity-60 hover:opacity-100 leading-none"
-                                  aria-label={`Remove ${p}`}
-                                >×</button>
-                              </span>
-                            ))}
-                            <input
-                              type="text"
-                              value={search}
-                              onFocus={() => setOpenCombo(s.id)}
-                              onChange={(e) => {
-                                setProductSearch((curr) => ({ ...curr, [s.id]: e.target.value }));
-                                setOpenCombo(s.id);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  if (search.trim()) addProduct(search);
-                                } else if (e.key === "Backspace" && search === "" && selected.length > 0) {
-                                  removeProduct(selected[selected.length - 1]);
-                                }
-                              }}
-                              placeholder={selected.length === 0 ? "Search products, or type a custom name…" : ""}
-                              className="flex-1 min-w-[120px] bg-transparent text-[13px] text-ink-700 placeholder:text-ink-300 focus:outline-none py-0.5"
-                            />
-                          </div>
-                          {comboOpen && (
+                        <button
+                          type="button"
+                          onClick={() => setPickerStaffId(s.id)}
+                          className="w-full flex flex-wrap items-center gap-1.5 rounded-xl border border-ink-100 bg-white px-2 py-2 min-h-[40px] text-left"
+                        >
+                          {selected.length === 0 ? (
+                            <span className="text-[13px] text-ink-300 px-1">Tap to add products…</span>
+                          ) : (
                             <>
-                              <div className="fixed inset-0 z-10" onMouseDown={() => setOpenCombo(null)} />
-                              <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-[200px] overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-lg p-1">
-                                {Object.entries(PRODUCT_CATALOGUE).map(([brand, items]) => {
-                                  const matches = items.filter((p) => !searchLc || p.toLowerCase().includes(searchLc));
-                                  if (matches.length === 0) return null;
-                                  return (
-                                    <div key={brand}>
-                                      <div className="px-2 pt-2 pb-0.5 text-[9px] font-extrabold uppercase tracking-wider text-ink-300">
-                                        {brand}
-                                      </div>
-                                      {matches.map((p) => {
-                                        const isSelected = selectedLc.has(p.toLowerCase());
-                                        return (
-                                          <button
-                                            key={p}
-                                            type="button"
-                                            onMouseDown={(e) => {
-                                              e.preventDefault();
-                                              if (isSelected) removeProduct(p);
-                                              else addProduct(p);
-                                            }}
-                                            className={`w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] hover:bg-ink-50 flex items-center justify-between ${
-                                              isSelected ? "font-bold text-[var(--color-tc-600)]" : "text-ink-700"
-                                            }`}
-                                          >
-                                            <span>{p}</span>
-                                            {isSelected && <span>✓</span>}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                })}
-                                {searchLc && !hasExactMatch && (
-                                  <button
-                                    type="button"
-                                    onMouseDown={(e) => { e.preventDefault(); addProduct(search); }}
-                                    className="w-full text-left rounded-lg px-2.5 py-2 text-[12px] mt-1 border-t border-ink-100 text-ink-500 hover:bg-ink-50"
-                                  >
-                                    + Add &ldquo;<span className="font-bold text-ink-700">{search}</span>&rdquo; as custom product
-                                  </button>
-                                )}
-                              </div>
+                              {selected.map((p) => (
+                                <span
+                                  key={p}
+                                  className="inline-flex items-center rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-bold"
+                                >
+                                  {p}
+                                </span>
+                              ))}
+                              <span className="text-[11px] text-ink-400 ml-auto">Edit ›</span>
                             </>
                           )}
-                        </div>
+                        </button>
                       </div>
 
                       <div>
@@ -418,6 +472,22 @@ export default function TrainingEditor({
           {savingTraining ? "Saving…" : "Save"}
         </button>
       </div>
+
+      {pickerStaffId && (
+        <ProductPickerModal
+          staffName={storeStaff?.find((x) => x.id === pickerStaffId)?.name ?? ""}
+          initialSelected={parseProductsCsv(trainingDrafts[pickerStaffId] ?? "")}
+          onClose={() => setPickerStaffId(null)}
+          onSave={(products) => {
+            const id = pickerStaffId;
+            if (!id) return;
+            setTrainingDrafts((curr) => ({
+              ...curr,
+              [id]: products.join(", "),
+            }));
+          }}
+        />
+      )}
     </div>
   );
 }

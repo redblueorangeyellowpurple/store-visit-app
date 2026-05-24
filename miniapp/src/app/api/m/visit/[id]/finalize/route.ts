@@ -3,6 +3,7 @@ import {
   getFullVisitForCM,
   lockVisitMA,
   countVisitPhotosMA,
+  countTrainedStaffMA,
   listFollowUpsForVisitMA,
   getFinalizeContext,
   getBroadcastChatIdMA,
@@ -76,8 +77,9 @@ export async function POST(
   }
 
   // Gather summary stats + addressing info in parallel.
-  const [photoCount, followUps, ctx, broadcastChatId] = await Promise.all([
+  const [photoCount, trainedCount, followUps, ctx, broadcastChatId] = await Promise.all([
     countVisitPhotosMA(id),
+    countTrainedStaffMA(id),
     listFollowUpsForVisitMA(id),
     getFinalizeContext(id),
     getBroadcastChatIdMA(),
@@ -92,13 +94,17 @@ export async function POST(
   // ── Done message to the CM (matches the bot's existing format) ─────────
   const photoLine =
     photoCount > 0
-      ? `\n📸 ${photoCount} ${photoCount === 1 ? "photo" : "photos"} saved`
+      ? `\n📸 ${photoCount} ${photoCount === 1 ? "photo" : "photos"} logged`
+      : "";
+  const trainingLine =
+    trainedCount > 0
+      ? `\n🎓 ${trainedCount} training${trainedCount === 1 ? "" : "s"} logged`
       : "";
   const followUpLine =
     followUps.length > 0
-      ? `\n✅ ${followUps.length} follow-up${followUps.length === 1 ? "" : "s"}`
+      ? `\n✅ ${followUps.length} follow-up${followUps.length === 1 ? "" : "s"} logged`
       : "";
-  const doneText = `🎉 *${ctx.store_name}* logged ✓${photoLine}${followUpLine}`;
+  const doneText = `🎉 *${ctx.store_name}* logged ✓${photoLine}${trainingLine}${followUpLine}`;
 
   await sendTelegramMessage(ctx.cm_telegram_id, doneText, {
     parse_mode: "Markdown",
@@ -137,6 +143,7 @@ export async function POST(
   return Response.json({
     ok: true,
     photoCount,
+    trainedCount,
     followUpCount: followUps.length,
   });
 }

@@ -808,6 +808,15 @@ export async function countVisitPhotosMA(visitId: string): Promise<number> {
   return count ?? 0;
 }
 
+export async function countTrainedStaffMA(visitId: string): Promise<number> {
+  const { count } = await supabase
+    .from("visit_staff")
+    .select("staff_id", { count: "exact", head: true })
+    .eq("visit_id", visitId)
+    .eq("was_trained", true);
+  return count ?? 0;
+}
+
 export interface FinalizeVisitContext {
   store_name: string;
   store_chain: string | null;

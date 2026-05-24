@@ -75,6 +75,20 @@ export interface TrainedStaffEntry {
   products: string;
 }
 
+export async function countTrainedStaff(visitId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('visit_staff')
+    .select('staff_id', { count: 'exact', head: true })
+    .eq('visit_id', visitId)
+    .eq('was_trained', true);
+
+  if (error) {
+    console.error('countTrainedStaff error:', error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 export async function attachTrainedStaffToVisit(
   visitId: string,
   entries: TrainedStaffEntry[],
