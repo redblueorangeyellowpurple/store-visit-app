@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-const TABS = [
+const BASE_TABS = [
   { href: "/",                 label: "Overview"         },
   { href: "/visits",           label: "Store Updates"    },
   { href: "/staff",            label: "Store Staff"      },
   { href: "/channel-managers", label: "Channel Managers" },
 ];
 
+const ADMIN_TAB = { href: "/admin", label: "Admin" };
+
 interface Props {
-  user: { first_name: string; username?: string };
+  user: { first_name: string; username?: string; role?: string } | null;
 }
 
 export default function NavBar({ user }: Props) {
@@ -22,6 +24,8 @@ export default function NavBar({ user }: Props) {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
+
+  const tabs = user?.role === "admin" ? [...BASE_TABS, ADMIN_TAB] : BASE_TABS;
 
   return (
     <>
@@ -34,12 +38,12 @@ export default function NavBar({ user }: Props) {
           </div>
         </div>
         <div className="top-bar-right">
-          <span className="top-bar-user">{user.first_name}</span>
+          <span className="top-bar-user">{user?.first_name ?? ""}</span>
           <button onClick={logout} className="top-bar-btn">Sign out</button>
         </div>
       </header>
       <nav className="tab-bar">
-        {TABS.map(({ href, label }) => {
+        {tabs.map(({ href, label }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
             <Link key={href} href={href} className={`tab${active ? " active" : ""}`}>

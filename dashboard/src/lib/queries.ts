@@ -669,3 +669,126 @@ export async function getPayrollGrid(fromISO: string, toISO: string): Promise<Pa
 
   return { weeks, rows, co_credit_active: coCreditActive, range: { from: windowStartISO, to: windowEndISO } };
 }
+
+// ─── Admin tab: people management ────────────────────────────────────────────
+
+export type AdminRole = 'cm' | 'cmic' | 'am' | 'admin';
+export type AdminMarket = 'SG' | 'MY' | 'TH' | 'HK';
+
+export interface ActivePersonRow {
+  telegram_id: number;
+  full_name: string;
+  nickname: string | null;
+  role: AdminRole;
+  market: AdminMarket;
+  am_telegram_id: number | null;
+  am_name: string | null;
+  is_active: boolean;
+  is_intelligence_recipient: boolean;
+  is_join_request_admin: boolean;
+}
+
+export interface PendingPersonRow {
+  telegram_id: number;
+  full_name: string;
+  pending_request_at: string;
+}
+
+export async function getActivePeople(): Promise<ActivePersonRow[]> {
+  const { data, error } = await supabase
+    .from('cms')
+    .select('telegram_id, full_name, nickname, role, market, am_telegram_id, is_active, is_intelligence_recipient, is_join_request_admin')
+    .eq('is_active', true)
+    .order('full_name');
+  if (error || !data) {
+    console.error('getActivePeople error:', error);
+    return [];
+  }
+  const rows = data as Omit<ActivePersonRow, 'am_name'>[];
+  const byId = new Map(rows.map((r) => [r.telegram_id, r.full_name]));
+  return rows.map((r) => ({
+    ...r,
+    am_name: r.am_telegram_id ? byId.get(r.am_telegram_id) ?? null : null,
+  }));
+}
+
+export async function getPendingPeople(): Promise<PendingPersonRow[]> {
+  const { data, error } = await supabase
+    .from('cms')
+    .select('telegram_id, full_name, pending_request_at')
+    .eq('is_active', false)
+    .not('pending_request_at', 'is', null)
+    .order('pending_request_at', { ascending: false });
+  if (error || !data) {
+    console.error('getPendingPeople error:', error);
+    return [];
+  }
+  return data as PendingPersonRow[];
+}
+
+export interface CreatePersonInput {
+  telegram_id: number;
+  full_name: string;
+  role: AdminRole;
+  market: AdminMarket;
+}
+
+export async function createPerson(input: CreatePersonInput): Promise<boolean> {
+  const { error } = await supabase
+    .from('cms')
+    .upsert(
+      {
+        telegram_id: input.telegram_id,
+        full_name: input.full_name,
+        role: input.role,
+        market: input.market,
+        is_active: true,
+        pending_request_at: null,
+      },
+      { onConflict: 'telegram_id' },
+    );
+  if (error) console.error('createPerson error:', error);
+  return !error;
+}
+
+export interface UpdatePersonPatch {
+  role?: AdminRole;
+  market?: AdminMarket;
+  am_telegram_id?: number | null;
+  is_active?: boolean;
+  is_intelligence_recipient?: boolean;
+  is_join_request_admin?: boolean;
+}
+
+export async function updatePerson(
+  telegramId: number,
+  patch: UpdatePersonPatch,
+): Promise<boolean> {
+  const { error } = await supabase.from('cms').update(patch).eq('telegram_id', telegramId);
+  if (error) console.error('updatePerson error:', error);
+  return !error;
+}
+
+export async function approvePendingPerson(
+  telegramId: number,
+  market: AdminMarket,
+  role: AdminRole = 'cm',
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('cms')
+    .update({ is_active: true, market, role, pending_request_at: null })
+    .eq('telegram_id', telegramId);
+  if (error) console.error('approvePendingPerson error:', error);
+  return !error;
+}
+
+export async function rejectPendingPerson(telegramId: number): Promise<boolean> {
+  const { error } = await supabase
+    .from('cms')
+    .delete()
+    .eq('telegram_id', telegramId)
+    .eq('is_active', false)
+    .not('pending_request_at', 'is', null);
+  if (error) console.error('rejectPendingPerson error:', error);
+  return !error;
+}

@@ -73,6 +73,13 @@ export function requireDashboardRole(req: NextRequest): SessionUser | null {
   return session;
 }
 
+export function requireAdmin(req: NextRequest): SessionUser | null {
+  const session = requireDashboardRole(req);
+  if (!session) return null;
+  if (session.role !== "admin") return null;
+  return session;
+}
+
 export const COOKIE_OPTS = {
   httpOnly: true,
   sameSite: "lax" as const,

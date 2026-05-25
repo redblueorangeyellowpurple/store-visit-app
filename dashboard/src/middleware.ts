@@ -24,6 +24,11 @@ export function middleware(req: NextRequest) {
       res.cookies.delete("sva-dash-session");
       return res;
     }
+    if (pathname.startsWith("/admin") && data.role !== "admin") {
+      const url = new URL("/", req.url);
+      url.searchParams.set("error", "admin_only");
+      return NextResponse.redirect(url);
+    }
   } catch {
     const res = NextResponse.redirect(new URL("/login", req.url));
     res.cookies.delete("sva-dash-session");
