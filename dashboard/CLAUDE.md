@@ -29,6 +29,7 @@ AM/IC web dashboard for TC Store Visit App.
 - `/visits` — Store Updates: 2-up card grid; section chips are **single-section focus** (tap Good News → only Good News visits + only that section card per visit), not multi-select "has" filters; sections inside cards stack 1-column
 - `/staff` — Store Staff: store-grouped roster of store-side staff/allies, ally toggle, training pills (count + last-trained + products) from `visit_staff` (mig 005); market chips + search + filter chips
 - `/channel-managers` — Channel Managers: AM-grouped CM cards with assigned-store list + per-store unassign (×) + `+ Add store…` picker (scoped to CM's market). Writes to `sva.cm_store_assignments`.
+- `/admin` — **Admin role only** (path-gated in `middleware.ts`, API routes use `requireAdmin`). Three cards: (1) **People** — pending join requests with inline market-pick Approve/Reject, manual Add Person form, active people table with editable role/market/AM and toggles for `is_intelligence_recipient` + `is_join_request_admin` (the two notification flags are decoupled from dashboard role — admins manage who-can-edit, toggles control who-gets-notified). (2) **Alert groups** — per-market chat_id + intelligence_mode (`people` / `group` / `both`) + Test button. (3) **Stores** — full CRUD with inline-editable cells, market/tier selects, deactivate/reactivate.
 - `/login` — Telegram login widget
 - `/api/auth/telegram` — OAuth callback (public)
 - `/api/auth/me` — current session user
@@ -41,3 +42,9 @@ AM/IC web dashboard for TC Store Visit App.
 - `/api/cms` — active CMs with their assigned stores + all stores (GET, for Channel Managers tab)
 - `/api/cms/assignments` — assign (POST) / unassign (DELETE) — body `{ cm_telegram_id, store_id }`. Writes to `sva.cm_store_assignments`
 - `/api/filters` — CM + store options for filter dropdowns
+- `/api/admin/people` — GET active + pending people / POST manual add (telegram_id, full_name, role, market) / PATCH (role, market, am_telegram_id, is_active, is_intelligence_recipient, is_join_request_admin). All admin-only.
+- `/api/admin/people/approve` — POST `{ telegram_id, market, role? }` — mirrors bot inline-Approve callback. Defaults role to `cm`.
+- `/api/admin/people/reject` — POST `{ telegram_id }` — only deletes rows still marked pending.
+- `/api/admin/alert-groups` — GET 4 market rows / PATCH `{ market, chat_id?, intelligence_mode? }`. Writes to `sva.alert_groups`.
+- `/api/admin/alert-groups/test` — POST `{ market }` → calls Telegram Bot API directly with shared `TELEGRAM_BOT_TOKEN`, sends a probe message to the configured chat_id. Returns 400 if no chat_id set for that market.
+- `/api/admin/stores` — GET / POST (add) / PATCH (edit any field incl. soft-delete via `is_active`). Validates market ∈ SG/MY/TH/HK and tier ∈ T1–T4.

@@ -2,9 +2,31 @@ import express from 'express';
 import { webhookCallback } from 'grammy';
 import { config } from './config.js';
 import { createBot } from './bot/bot.js';
+import { getJoinRequestAdmins, listAlertGroups } from './db/queries/alert-groups.js';
 
 const bot = createBot();
 const app = express();
+
+async function startupHealthCheck(): Promise<void> {
+  try {
+    const [admins, groups] = await Promise.all([getJoinRequestAdmins(), listAlertGroups()]);
+    if (admins.length === 0) {
+      console.warn(
+        '[startup] ⚠ No CMs flagged is_join_request_admin — join requests will fall back to JOIN_REQUEST_CHAT_ID env. Flag at least one admin in the dashboard People tab.',
+      );
+    } else {
+      console.log(`[startup] join-request DM recipients: ${admins.map((a) => a.full_name).join(', ')}`);
+    }
+    const unset = groups.filter((g) => !g.chat_id).map((g) => g.market);
+    if (unset.length > 0) {
+      console.warn(
+        `[startup] ⚠ Markets with no alert chat_id: ${unset.join(', ')} — visit-lock broadcasts there will DM admins instead. Configure in the dashboard Admin tab.`,
+      );
+    }
+  } catch (err) {
+    console.error('[startup] healthCheck failed:', err);
+  }
+}
 
 // Health check for Railway
 app.get('/health', (_req, res) => {
@@ -24,4 +46,5 @@ app.listen(config.webhook.port, async () => {
   await bot.api.setWebhook(webhookUrl);
   console.log(`Bot server running on port ${config.webhook.port}`);
   console.log(`Webhook set to ${webhookUrl}`);
+  await startupHealthCheck();
 });
