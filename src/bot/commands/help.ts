@@ -16,8 +16,8 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
       `/grantaccess — add a CM\n` +
       `/revokeaccess — remove a CM\n` +
       `/listaccess — list all active CMs\n` +
-      `/setalertgroup — set the group where visit alerts are posted\n` +
-      `/runintelligence — generate today's daily brief (or for a past date)\n`
+      `/runintelligence — generate today's daily brief (or for a past date)\n` +
+      `_(per-market alert groups are configured in the dashboard Admin tab)_\n`
     : '';
 
   await ctx.reply(

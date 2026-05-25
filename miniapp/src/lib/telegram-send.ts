@@ -12,9 +12,16 @@ interface InlineKeyboardMarkup {
   inline_keyboard: InlineButton[][];
 }
 
+interface ReplyKeyboardMarkup {
+  keyboard: { text: string }[][];
+  resize_keyboard?: boolean;
+  is_persistent?: boolean;
+  one_time_keyboard?: boolean;
+}
+
 interface SendMessageOpts {
   parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
-  reply_markup?: InlineKeyboardMarkup;
+  reply_markup?: InlineKeyboardMarkup | ReplyKeyboardMarkup;
   link_preview_options?: { is_disabled: boolean };
 }
 

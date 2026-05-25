@@ -2,7 +2,6 @@ import { Api, InlineKeyboard } from 'grammy';
 import { supabase } from '../db/client.js';
 import { config } from '../config.js';
 import { getVisitCMs } from '../db/queries/visit-cms.js';
-import { getSetting } from '../db/queries/settings.js';
 import { getAlertGroup, Market } from '../db/queries/alert-groups.js';
 import { notifyAdmins } from './admin-notify.js';
 
@@ -28,9 +27,11 @@ async function resolveChatId(market: Market | null, botApi: Api): Promise<number
     );
     return null;
   }
-  // No market on store row — fall back to legacy global setting (defensive; shouldn't happen post-migration)
-  const legacy = await getSetting('broadcast_chat_id');
-  return legacy ? Number(legacy) : null;
+  await notifyAdmins(
+    botApi,
+    `⚠️ Visit locked but the store has no market set — can't route the alert. Set a market on the store in the dashboard.`,
+  );
+  return null;
 }
 
 export async function broadcastVisitLocked(

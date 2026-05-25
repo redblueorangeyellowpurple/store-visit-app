@@ -820,6 +820,7 @@ export async function countTrainedStaffMA(visitId: string): Promise<number> {
 export interface FinalizeVisitContext {
   store_name: string;
   store_chain: string | null;
+  market: "SG" | "MY" | "HK" | "TH" | null;
   cm_telegram_id: number;
   cms: { telegram_id: number; role: "lead" | "co"; name: string }[];
 }
@@ -829,7 +830,7 @@ export async function getFinalizeContext(
 ): Promise<FinalizeVisitContext | null> {
   const { data, error } = await supabase
     .from("visits")
-    .select("cm_telegram_id, stores(name, chain)")
+    .select("cm_telegram_id, stores(name, chain, market)")
     .eq("id", visitId)
     .single();
   if (error || !data) return null;
@@ -855,19 +856,33 @@ export async function getFinalizeContext(
   return {
     store_name: v.stores?.name ?? "Unknown store",
     store_chain: v.stores?.chain ?? null,
+    market: (v.stores?.market as "SG" | "MY" | "HK" | "TH" | null) ?? null,
     cm_telegram_id: v.cm_telegram_id,
     cms,
   };
 }
 
-export async function getBroadcastChatIdMA(): Promise<string | null> {
+// Per-market alert routing. Mirrors src/db/queries/alert-groups.ts:getAlertGroup.
+export async function getAlertGroupChatIdMA(
+  market: "SG" | "MY" | "HK" | "TH",
+): Promise<number | null> {
   const { data } = await supabase
-    .from("settings")
-    .select("value")
-    .eq("key", "broadcast_chat_id")
+    .from("alert_groups")
+    .select("chat_id")
+    .eq("market", market)
     .maybeSingle();
-  const dbVal = (data?.value as string | null) ?? null;
-  return dbVal ?? process.env.BROADCAST_CHAT_ID ?? null;
+  return ((data as { chat_id: number | null } | null)?.chat_id) ?? null;
+}
+
+// Admins flagged for DM fallback when a market has no alert chat.
+// Mirrors src/db/queries/alert-groups.ts:getJoinRequestAdmins.
+export async function getJoinRequestAdminIdsMA(): Promise<number[]> {
+  const { data } = await supabase
+    .from("cms")
+    .select("telegram_id")
+    .eq("is_join_request_admin", true)
+    .eq("is_active", true);
+  return ((data ?? []) as { telegram_id: number }[]).map((r) => r.telegram_id);
 }
 
 // Hard delete. DB-first → storage-second so storage hiccups don't leave

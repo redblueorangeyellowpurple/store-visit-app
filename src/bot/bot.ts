@@ -13,7 +13,6 @@ import { handleCancel } from './commands/cancel.js';
 import { handleGrantAccess } from './commands/admin/grant.js';
 import { handleRevokeAccess } from './commands/admin/revoke.js';
 import { handleListAccess } from './commands/admin/list.js';
-import { handleSetAlertGroup } from './commands/admin/setalertgroup.js';
 import { handleRunIntelligence } from './commands/admin/runintelligence.js';
 import { handleDashboard } from './commands/dashboard.js';
 import { visitFlow } from './conversations/visit-flow.js';
@@ -89,6 +88,14 @@ export function createBot(): Bot<BotContext> {
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
     await ctx.conversation.enter('visitFlow');
   });
+
+  // Chain-log: 🔄 Log Another Visit on the done message
+  bot.callbackQuery(/^nextvisit:/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    await startVisitFlow(ctx);
+  });
+
   bot.hears('🔗 Links', handleLinks);
 
   // Photo debounce handler — runs after conversation exits, catches album photos
@@ -447,7 +454,6 @@ export function createBot(): Bot<BotContext> {
   bot.command('grantaccess', handleGrantAccess);
   bot.command('revokeaccess', handleRevokeAccess);
   bot.command('listaccess', handleListAccess);
-  bot.command('setalertgroup', handleSetAlertGroup);
   bot.command('runintelligence', handleRunIntelligence);
 
   bot.catch((err) => {

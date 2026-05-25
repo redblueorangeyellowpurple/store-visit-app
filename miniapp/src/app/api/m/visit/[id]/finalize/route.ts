@@ -6,7 +6,8 @@ import {
   countTrainedStaffMA,
   listFollowUpsForVisitMA,
   getFinalizeContext,
-  getBroadcastChatIdMA,
+  getAlertGroupChatIdMA,
+  getJoinRequestAdminIdsMA,
 } from "@/lib/queries";
 import { sendTelegramMessage } from "@/lib/telegram-send";
 
@@ -30,22 +31,20 @@ function joinNames(names: string[]): string {
 }
 
 function buildDoneKeyboard(visitId: string) {
-  // Matches the bot's buildDoneKeyboard in src/bot/conversations/visit-flow.ts
-  // exactly — same env-var names, same row layout (Open on row 1,
-  // Edit + Delete sharing row 2).
+  // Mirrors src/bot/conversations/visit-flow.ts:buildDoneKeyboard exactly.
+  // Row 1: 🔄 Log Another Visit (chain-log). Row 2: 🗑️ Delete + ✏️ Edit.
   const botUsername = process.env.TELEGRAM_BOT_USERNAME;
   const shortName = process.env.TELEGRAM_MINIAPP_SHORT_NAME || 'miniapp';
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
+  rows.push([{ text: "🔄 Log Another Visit", callback_data: `nextvisit:${visitId}` }]);
+  const row2: { text: string; url?: string; callback_data?: string }[] = [
+    { text: "🗑️ Delete", callback_data: `delete:${visitId}` },
+  ];
   if (botUsername) {
     const base = `https://t.me/${botUsername}/${shortName}`;
-    rows.push([{ text: "📱 Open In Mini-App", url: `${base}?startapp=visit_${visitId}` }]);
-    rows.push([
-      { text: "🗑️ Delete", callback_data: `delete:${visitId}` },
-      { text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` },
-    ]);
-  } else {
-    rows.push([{ text: "🗑️ Delete", callback_data: `delete:${visitId}` }]);
+    row2.push({ text: "✏️ Edit", url: `${base}?startapp=visit_${visitId}_edit` });
   }
+  rows.push(row2);
   return { inline_keyboard: rows };
 }
 
@@ -77,12 +76,11 @@ export async function POST(
   }
 
   // Gather summary stats + addressing info in parallel.
-  const [photoCount, trainedCount, followUps, ctx, broadcastChatId] = await Promise.all([
+  const [photoCount, trainedCount, followUps, ctx] = await Promise.all([
     countVisitPhotosMA(id),
     countTrainedStaffMA(id),
     listFollowUpsForVisitMA(id),
     getFinalizeContext(id),
-    getBroadcastChatIdMA(),
   ]);
 
   if (!ctx) {
@@ -111,33 +109,61 @@ export async function POST(
     reply_markup: buildDoneKeyboard(id),
   });
 
-  // ── Broadcast to manager group (best-effort) ────────────────────────────
-  if (broadcastChatId) {
-    const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-    const shortName = process.env.TELEGRAM_MINIAPP_SHORT_NAME || 'miniapp';
-    const lead = ctx.cms.find((c) => c.role === "lead");
-    const cos = ctx.cms.filter((c) => c.role === "co");
-    const allNames = [lead?.name ?? "Someone", ...cos.map((c) => c.name)];
-    const storeLabel = ctx.store_chain
-      ? `${ctx.store_name} @ ${ctx.store_chain}`
-      : ctx.store_name;
-    const broadcastText = `✅ ${joinNames(allNames)} visited ${storeLabel}`;
-    const broadcastKb = botUsername
-      ? {
-          inline_keyboard: [
-            [
-              {
-                text: "View visit",
-                url: `https://t.me/${botUsername}/${shortName}?startapp=visit_${id}`,
-              },
-            ],
+  // ── Restore the persistent quick-access reply keyboard (🏪 Log Visit · 🔗 Links).
+  // Mirrors src/bot/conversations/visit-flow.ts:762-766 so CMs get the same
+  // bottom-of-chat shortcut after a mini-app finalize as after a bot finalize.
+  await sendTelegramMessage(ctx.cm_telegram_id, "_Ready for your next visit 👇_", {
+    parse_mode: "Markdown",
+    reply_markup: {
+      keyboard: [[{ text: "🏪 Log Visit" }, { text: "🔗 Links" }]],
+      resize_keyboard: true,
+      is_persistent: true,
+    },
+  });
+
+  // ── Broadcast to the per-market alert group (mirrors visit-broadcast.ts) ───
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  const shortName = process.env.TELEGRAM_MINIAPP_SHORT_NAME || 'miniapp';
+  const lead = ctx.cms.find((c) => c.role === "lead");
+  const cos = ctx.cms.filter((c) => c.role === "co");
+  const allNames = [lead?.name ?? "Someone", ...cos.map((c) => c.name)];
+  const storeLabel = ctx.store_chain
+    ? `${ctx.store_name} @ ${ctx.store_chain}`
+    : ctx.store_name;
+  const broadcastText = `✅ ${joinNames(allNames)} visited ${storeLabel}`;
+  const broadcastKb = botUsername
+    ? {
+        inline_keyboard: [
+          [
+            {
+              text: "View visit",
+              url: `https://t.me/${botUsername}/${shortName}?startapp=visit_${id}`,
+            },
           ],
-        }
-      : undefined;
-    await sendTelegramMessage(broadcastChatId, broadcastText, {
+        ],
+      }
+    : undefined;
+
+  const market = ctx.market;
+  const chatId = market ? await getAlertGroupChatIdMA(market) : null;
+  if (chatId) {
+    await sendTelegramMessage(chatId, broadcastText, {
       reply_markup: broadcastKb,
       link_preview_options: { is_disabled: true },
     });
+  } else {
+    // No market or no chat_id configured — DM the flagged admins so the
+    // broadcast isn't silently dropped. Matches notifyAdmins on the bot side.
+    const adminIds = await getJoinRequestAdminIdsMA();
+    const dmText = market
+      ? `⚠️ Visit locked in ${market} but no alert group is configured for that market. ${broadcastText}`
+      : `⚠️ Visit locked but the store has no market set. ${broadcastText}`;
+    for (const adminId of adminIds) {
+      await sendTelegramMessage(adminId, dmText, {
+        reply_markup: broadcastKb,
+        link_preview_options: { is_disabled: true },
+      });
+    }
   }
 
   return Response.json({
