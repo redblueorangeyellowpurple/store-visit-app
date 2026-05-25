@@ -1,5 +1,6 @@
 import { Api, InlineKeyboard } from 'grammy';
 import { config } from '../config.js';
+import { getJoinRequestAdmins } from '../db/queries/alert-groups.js';
 
 export function buildJoinRequestKeyboard(telegramId: number): InlineKeyboard {
   return new InlineKeyboard()
@@ -21,23 +22,36 @@ export async function broadcastJoinRequest(
   input: BroadcastInput,
   botApi: Api,
 ): Promise<void> {
-  if (!config.joinRequests.chatId) {
-    console.log('[join] JOIN_REQUEST_CHAT_ID / BROADCAST_CHAT_ID not set — skipping');
+  const handle = input.username ? `@${input.username}` : `(no username)`;
+  const text =
+    `📨 Join request\n\n` +
+    `Name: ${input.fullName}\n` +
+    `Telegram: ${handle}\n` +
+    `ID: ${input.telegramId}\n\n` +
+    `Pick a market to approve, or reject:`;
+  const keyboard = buildJoinRequestKeyboard(input.telegramId);
+
+  const admins = await getJoinRequestAdmins();
+
+  if (admins.length === 0) {
+    // Defensive fallback: nobody flagged yet → use legacy group chat
+    if (!config.joinRequests.chatId) {
+      console.warn('[join] no is_join_request_admin recipients AND no legacy chat — dropping request');
+      return;
+    }
+    try {
+      await botApi.sendMessage(config.joinRequests.chatId, text, { reply_markup: keyboard });
+    } catch (err) {
+      console.error('[join] legacy-group send failed:', err);
+    }
     return;
   }
-  try {
-    const handle = input.username ? `@${input.username}` : `(no username)`;
-    const text =
-      `📨 Join request\n\n` +
-      `Name: ${input.fullName}\n` +
-      `Telegram: ${handle}\n` +
-      `ID: ${input.telegramId}\n\n` +
-      `Pick a market to approve, or reject:`;
 
-    await botApi.sendMessage(config.joinRequests.chatId, text, {
-      reply_markup: buildJoinRequestKeyboard(input.telegramId),
-    });
-  } catch (err) {
-    console.error('[join] broadcast failed:', err);
+  for (const admin of admins) {
+    try {
+      await botApi.sendMessage(admin.telegram_id, text, { reply_markup: keyboard });
+    } catch (err) {
+      console.error(`[join] DM to ${admin.telegram_id} failed:`, err);
+    }
   }
 }

@@ -1,6 +1,8 @@
 import { Bot } from 'grammy';
 import { config } from '../config.js';
 import { getIntelligenceRecipients } from '../db/queries/intelligence.js';
+import { listAlertGroups } from '../db/queries/alert-groups.js';
+import { notifyAdmins } from '../notifications/admin-notify.js';
 
 // ─── Format conversion: dashboard markdown → Telegram-friendly text ──────────
 
@@ -96,12 +98,35 @@ export interface BroadcastResult {
   failed: { telegram_id: number; error: string }[];
 }
 
+/**
+ * Delivery model:
+ *   - Global people list (cms.is_intelligence_recipient=true) always receives the brief.
+ *   - Each market with intelligence_mode in ('group','both') AND chat_id set
+ *     additionally receives a copy. Chat IDs are deduped (overlap is OK).
+ *   - Markets with mode=group/both but no chat_id trigger an admin DM warning.
+ */
 export async function broadcastIntelligenceBrief(
   briefMarkdown: string,
 ): Promise<BroadcastResult> {
-  const recipients = await getIntelligenceRecipients();
-  if (recipients.length === 0) {
-    console.log('broadcastIntelligenceBrief: no recipients (is_intelligence_recipient=true on cms)');
+  const [recipients, groups] = await Promise.all([
+    getIntelligenceRecipients(),
+    listAlertGroups(),
+  ]);
+
+  const groupChatIds = new Set<number>();
+  const missingChatMarkets: string[] = [];
+  for (const g of groups) {
+    if (g.intelligence_mode === 'group' || g.intelligence_mode === 'both') {
+      if (g.chat_id) {
+        groupChatIds.add(g.chat_id);
+      } else {
+        missingChatMarkets.push(g.market);
+      }
+    }
+  }
+
+  if (recipients.length === 0 && groupChatIds.size === 0) {
+    console.log('broadcastIntelligenceBrief: no recipients (no flagged people and no group chats)');
     return { sent: 0, failed: [] };
   }
 
@@ -112,10 +137,10 @@ export async function broadcastIntelligenceBrief(
   let sent = 0;
   const failed: { telegram_id: number; error: string }[] = [];
 
-  for (const recipient of recipients) {
+  const sendTo = async (chatId: number): Promise<void> => {
     try {
       for (const chunk of chunks) {
-        await bot.api.sendMessage(recipient.telegram_id, chunk, {
+        await bot.api.sendMessage(chatId, chunk, {
           parse_mode: 'HTML',
           link_preview_options: { is_disabled: true },
         });
@@ -123,10 +148,24 @@ export async function broadcastIntelligenceBrief(
       sent++;
     } catch (err) {
       failed.push({
-        telegram_id: recipient.telegram_id,
+        telegram_id: chatId,
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  };
+
+  for (const recipient of recipients) {
+    await sendTo(recipient.telegram_id);
+  }
+  for (const chatId of groupChatIds) {
+    await sendTo(chatId);
+  }
+
+  if (missingChatMarkets.length > 0) {
+    await notifyAdmins(
+      bot.api,
+      `⚠️ Intelligence brief: markets with mode=group/both but no chat_id set — ${missingChatMarkets.join(', ')}. Configure in Admin tab.`,
+    );
   }
 
   return { sent, failed };

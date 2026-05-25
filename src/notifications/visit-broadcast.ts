@@ -3,10 +3,12 @@ import { supabase } from '../db/client.js';
 import { config } from '../config.js';
 import { getVisitCMs } from '../db/queries/visit-cms.js';
 import { getSetting } from '../db/queries/settings.js';
+import { getAlertGroup, Market } from '../db/queries/alert-groups.js';
+import { notifyAdmins } from './admin-notify.js';
 
 interface BroadcastRow {
   id: string;
-  stores: { name: string | null; chain: string | null } | null;
+  stores: { name: string | null; chain: string | null; market: Market | null } | null;
 }
 
 function joinNames(names: string[]): string {
@@ -16,15 +18,25 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
+async function resolveChatId(market: Market | null, botApi: Api): Promise<number | null> {
+  if (market) {
+    const group = await getAlertGroup(market);
+    if (group?.chat_id) return group.chat_id;
+    await notifyAdmins(
+      botApi,
+      `⚠️ Visit locked in ${market} but no alert group is configured for that market. Set a chat in the dashboard Admin tab.`,
+    );
+    return null;
+  }
+  // No market on store row — fall back to legacy global setting (defensive; shouldn't happen post-migration)
+  const legacy = await getSetting('broadcast_chat_id');
+  return legacy ? Number(legacy) : null;
+}
+
 export async function broadcastVisitLocked(
   visitId: string,
   botApi: Api,
 ): Promise<void> {
-  const chatId = (await getSetting('broadcast_chat_id')) ?? config.broadcast.chatId;
-  if (!chatId) {
-    console.log('[broadcast] broadcast_chat_id not set (db or env) — skipping');
-    return;
-  }
   if (!config.broadcast.botUsername) {
     console.log('[broadcast] TELEGRAM_BOT_USERNAME not set — skipping');
     return;
@@ -34,7 +46,7 @@ export async function broadcastVisitLocked(
     const [visitRes, cmRows] = await Promise.all([
       supabase
         .from('visits')
-        .select('id, stores(name, chain)')
+        .select('id, stores(name, chain, market)')
         .eq('id', visitId)
         .single(),
       getVisitCMs(visitId),
@@ -46,6 +58,14 @@ export async function broadcastVisitLocked(
     }
 
     const row = visitRes.data as unknown as BroadcastRow;
+    const market = row.stores?.market ?? null;
+
+    const chatId = await resolveChatId(market, botApi);
+    if (!chatId) {
+      console.log(`[broadcast] no chat_id for market ${market ?? '(unknown)'} — admins DM'd, skipping group send`);
+      return;
+    }
+
     const lead = cmRows.find((r) => r.role === 'lead');
     const cos = cmRows.filter((r) => r.role === 'co');
     const allNames = [
