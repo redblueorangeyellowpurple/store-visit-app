@@ -792,3 +792,117 @@ export async function rejectPendingPerson(telegramId: number): Promise<boolean> 
   if (error) console.error('rejectPendingPerson error:', error);
   return !error;
 }
+
+// ─── Admin tab: alert groups ─────────────────────────────────────────────────
+
+export type IntelligenceMode = 'people' | 'group' | 'both';
+
+export interface AlertGroupRow {
+  market: AdminMarket;
+  chat_id: number | null;
+  intelligence_mode: IntelligenceMode;
+  updated_at: string;
+}
+
+export async function listAlertGroups(): Promise<AlertGroupRow[]> {
+  const { data, error } = await supabase
+    .from('alert_groups')
+    .select('market, chat_id, intelligence_mode, updated_at')
+    .order('market');
+  if (error || !data) {
+    console.error('listAlertGroups error:', error);
+    return [];
+  }
+  return data as AlertGroupRow[];
+}
+
+export interface AlertGroupPatch {
+  chat_id?: number | null;
+  intelligence_mode?: IntelligenceMode;
+}
+
+export async function setAlertGroup(
+  market: AdminMarket,
+  patch: AlertGroupPatch,
+  updatedByTelegramId: number,
+): Promise<boolean> {
+  const row = {
+    ...patch,
+    updated_at: new Date().toISOString(),
+    updated_by_telegram_id: updatedByTelegramId,
+  };
+  const { error } = await supabase.from('alert_groups').update(row).eq('market', market);
+  if (error) console.error('setAlertGroup error:', error);
+  return !error;
+}
+
+// ─── Admin tab: stores CRUD ──────────────────────────────────────────────────
+
+export type StoreTier = 'T1' | 'T2' | 'T3' | 'T4';
+
+export interface AdminStoreRow {
+  id: string;
+  name: string;
+  chain: string;
+  market: AdminMarket;
+  tier: StoreTier | null;
+  address: string | null;
+  is_active: boolean;
+}
+
+export async function getAllStores(): Promise<AdminStoreRow[]> {
+  const { data, error } = await supabase
+    .from('stores')
+    .select('id, name, chain, market, tier, address, is_active')
+    .order('market')
+    .order('chain')
+    .order('name');
+  if (error || !data) {
+    console.error('getAllStores error:', error);
+    return [];
+  }
+  return data as AdminStoreRow[];
+}
+
+export interface CreateStoreInput {
+  name: string;
+  chain: string;
+  market: AdminMarket;
+  tier?: StoreTier | null;
+  address?: string | null;
+}
+
+export async function createStore(input: CreateStoreInput): Promise<AdminStoreRow | null> {
+  const { data, error } = await supabase
+    .from('stores')
+    .insert({
+      name: input.name,
+      chain: input.chain,
+      market: input.market,
+      tier: input.tier ?? null,
+      address: input.address ?? null,
+      is_active: true,
+    })
+    .select()
+    .single();
+  if (error) {
+    console.error('createStore error:', error);
+    return null;
+  }
+  return data as AdminStoreRow;
+}
+
+export interface UpdateStorePatch {
+  name?: string;
+  chain?: string;
+  market?: AdminMarket;
+  tier?: StoreTier | null;
+  address?: string | null;
+  is_active?: boolean;
+}
+
+export async function updateStore(id: string, patch: UpdateStorePatch): Promise<boolean> {
+  const { error } = await supabase.from('stores').update(patch).eq('id', id);
+  if (error) console.error('updateStore error:', error);
+  return !error;
+}

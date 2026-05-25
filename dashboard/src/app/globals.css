@@ -965,3 +965,54 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   margin: 8px 4px 24px; padding: 0;
 }
 .admin-footnote strong { color: var(--color-ink-700); font-weight: 700; }
+
+/* Alert groups + Stores filters */
+.admin-alertgroups { display: flex; flex-direction: column; gap: 8px; }
+.admin-alertgroup-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-ink-50);
+}
+.admin-alertgroup-market {
+  font-weight: 800; color: var(--color-ink-900); font-size: 13px;
+  min-width: 32px; text-align: center;
+}
+.admin-alertgroup-row input[type="text"] {
+  flex: 1 1 220px; min-width: 200px;
+  padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px;
+  background: var(--color-surface); color: var(--color-ink-900); font-size: 13px;
+}
+.admin-alertgroup-row select {
+  padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px;
+  background: var(--color-surface); color: var(--color-ink-900); font-size: 13px;
+}
+.admin-alertgroup-row button {
+  padding: 7px 12px; border-radius: 6px; border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-ink-900);
+  font-weight: 700; font-size: 12px; cursor: pointer;
+}
+.admin-alertgroup-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.admin-alertgroup-test {
+  font-size: 12px; color: var(--color-ink-700); font-weight: 700; padding-left: 4px;
+}
+
+.admin-store-filters {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.admin-store-filters select, .admin-store-filters input[type="text"] {
+  padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px;
+  background: var(--color-surface); color: var(--color-ink-900); font-size: 13px;
+}
+.admin-store-filters input[type="text"] { flex: 1 1 220px; min-width: 200px; }
+.admin-checkbox-inline {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--color-ink-700);
+}
+.admin-table input[type="text"] {
+  width: 100%; padding: 5px 6px; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--color-ink-900); font-size: 12px;
+}
+.admin-table input[type="text"]:focus {
+  border-color: var(--color-tc-500); background: var(--color-surface); outline: none;
+}
+.admin-table tbody tr.inactive { opacity: 0.55; }
