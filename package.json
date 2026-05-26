@@ -17,18 +17,20 @@
     "node": ">=20"
   },
   "dependencies": {
-    "grammy": "^1.42.0",
+    "@anthropic-ai/sdk": "^0.39.0",
     "@grammyjs/conversations": "^2.1.1",
     "@grammyjs/runner": "^2.0.3",
     "@supabase/supabase-js": "^2.49.4",
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@types/node-cron": "^3.0.11",
+    "dotenv": "^16.5.0",
     "express": "^5.2.1",
-    "dotenv": "^16.5.0"
+    "grammy": "^1.42.0",
+    "node-cron": "^4.2.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
-    "tsx": "^4.19.4",
     "@types/express": "^5.0.2",
-    "@types/node": "^22.15.3"
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   }
 }

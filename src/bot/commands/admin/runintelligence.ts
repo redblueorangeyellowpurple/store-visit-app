@@ -1,17 +1,5 @@
 import { BotContext, requireAdmin } from '../../middleware/auth.js';
-import {
-  getVisitsForReportDate,
-  getAllCurrentMemoryNotes,
-  insertMemoryNoteVersion,
-  upsertMemoryEdges,
-  insertIntelligenceReport,
-  markVisitsAnalyzed,
-} from '../../../db/queries/intelligence.js';
-import {
-  runDailyIntelligence,
-  validateRunResult,
-} from '../../../ai/daily-intelligence.js';
-import { broadcastIntelligenceBrief } from '../../broadcast-intelligence.js';
+import { runDailyIntelligenceFlow, sgtTodayISO } from '../../../ai/run-flow.js';
 import { config } from '../../../config.js';
 
 // Usage:
@@ -20,12 +8,6 @@ import { config } from '../../../config.js';
 //   /runintelligence 2026-05-18 dry          → preview (no writes, no broadcast)
 //   /runintelligence 2026-05-18 nobroadcast  → write to DB but skip Telegram
 //   /runintelligence today nobroadcast       → today + skip Telegram
-
-function sgtToday(): string {
-  const utc = Date.now();
-  const sgt = new Date(utc + 8 * 60 * 60 * 1000);
-  return sgt.toISOString().slice(0, 10);
-}
 
 export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
   if (!requireAdmin(ctx)) return;
@@ -36,7 +18,7 @@ export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
 
   const reportDate =
     !dateArg || dateArg === 'today'
-      ? sgtToday()
+      ? sgtTodayISO()
       : /^\d{4}-\d{2}-\d{2}$/.test(dateArg)
       ? dateArg
       : null;
@@ -74,86 +56,58 @@ export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
   );
 
   try {
-    // 1. Visits
-    const visits = await getVisitsForReportDate(reportDate);
-    if (visits.length === 0) {
+    const result = await runDailyIntelligenceFlow({
+      date: reportDate,
+      dryRun,
+      skipTelegram,
+    });
+
+    if (result.status === 'no_visits') {
       await ctx.reply(`No locked & unanalyzed visits found for ${reportDate}. Nothing to run.`);
       return;
     }
-
-    // 2. Memory
-    const notes = await getAllCurrentMemoryNotes();
-
-    // 3. Claude
-    const result = await runDailyIntelligence({ reportDate, visits, notes });
-    if (!result) {
+    if (result.status === 'lock_failed') {
+      await ctx.reply('⚠️ Another intelligence run is in progress. Try again in a minute.');
+      return;
+    }
+    if (result.status === 'null_result') {
       await ctx.reply('❌ Claude run returned null. Check bot logs for details.');
       return;
     }
-
-    // 4. Validate
-    const validation = validateRunResult(result, { previousNotes: notes, visits });
-    if (!validation.ok) {
+    if (result.status === 'validation_failed') {
       await ctx.reply(
-        `❌ Validation failed: ${validation.reason}\n\nNothing written. Re-run with \`dry\` to preview.`,
+        `❌ Validation failed: ${result.message ?? 'unknown'}\n\nNothing written. Re-run with \`dry\` to preview.`,
         { parse_mode: 'Markdown' },
       );
       return;
     }
+    if (result.status === 'report_insert_failed') {
+      await ctx.reply('❌ Report insert failed. Memory notes are in DB but no report row exists.');
+      return;
+    }
 
-    // 5. Dry-run exit
     if (dryRun) {
-      const preview = result.brief_markdown.slice(0, 1500);
+      const preview = (result.briefPreview ?? '').slice(0, 1500);
       await ctx.reply(
-        `*Dry-run preview* — ${visits.length} visits, ${result.note_updates.length} note updates, ${result.edges.length} edges.\n\n` +
+        `*Dry-run preview* — ${result.visits} visits, ${result.notesWritten} note updates queued.\n\n` +
           '```\n' +
           preview +
-          (result.brief_markdown.length > 1500 ? '\n…(truncated)' : '') +
+          ((result.briefPreview?.length ?? 0) > 1500 ? '\n…(truncated)' : '') +
           '\n```\n\n_No DB writes, no broadcast._',
         { parse_mode: 'Markdown' },
       );
       return;
     }
 
-    // 6. Persist
-    let notesWritten = 0;
-    for (const note of result.note_updates) {
-      const v = await insertMemoryNoteVersion(note);
-      if (v !== null) notesWritten++;
-    }
-    await upsertMemoryEdges(result.edges);
-    const report = await insertIntelligenceReport(reportDate, {
-      brief_markdown: result.brief_markdown,
-      stats: result.stats as unknown as Record<string, unknown>,
-      visit_ids: visits.map((v) => v.id),
-      model: result.model,
-      prompt_tokens: result.prompt_tokens,
-      completion_tokens: result.completion_tokens,
-    });
-    if (!report) {
-      await ctx.reply('❌ Report insert failed. Memory notes are in DB but no report row exists.');
-      return;
-    }
-    await markVisitsAnalyzed(visits.map((v) => v.id));
-
-    // 7. Broadcast
-    let sentCount = 0;
-    let failedCount = 0;
-    if (!skipTelegram) {
-      const bcast = await broadcastIntelligenceBrief(result.brief_markdown);
-      sentCount = bcast.sent;
-      failedCount = bcast.failed.length;
-    }
-
     await ctx.reply(
-      `✅ *Brief generated for ${reportDate}* (v${report.version})\n\n` +
-        `• Visits analyzed: *${visits.length}*\n` +
-        `• Notes touched: *${notesWritten}/${result.note_updates.length}*\n` +
-        `• Edges: *${result.edges.length}*\n` +
-        `• Tokens: ${result.prompt_tokens} in / ${result.completion_tokens} out\n` +
+      `✅ *Brief generated for ${reportDate}* (v${result.report?.version})\n\n` +
+        `• Visits analyzed: *${result.visits}*\n` +
+        `• Notes written: *${result.notesWritten}*\n` +
+        `• Edges: *${result.edgesUpserted}*\n` +
+        `• Tokens: ${result.promptTokens} in / ${result.completionTokens} out\n` +
         (skipTelegram
           ? '• Broadcast: _skipped_\n'
-          : `• Broadcast: *${sentCount} sent*${failedCount > 0 ? `, ${failedCount} failed` : ''}\n`) +
+          : `• Broadcast: *${result.bcastSent ?? 0} sent*${(result.bcastFailed ?? 0) > 0 ? `, ${result.bcastFailed} failed` : ''}\n`) +
         `\nView on dashboard: */intelligence*`,
       { parse_mode: 'Markdown' },
     );
