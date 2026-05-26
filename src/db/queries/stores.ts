@@ -36,28 +36,30 @@ export async function getStoreById(storeId: string): Promise<Store | null> {
   return data as Store;
 }
 
-export async function searchStoresByName(market: string, term: string): Promise<Store[]> {
-  const { data, error } = await supabase
+export async function searchStoresByName(market: string | null, term: string): Promise<Store[]> {
+  let q = supabase
     .from('stores')
     .select('*')
-    .eq('market', market)
     .eq('is_active', true)
     .ilike('name', `%${term}%`)
     .order('name')
     .limit(8);
+  if (market !== null) q = q.eq('market', market);
 
+  const { data, error } = await q;
   if (error || !data) return [];
   return data as Store[];
 }
 
-export async function getAllActiveStores(market: string): Promise<Store[]> {
-  const { data, error } = await supabase
+export async function getAllActiveStores(market: string | null): Promise<Store[]> {
+  let q = supabase
     .from('stores')
     .select('*')
-    .eq('market', market)
     .eq('is_active', true)
     .order('name');
+  if (market !== null) q = q.eq('market', market);
 
+  const { data, error } = await q;
   if (error || !data) return [];
   return data as Store[];
 }

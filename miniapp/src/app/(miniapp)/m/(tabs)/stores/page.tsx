@@ -8,6 +8,7 @@ interface Store {
   id: string;
   name: string;
   chain: string;
+  market: "SG" | "MY" | "TH" | "HK";
   tier: "T1" | "T2" | "T3" | "T4" | null;
   is_assigned: boolean;
   last_visit_by_you: string | null;
@@ -44,16 +45,17 @@ function recencyClass(dateStr: string | null): string {
   return "text-[var(--color-ink-300)] font-semibold";
 }
 
-function groupByChain(stores: Store[]): Array<{ chain: string; items: Store[] }> {
+function groupByChain(stores: Store[], showMarket: boolean): Array<{ key: string; label: string; items: Store[] }> {
   const map = new Map<string, Store[]>();
   for (const s of stores) {
-    const arr = map.get(s.chain) ?? [];
+    const key = showMarket ? `${s.market} · ${s.chain}` : s.chain;
+    const arr = map.get(key) ?? [];
     arr.push(s);
-    map.set(s.chain, arr);
+    map.set(key, arr);
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([chain, items]) => ({ chain, items }));
+    .map(([key, items]) => ({ key, label: key, items }));
 }
 
 export default function StoresPage() {
@@ -82,10 +84,11 @@ export default function StoresPage() {
     if (!data) return null;
     const q = query.trim().toLowerCase();
     const match = (s: Store) =>
-      !q || s.name.toLowerCase().includes(q) || s.chain.toLowerCase().includes(q);
+      !q || s.name.toLowerCase().includes(q) || s.chain.toLowerCase().includes(q) || s.market.toLowerCase().includes(q);
     const mine = data.stores.filter((s) => s.is_assigned && match(s));
     const other = data.stores.filter((s) => !s.is_assigned && match(s));
-    return { mine, other, mineGroups: groupByChain(mine), otherGroups: groupByChain(other) };
+    const showMarket = new Set(data.stores.map((s) => s.market)).size > 1;
+    return { mine, other, mineGroups: groupByChain(mine, showMarket), otherGroups: groupByChain(other, showMarket) };
   }, [data, query]);
 
   return (
@@ -152,7 +155,7 @@ function SectionList({
   className = "",
 }: {
   label: string;
-  groups: Array<{ chain: string; items: Store[] }>;
+  groups: Array<{ key: string; label: string; items: Store[] }>;
   empty: string;
   className?: string;
 }) {
@@ -164,10 +167,10 @@ function SectionList({
       {groups.length === 0 ? (
         <div className="px-[18px] py-6 text-center text-[12px] text-[var(--color-ink-300)] italic">{empty}</div>
       ) : (
-        groups.map(({ chain, items }) => (
-          <div key={chain}>
+        groups.map(({ key, label: groupLabel, items }) => (
+          <div key={key}>
             <div className="flex items-baseline justify-between px-[18px] pt-[10px] pb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink-500)]">{chain}</span>
+              <span className="text-[11px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink-500)]">{groupLabel}</span>
               <span className="text-[10px] font-semibold text-[var(--color-ink-300)]">
                 {items.length} {items.length === 1 ? "store" : "stores"}
               </span>

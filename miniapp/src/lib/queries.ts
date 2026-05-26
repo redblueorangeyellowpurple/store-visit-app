@@ -256,15 +256,16 @@ export async function getStoreTimelineForCM(
 }
 
 export async function getAllStoresInMarket(
-  market: string,
+  market: string | null,
   currentCmTelegramId?: number,
 ): Promise<AllMarketStore[]> {
-  const { data: storeRows } = await supabase
+  let storeQ = supabase
     .from("stores")
     .select("*")
-    .eq("market", market)
     .eq("is_active", true)
     .order("name");
+  if (market !== null) storeQ = storeQ.eq("market", market);
+  const { data: storeRows } = await storeQ;
 
   if (!storeRows || storeRows.length === 0) return [];
 

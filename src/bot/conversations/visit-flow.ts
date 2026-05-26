@@ -331,8 +331,8 @@ export async function visitFlow(
           const term = searchMsg.message?.text?.trim();
           if (!term) continue;
 
-          const market = ctx.user?.market ?? 'SG';
-          const results = await conversation.external(() => searchStoresByName(market, term));
+          const searchMarket = ctx.user?.role === 'admin' ? null : ctx.user?.market ?? 'SG';
+          const results = await conversation.external(() => searchStoresByName(searchMarket, term));
 
           if (results.length === 0) {
             await ctx.reply("No stores found — try a different search term.", {
@@ -341,7 +341,9 @@ export async function visitFlow(
                 .text('Cancel', 'cancel'),
             });
           } else {
-            await ctx.reply('Pick a store:', { reply_markup: buildSearchResultsPicker(results) });
+            await ctx.reply('Pick a store:', {
+              reply_markup: buildSearchResultsPicker(results, { showMarket: searchMarket === null }),
+            });
           }
 
           const pick = await conversation.wait();

@@ -138,10 +138,11 @@ export function buildStorePicker(
   return kb;
 }
 
-export function buildSearchResultsPicker(stores: Store[]): InlineKeyboard {
+export function buildSearchResultsPicker(stores: Store[], opts?: { showMarket?: boolean }): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const store of stores) {
-    kb.text(store.name, `store:${store.id}`).row();
+    const label = opts?.showMarket ? `${store.name} · ${store.market}` : store.name;
+    kb.text(label, `store:${store.id}`).row();
   }
   kb.text('← Back', 'search:back').row();
   kb.text('Cancel', 'cancel').row();
