@@ -83,7 +83,7 @@ export async function getVisitsForReportDate(
       id, store_id, cm_telegram_id, visit_date, locked_at,
       good_news, competitors, display_stock, follow_up, buzz_plan, training,
       stores ( name ),
-      cms ( full_name )
+      cms!visits_cm_telegram_id_fkey ( full_name )
     `)
     .eq('is_locked', true)
     .is('analyzed_at', null)
@@ -93,7 +93,7 @@ export async function getVisitsForReportDate(
 
   if (error) {
     console.error('getVisitsForReportDate error:', error);
-    return [];
+    throw new Error(`visit query failed: ${error.message} [${error.code ?? '?'}]`);
   }
 
   return (data ?? []).map((row: any) => ({
@@ -134,7 +134,7 @@ export async function getAllCurrentMemoryNotes(): Promise<MemoryNote[]> {
     .select('*');
   if (error) {
     console.error('getAllCurrentMemoryNotes error:', error);
-    return [];
+    throw new Error(`memory note query failed: ${error.message} [${error.code ?? '?'}]`);
   }
   return (data as MemoryNote[]) ?? [];
 }
