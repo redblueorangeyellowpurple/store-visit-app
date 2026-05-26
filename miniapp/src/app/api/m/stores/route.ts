@@ -4,7 +4,9 @@ import { getAllStoresInMarket } from "@/lib/queries";
 export async function GET(req: Request) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
-  const marketFilter = cm.role === "admin" ? null : cm.market;
-  const stores = await getAllStoresInMarket(marketFilter, cm.telegram_id);
+  // Every CM can browse stores across all markets (Wilson 2026-05-26 —
+  // dropped admin-only gate; aligned with the bot's country-first "Other
+  // store" flow).
+  const stores = await getAllStoresInMarket(null, cm.telegram_id);
   return Response.json({ stores });
 }

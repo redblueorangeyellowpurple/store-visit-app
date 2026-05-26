@@ -63,3 +63,36 @@ export async function getAllActiveStores(market: string | null): Promise<Store[]
   if (error || !data) return [];
   return data as Store[];
 }
+
+export async function getChannelsInMarket(
+  market: string,
+): Promise<Array<{ chain: string; count: number }>> {
+  const { data, error } = await supabase
+    .from('stores')
+    .select('chain')
+    .eq('is_active', true)
+    .eq('market', market);
+  if (error || !data) return [];
+  const counts = new Map<string, number>();
+  for (const row of data as Array<{ chain: string }>) {
+    counts.set(row.chain, (counts.get(row.chain) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([chain, count]) => ({ chain, count }))
+    .sort((a, b) => a.chain.localeCompare(b.chain));
+}
+
+export async function getStoresByMarketAndChain(
+  market: string,
+  chain: string,
+): Promise<Store[]> {
+  const { data, error } = await supabase
+    .from('stores')
+    .select('*')
+    .eq('is_active', true)
+    .eq('market', market)
+    .eq('chain', chain)
+    .order('name');
+  if (error || !data) return [];
+  return data as Store[];
+}

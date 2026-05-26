@@ -3,7 +3,12 @@ import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../middleware/auth.js';
 import { QUICK_ACCESS_KEYBOARD } from '../commands/start.js';
 import { getStoresForCM } from '../../db/queries/stores.js';
-import { searchStoresByName, getStoreById } from '../../db/queries/stores.js';
+import {
+  searchStoresByName,
+  getStoreById,
+  getChannelsInMarket,
+  getStoresByMarketAndChain,
+} from '../../db/queries/stores.js';
 import {
   createVisit,
   isVisitStillOpen,
@@ -27,8 +32,12 @@ import {
 } from '../../db/queries/visit-follow-ups.js';
 import {
   buildStorePicker,
-  buildSearchResultsPicker,
   buildStoreContextMessage,
+  buildCountryPicker,
+  buildChannelPicker,
+  buildChannelStorePicker,
+  buildCountrySearchResultsPicker,
+  countryLabel,
 } from '../keyboards/store-picker.js';
 import {
   startPhotoCollection,
@@ -320,62 +329,191 @@ export async function visitFlow(
 
       if (data === 'search:stores') {
         await update.answerCallbackQuery();
-        await ctx.reply('Type part of the store name:');
+        // Edit the "Which store did you visit?" message in place — Wilson
+        // 2026-05-26: tapping "Other store" should "change the current message"
+        // rather than stack a new one.
+        await update.editMessageText(
+          `📍 *Other Store*\n\nWhich country is the store in?\n\n_Tap a country, then browse channels or type to search._`,
+          { parse_mode: 'Markdown', reply_markup: buildCountryPicker() },
+        );
 
-        while (true) {
-          const searchMsg = await conversation.wait();
-          if (searchMsg.message?.text === '/cancel') {
+        // Country-first browse loop. State is tracked in selectedMarket /
+        // selectedChain so that a typed text message any time after a country
+        // is picked searches within that country (across all its channels).
+        let selectedMarket: string | null = null;
+        let selectedChain: string | null = null;
+
+        otherStoreLoop: while (true) {
+          const upd = await conversation.wait();
+
+          if (upd.message?.text === '/cancel') {
             await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
             return;
           }
-          const term = searchMsg.message?.text?.trim();
-          if (!term) continue;
 
-          const searchMarket = ctx.user?.role === 'admin' ? null : ctx.user?.market ?? 'SG';
-          const results = await conversation.external(() => searchStoresByName(searchMarket, term));
+          if (upd.callbackQuery) {
+            const d = upd.callbackQuery.data ?? '';
 
+            if (d === 'cancel') {
+              await upd.answerCallbackQuery();
+              await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
+              return;
+            }
+
+            if (d === 'search:back') {
+              // Back from country picker → return to the assigned-store picker.
+              await upd.answerCallbackQuery();
+              await upd.editMessageText('Which store did you visit?', {
+                reply_markup: buildStorePicker(stores, lastVisits, page),
+              });
+              continue storeLoop;
+            }
+
+            if (d === 'country-back') {
+              await upd.answerCallbackQuery();
+              selectedMarket = null;
+              selectedChain = null;
+              await upd.editMessageText(
+                `📍 *Other Store*\n\nWhich country is the store in?\n\n_Tap a country, then browse channels or type to search._`,
+                { parse_mode: 'Markdown', reply_markup: buildCountryPicker() },
+              );
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('country:')) {
+              const market = d.slice('country:'.length);
+              selectedMarket = market;
+              selectedChain = null;
+              await upd.answerCallbackQuery();
+              const channels = await conversation.external(() => getChannelsInMarket(market));
+              if (channels.length === 0) {
+                await upd.editMessageText(
+                  `${countryLabel(market)}\n\n_No stores set up yet._`,
+                  {
+                    parse_mode: 'Markdown',
+                    reply_markup: new InlineKeyboard()
+                      .text('← Countries', 'country-back').row()
+                      .text('Cancel', 'cancel'),
+                  },
+                );
+                continue otherStoreLoop;
+              }
+              await upd.editMessageText(
+                `${countryLabel(market)} · *Pick a channel*\n\n_Tap a channel to see its stores · or type to search ${countryLabel(market)}_`,
+                { parse_mode: 'Markdown', reply_markup: buildChannelPicker(market, channels, 0) },
+              );
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('channel-page:')) {
+              const rest = d.slice('channel-page:'.length);
+              const sep = rest.indexOf(':');
+              const market = rest.slice(0, sep);
+              const pageNum = parseInt(rest.slice(sep + 1), 10);
+              selectedMarket = market;
+              await upd.answerCallbackQuery();
+              const channels = await conversation.external(() => getChannelsInMarket(market));
+              await upd.editMessageReplyMarkup({
+                reply_markup: buildChannelPicker(market, channels, pageNum),
+              });
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('channel-back:')) {
+              const market = d.slice('channel-back:'.length);
+              selectedMarket = market;
+              selectedChain = null;
+              await upd.answerCallbackQuery();
+              const channels = await conversation.external(() => getChannelsInMarket(market));
+              await upd.editMessageText(
+                `${countryLabel(market)} · *Pick a channel*\n\n_Tap a channel to see its stores · or type to search ${countryLabel(market)}_`,
+                { parse_mode: 'Markdown', reply_markup: buildChannelPicker(market, channels, 0) },
+              );
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('channel:')) {
+              const rest = d.slice('channel:'.length);
+              const sep = rest.indexOf(':');
+              const market = rest.slice(0, sep);
+              const chain = rest.slice(sep + 1);
+              selectedMarket = market;
+              selectedChain = chain;
+              await upd.answerCallbackQuery();
+              const channelStores = await conversation.external(() =>
+                getStoresByMarketAndChain(market, chain),
+              );
+              await upd.editMessageText(
+                `${countryLabel(market)} · *${chain}*\n\n_T1 first · tap a store · or type to search ${countryLabel(market)}_`,
+                { parse_mode: 'Markdown', reply_markup: buildChannelStorePicker(market, chain, channelStores, 0) },
+              );
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('store-page:')) {
+              const rest = d.slice('store-page:'.length);
+              const firstSep = rest.indexOf(':');
+              const lastSep = rest.lastIndexOf(':');
+              const market = rest.slice(0, firstSep);
+              const chain = rest.slice(firstSep + 1, lastSep);
+              const pageNum = parseInt(rest.slice(lastSep + 1), 10);
+              selectedMarket = market;
+              selectedChain = chain;
+              await upd.answerCallbackQuery();
+              const channelStores = await conversation.external(() =>
+                getStoresByMarketAndChain(market, chain),
+              );
+              await upd.editMessageReplyMarkup({
+                reply_markup: buildChannelStorePicker(market, chain, channelStores, pageNum),
+              });
+              continue otherStoreLoop;
+            }
+
+            if (d.startsWith('store:')) {
+              storeId = d.slice('store:'.length);
+              const found = await conversation.external(() => getStoreById(storeId));
+              if (!found) continue otherStoreLoop;
+              storeName = found.name;
+              await upd.answerCallbackQuery();
+              break storeLoop;
+            }
+
+            // Any other callback: ack and ignore.
+            await upd.answerCallbackQuery().catch(() => {});
+            continue otherStoreLoop;
+          }
+
+          // Text input → search within selectedMarket. Until a country is
+          // picked, prompt the user to pick one first.
+          const term = upd.message?.text?.trim();
+          if (!term) continue otherStoreLoop;
+          if (!selectedMarket) {
+            await ctx.reply('_Tap a country first 👆_', { parse_mode: 'Markdown' });
+            continue otherStoreLoop;
+          }
+          const results = await conversation.external(() =>
+            searchStoresByName(selectedMarket, term),
+          );
           if (results.length === 0) {
-            await ctx.reply("No stores found — try a different search term.", {
-              reply_markup: new InlineKeyboard()
-                .text('← Back to my stores', 'search:back').row()
-                .text('Cancel', 'cancel'),
-            });
+            await ctx.reply(
+              `No matches for "${term}" in ${countryLabel(selectedMarket)}.`,
+              {
+                reply_markup: new InlineKeyboard()
+                  .text('← Channels', `channel-back:${selectedMarket}`).row()
+                  .text('← Countries', 'country-back').row()
+                  .text('Cancel', 'cancel'),
+              },
+            );
           } else {
-            await ctx.reply('Pick a store:', {
-              reply_markup: buildSearchResultsPicker(results, { showMarket: searchMarket === null }),
-            });
+            await ctx.reply(
+              `${countryLabel(selectedMarket)} · _"${term}"_ — ${results.length} match${results.length === 1 ? '' : 'es'}`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: buildCountrySearchResultsPicker(selectedMarket, results),
+              },
+            );
           }
-
-          const pick = await conversation.wait();
-
-          if (pick.message?.text === '/cancel') {
-            await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
-            return;
-          }
-          if (!pick.callbackQuery) continue;
-
-          const pickData = pick.callbackQuery.data ?? '';
-
-          if (pickData === 'cancel') {
-            await pick.answerCallbackQuery();
-            await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
-            return;
-          }
-          if (pickData === 'search:back') {
-            await pick.answerCallbackQuery();
-            await ctx.reply('Which store did you visit?', {
-              reply_markup: buildStorePicker(stores, lastVisits, page),
-            });
-            continue storeLoop;
-          }
-          if (pickData.startsWith('store:')) {
-            storeId = pickData.replace('store:', '');
-            const found = await conversation.external(() => getStoreById(storeId));
-            if (!found) continue;
-            storeName = found.name;
-            await pick.answerCallbackQuery();
-            break storeLoop;
-          }
+          continue otherStoreLoop;
         }
       }
 

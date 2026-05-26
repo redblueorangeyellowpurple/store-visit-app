@@ -149,6 +149,121 @@ export function buildSearchResultsPicker(stores: Store[], opts?: { showMarket?: 
   return kb;
 }
 
+// ── "Other Store" three-step browse: Country → Channel → Store ───────────────
+// Wilson 2026-05-26: CMs across all markets can browse any store. Hierarchy
+// mirrors how the team is assigned (by channel within a market), and the
+// store-level list sorts by tier so the most important stores surface first.
+
+export const COUNTRY_LABELS: Record<string, string> = {
+  SG: '🇸🇬 Singapore',
+  MY: '🇲🇾 Malaysia',
+  TH: '🇹🇭 Thailand',
+  HK: '🇭🇰 Hong Kong',
+};
+
+const COUNTRY_ORDER = ['SG', 'MY', 'TH', 'HK'];
+
+export function countryLabel(code: string): string {
+  return COUNTRY_LABELS[code] ?? code;
+}
+
+export function buildCountryPicker(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const code of COUNTRY_ORDER) {
+    kb.text(COUNTRY_LABELS[code], `country:${code}`).row();
+  }
+  kb.text('← Back to my stores', 'search:back').row();
+  kb.text('Cancel', 'cancel').row();
+  return kb;
+}
+
+const BROWSE_PAGE_SIZE = 5;
+
+export function buildChannelPicker(
+  market: string,
+  channels: Array<{ chain: string; count: number }>,
+  page: number,
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const totalPages = Math.max(1, Math.ceil(channels.length / BROWSE_PAGE_SIZE));
+  const clamped = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = channels.slice(clamped * BROWSE_PAGE_SIZE, (clamped + 1) * BROWSE_PAGE_SIZE);
+  for (const c of slice) {
+    kb.text(`${c.chain} · ${c.count}`, `channel:${market}:${c.chain}`).row();
+  }
+  if (totalPages > 1) {
+    const prev = clamped > 0;
+    const next = clamped < totalPages - 1;
+    if (prev && next) {
+      kb.text('← Prev', `channel-page:${market}:${clamped - 1}`)
+        .text('Next →', `channel-page:${market}:${clamped + 1}`).row();
+    } else if (prev) {
+      kb.text('← Prev', `channel-page:${market}:${clamped - 1}`).row();
+    } else if (next) {
+      kb.text('Next →', `channel-page:${market}:${clamped + 1}`).row();
+    }
+  }
+  kb.text('← Countries', 'country-back').row();
+  kb.text('Cancel', 'cancel').row();
+  return kb;
+}
+
+const TIER_RANK: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
+
+function sortStoresByTier(stores: Store[]): Store[] {
+  return [...stores].sort((a, b) => {
+    const ra = a.tier ? TIER_RANK[a.tier] : 4;
+    const rb = b.tier ? TIER_RANK[b.tier] : 4;
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export function buildChannelStorePicker(
+  market: string,
+  chain: string,
+  stores: Store[],
+  page: number,
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const sorted = sortStoresByTier(stores);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / BROWSE_PAGE_SIZE));
+  const clamped = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = sorted.slice(clamped * BROWSE_PAGE_SIZE, (clamped + 1) * BROWSE_PAGE_SIZE);
+  for (const s of slice) {
+    const tier = s.tier ?? '—';
+    kb.text(`${tier} · ${s.name}`, `store:${s.id}`).row();
+  }
+  if (totalPages > 1) {
+    const prev = clamped > 0;
+    const next = clamped < totalPages - 1;
+    if (prev && next) {
+      kb.text('← Prev', `store-page:${market}:${chain}:${clamped - 1}`)
+        .text('Next →', `store-page:${market}:${chain}:${clamped + 1}`).row();
+    } else if (prev) {
+      kb.text('← Prev', `store-page:${market}:${chain}:${clamped - 1}`).row();
+    } else if (next) {
+      kb.text('Next →', `store-page:${market}:${chain}:${clamped + 1}`).row();
+    }
+  }
+  kb.text('← Channels', `channel-back:${market}`).row();
+  kb.text('Cancel', 'cancel').row();
+  return kb;
+}
+
+export function buildCountrySearchResultsPicker(market: string, stores: Store[]): InlineKeyboard {
+  const sorted = sortStoresByTier(stores);
+  const kb = new InlineKeyboard();
+  for (const s of sorted) {
+    const tier = s.tier ?? '—';
+    kb.text(`${tier} · ${s.name}`, `store:${s.id}`).row();
+  }
+  kb.text('← Channels', `channel-back:${market}`).row();
+  kb.text('← Countries', 'country-back').row();
+  kb.text('Cancel', 'cancel').row();
+  return kb;
+}
+
 export function buildStaffPicker(
   staffList: Array<{ id: string; name: string; role: string | null; is_ally: boolean }>,
   selected: Set<string>,
