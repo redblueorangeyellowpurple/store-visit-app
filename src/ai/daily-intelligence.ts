@@ -16,7 +16,7 @@ function getClient(): Anthropic {
 // ─── Model + budget ───────────────────────────────────────────────────────────
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_OUTPUT_TOKENS = 4000;
+const MAX_OUTPUT_TOKENS = 8000;
 
 // ─── Result shape ─────────────────────────────────────────────────────────────
 
@@ -46,7 +46,65 @@ Your job: produce TWO outputs in one pass.
 
 INTELLIGENCE, NOT ACTION. No recommendations. No "should." Surface patterns; let the reader decide.
 
-OUTPUT FORMAT: Return ONLY valid JSON. No surrounding prose. No markdown fences. Just the JSON object.`;
+OUTPUT FORMAT: You MUST call the submit_intelligence_run tool exactly once. Do not output any text — call the tool with the full result.`;
+
+// JSON schema for the structured-output tool. Anthropic validates the tool call,
+// so we get a parsed object back instead of fragile text-JSON.
+const SUBMIT_TOOL = {
+  name: 'submit_intelligence_run',
+  description: 'Submit the daily intelligence brief and memory updates as a single structured payload.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      brief_markdown: {
+        type: 'string',
+        description: 'Full daily brief in markdown — follow the BRIEF FORMAT in the user message exactly.',
+      },
+      note_updates: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            scope: { type: 'string', enum: ['store', 'person', 'theme', 'channel'] },
+            scope_ref: { type: 'string' },
+            title: { type: 'string' },
+            summary: { type: 'string' },
+            body_markdown: { type: 'string' },
+            related_slugs: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['slug', 'scope', 'scope_ref', 'title', 'summary', 'body_markdown', 'related_slugs'],
+        },
+      },
+      edges: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            from_slug: { type: 'string' },
+            to_slug: { type: 'string' },
+            edge_type: {
+              type: 'string',
+              enum: ['store_theme', 'person_store', 'person_theme', 'theme_theme'],
+            },
+          },
+          required: ['from_slug', 'to_slug', 'edge_type'],
+        },
+      },
+      stats: {
+        type: 'object',
+        properties: {
+          themes_active: { type: 'integer' },
+          themes_promoted: { type: 'array', items: { type: 'string' } },
+          notes_touched: { type: 'integer' },
+          new_notes: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['themes_active', 'themes_promoted', 'notes_touched', 'new_notes'],
+      },
+    },
+    required: ['brief_markdown', 'note_updates', 'edges', 'stats'],
+  },
+};
 
 function buildVisitBlock(visits: VisitForReport[]): string {
   return visits
@@ -96,33 +154,18 @@ ${summaries}
 ${shortFull}`;
 }
 
-const USER_INSTRUCTIONS = `Produce the following JSON object:
+const USER_INSTRUCTIONS = `Call submit_intelligence_run with brief_markdown, note_updates, edges, and stats.
 
-{
-  "brief_markdown": "<full brief in markdown — see format below>",
-  "note_updates": [
-    {
-      "slug": "store:<store_id> | person:<slug> | theme:<slug> | channel:<slug>",
-      "scope": "store | person | theme | channel",
-      "scope_ref": "<store_id for store; slug for others>",
-      "title": "<readable title>",
-      "summary": "<one-line summary, always loaded by future runs>",
-      "body_markdown": "<full body, decay items >30d, max ~300 tokens>",
-      "related_slugs": ["<slug>", "..."]
-    }
-  ],
-  "edges": [
-    { "from_slug": "...", "to_slug": "...", "edge_type": "store_theme | person_store | person_theme | theme_theme" }
-  ],
-  "stats": {
-    "themes_active": <int>,
-    "themes_promoted": ["<slug>"],
-    "notes_touched": <int>,
-    "new_notes": ["<slug>"]
-  }
-}
+Slug conventions:
+- store: "store:<store_id>"
+- person: "person:<slug>"
+- theme:  "theme:<slug>"
+- channel:"channel:<slug>"
 
-### BRIEF FORMAT (markdown)
+scope_ref = store_id for store notes, the slug body for everything else.
+Each note body_markdown ≤ ~300 tokens; decay items >30d unless still active.
+
+### BRIEF FORMAT (markdown — goes in brief_markdown)
 
 # 📍 Daily Intelligence Brief — <date>
 
@@ -208,18 +251,30 @@ ${USER_INSTRUCTIONS}`;
       model: MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
       system: SYSTEM_PROMPT,
+      tools: [SUBMIT_TOOL],
+      tool_choice: { type: 'tool', name: SUBMIT_TOOL.name },
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    const text =
-      response.content[0]?.type === 'text' ? response.content[0].text : '';
-
-    const parsed = extractJson(text);
-    if (!parsed) {
-      console.error('runDailyIntelligence: failed to parse JSON from response');
-      console.error('Raw response:', text.slice(0, 500));
+    if (response.stop_reason === 'max_tokens') {
+      console.error(
+        'runDailyIntelligence: hit max_tokens cap — tool call likely truncated. Raise MAX_OUTPUT_TOKENS or trim prompt.',
+      );
       return null;
     }
+
+    const toolUse = response.content.find(
+      (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use',
+    );
+    if (!toolUse || toolUse.name !== SUBMIT_TOOL.name) {
+      console.error(
+        'runDailyIntelligence: model did not call submit_intelligence_run. stop_reason:',
+        response.stop_reason,
+      );
+      return null;
+    }
+
+    const parsed = toolUse.input as Partial<IntelligenceRunResult>;
 
     return {
       brief_markdown: parsed.brief_markdown ?? '',
@@ -237,25 +292,6 @@ ${USER_INSTRUCTIONS}`;
     };
   } catch (err) {
     console.error('runDailyIntelligence error:', err);
-    return null;
-  }
-}
-
-function extractJson(text: string): any | null {
-  // Try fenced JSON first
-  const fence = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  if (fence) {
-    try {
-      return JSON.parse(fence[1]);
-    } catch {}
-  }
-  // Then raw JSON object
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]);
-  } catch (err) {
-    console.error('extractJson parse error:', err);
     return null;
   }
 }
