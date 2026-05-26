@@ -3,6 +3,7 @@ import { conversations, createConversation } from '@grammyjs/conversations';
 import { config } from '../config.js';
 import { BotContext, authMiddleware, requireAuth } from './middleware/auth.js';
 import { escapeHatchMiddleware } from './middleware/escape-hatch.js';
+import { groupGuardMiddleware } from './middleware/groups.js';
 import { handleStart } from './commands/start.js';
 import { handleHelp } from './commands/help.js';
 import { handleLinks } from './commands/links.js';
@@ -28,6 +29,7 @@ export function createBot(): Bot<BotContext> {
   const bot = new Bot<BotContext>(config.telegram.botToken);
   initPhotoCollection(bot.api);
 
+  bot.use(groupGuardMiddleware);
   bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
   bot.use(authMiddleware);
