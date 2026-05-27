@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
     from: p.get("from") ?? undefined,
     to: p.get("to") ?? undefined,
     market: p.get("market") ?? undefined,
+    chain: p.get("chain") ?? undefined,
     offset: p.get("offset") ? Number(p.get("offset")) : 0,
     limit: 50,
   });

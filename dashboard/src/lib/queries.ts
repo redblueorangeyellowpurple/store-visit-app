@@ -1,5 +1,17 @@
 import { supabase } from "./supabase";
 
+export interface TrainedStaffItem {
+  name: string;
+  products: string | null;
+}
+
+export interface FollowUpItem {
+  id: string;
+  title: string;
+  status: string;
+  due_date: string | null;
+}
+
 export interface VisitRow {
   id: string;
   visit_date: string;
@@ -8,6 +20,7 @@ export interface VisitRow {
   store_id: string;
   store_name: string;
   store_chain: string;
+  store_market: string;
   store_tier: "T1" | "T2" | "T3" | "T4" | null;
   good_news: string | null;
   competitors: string | null;
@@ -21,6 +34,8 @@ export interface VisitRow {
   edited_at: string | null;
   training_count: number;
   follow_up_count: number;
+  trained_staff: TrainedStaffItem[];
+  follow_up_items: FollowUpItem[];
 }
 
 export interface StaffRow {
@@ -136,13 +151,26 @@ export async function getVisitsFeed(opts: {
   offset?: number;
   limit?: number;
   market?: string;
+  chain?: string;
 }): Promise<{ visits: VisitRow[]; total: number }> {
-  const limit = opts.limit ?? 25;
+  const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
+
+  // Resolve store-id filter from market / chain / store opts
+  let filteredStoreIds: string[] | null = null;
+  if (opts.market || opts.chain) {
+    let sq = supabase.from("stores").select("id").eq("is_active", true);
+    if (opts.market) sq = sq.eq("market", opts.market);
+    if (opts.chain) sq = sq.eq("chain", opts.chain);
+    const { data: mStores } = await sq;
+    const ids = (mStores ?? []).map((s: { id: string }) => s.id);
+    if (ids.length === 0) return { visits: [], total: 0 };
+    filteredStoreIds = ids;
+  }
 
   let q = supabase
     .from("visits")
-    .select("*, stores(name, chain, tier), cms!cm_telegram_id(full_name)", { count: "exact" })
+    .select("*, stores(name, chain, tier, market), cms!cm_telegram_id(full_name)", { count: "exact" })
     .eq("is_locked", true)
     .order("visit_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -152,16 +180,7 @@ export async function getVisitsFeed(opts: {
   if (opts.store) q = q.eq("store_id", opts.store);
   if (opts.from) q = q.gte("visit_date", opts.from);
   if (opts.to) q = q.lte("visit_date", opts.to);
-  if (opts.market) {
-    const { data: mStores } = await supabase
-      .from("stores")
-      .select("id")
-      .eq("market", opts.market)
-      .eq("is_active", true);
-    const ids = (mStores ?? []).map((s: { id: string }) => s.id);
-    if (ids.length === 0) return { visits: [], total: 0 };
-    q = q.in("store_id", ids);
-  }
+  if (filteredStoreIds) q = q.in("store_id", filteredStoreIds);
 
   const { data, count } = await q;
 
@@ -176,6 +195,7 @@ export async function getVisitsFeed(opts: {
       store_id: row.store_id,
       store_name: row.stores?.name ?? "Unknown",
       store_chain: row.stores?.chain ?? "",
+      store_market: row.stores?.market ?? "",
       store_tier: row.stores?.tier ?? null,
       good_news: row.good_news,
       competitors: row.competitors,
@@ -189,12 +209,15 @@ export async function getVisitsFeed(opts: {
       edited_at: row.edited_at,
       training_count: 0,
       follow_up_count: 0,
+      trained_staff: [],
+      follow_up_items: [],
     };
   });
 
-  // Attach photo counts + signed URLs in one batch
   if (visits.length > 0) {
     const ids = visits.map((v) => v.id);
+
+    // Photos
     const { data: photos } = await supabase
       .from("visit_photos")
       .select("visit_id, storage_path")
@@ -218,35 +241,46 @@ export async function getVisitsFeed(opts: {
       v.photo_urls = paths.map((p) => signedMap.get(p) ?? "").filter(Boolean);
     }
 
-    // Training counts: staff marked was_trained for each visit
-    const { data: trainedRows, error: trainedErr } = await supabase
+    // Trained staff (rich — name + products)
+    const { data: staffRows, error: staffErr } = await supabase
       .from("visit_staff")
-      .select("visit_id")
+      .select("visit_id, was_trained, products_trained_on, staff(name)")
       .in("visit_id", ids)
       .eq("was_trained", true);
-    if (!trainedErr && trainedRows) {
-      const countMap = new Map<string, number>();
-      for (const r of trainedRows) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const vid = (r as any).visit_id as string;
-        countMap.set(vid, (countMap.get(vid) ?? 0) + 1);
+    if (!staffErr && staffRows) {
+      type StaffLink = { visit_id: string; products_trained_on: string | null; staff: { name: string } | null };
+      const byVisit = new Map<string, TrainedStaffItem[]>();
+      for (const r of staffRows as unknown as StaffLink[]) {
+        const list = byVisit.get(r.visit_id) ?? [];
+        list.push({ name: r.staff?.name ?? "Unknown", products: r.products_trained_on });
+        byVisit.set(r.visit_id, list);
       }
-      for (const v of visits) v.training_count = countMap.get(v.id) ?? 0;
+      for (const v of visits) {
+        const items = byVisit.get(v.id) ?? [];
+        v.trained_staff = items;
+        v.training_count = items.length;
+      }
     }
 
-    // Follow-up counts: structured follow-ups created from each visit
+    // Follow-up items (rich — title + status + due_date)
     const { data: fuRows, error: fuErr } = await supabase
       .from("visit_follow_ups")
-      .select("visit_id")
-      .in("visit_id", ids);
+      .select("id, visit_id, title, status, due_date")
+      .in("visit_id", ids)
+      .order("created_at", { ascending: true });
     if (!fuErr && fuRows) {
-      const countMap = new Map<string, number>();
-      for (const r of fuRows) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const vid = (r as any).visit_id as string;
-        countMap.set(vid, (countMap.get(vid) ?? 0) + 1);
+      type FuRow = { id: string; visit_id: string; title: string; status: string; due_date: string | null };
+      const byVisit = new Map<string, FollowUpItem[]>();
+      for (const r of fuRows as unknown as FuRow[]) {
+        const list = byVisit.get(r.visit_id) ?? [];
+        list.push({ id: r.id, title: r.title, status: r.status, due_date: r.due_date });
+        byVisit.set(r.visit_id, list);
       }
-      for (const v of visits) v.follow_up_count = countMap.get(v.id) ?? 0;
+      for (const v of visits) {
+        const items = byVisit.get(v.id) ?? [];
+        v.follow_up_items = items;
+        v.follow_up_count = items.length;
+      }
     }
   }
 
