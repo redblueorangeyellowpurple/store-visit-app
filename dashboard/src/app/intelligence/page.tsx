@@ -109,6 +109,12 @@ function stripAnalyticsSection(md: string): string {
   return md.replace(/\n## (?:📊 )?Analytics[\s\S]*?(?=\n## |\n# |$)/, "");
 }
 
+function stripBriefTitle(md: string): string {
+  // Remove the leading H1 (e.g. "# 📍 Daily Intelligence Brief — 2026-05-26")
+  // since we render it as the panel header above Channel Managers.
+  return md.replace(/^#[^\n]*\n*/, "");
+}
+
 export default function IntelligencePage() {
   const [user, setUser] = useState<User | null>(null);
   const [reports, setReports] = useState<ReportSummary[]>([]);
@@ -274,6 +280,13 @@ export default function IntelligencePage() {
             border: "1px solid var(--color-border)",
           }}
         >
+          {/* Panel header — derived from selected date */}
+          {activeDate && (
+            <h2 className="text-xl font-black tracking-tight mb-4" style={{ color: "var(--color-ink-900)" }}>
+              Daily Intelligence — {activeDate}
+            </h2>
+          )}
+
           {/* Channel Managers — live visit analytics for the selected date */}
           <ChannelManagersSection
             date={activeDate}
@@ -338,7 +351,7 @@ export default function IntelligencePage() {
                     },
                   }}
                 >
-                  {stripAnalyticsSection(report.brief_markdown)}
+                  {stripBriefTitle(stripAnalyticsSection(report.brief_markdown))}
                 </ReactMarkdown>
               </div>
             </>
