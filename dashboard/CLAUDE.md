@@ -26,6 +26,8 @@ AM/IC web dashboard for TC Store Visit App.
 
 ## Routes
 - `/` — Home: KPI cards + store status grid + **weekly payroll grid** (range chips + custom from/to, AM-grouped CM rows)
+- `/intelligence` — Daily Intelligence: brief reader (date chips + edit-as-new-version) + memory browser (5 scope tabs, search, sort, tier filter, 🔗 touched-in-this-brief toggle). Visible to all dashboard roles.
+- `/intelligence/notes/[slug]` — Single memory note (full content + version history + edit-as-new-version)
 - `/visits` — Store Updates: 2-up card grid; section chips are **single-section focus** (tap Good News → only Good News visits + only that section card per visit), not multi-select "has" filters; sections inside cards stack 1-column
 - `/staff` — Store Staff: store-grouped roster of store-side staff/allies, ally toggle, training pills (count + last-trained + products) from `visit_staff` (mig 005); market chips + search + filter chips
 - `/channel-managers` — Channel Managers: AM-grouped CM cards with assigned-store list + per-store unassign (×) + `+ Add store…` picker (scoped to CM's market). Writes to `sva.cm_store_assignments`.
