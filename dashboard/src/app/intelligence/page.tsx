@@ -266,12 +266,6 @@ export default function IntelligencePage() {
           )}
         </header>
 
-        {/* Channel Managers — live visit analytics for the selected date */}
-        <ChannelManagersSection
-          date={activeDate}
-          onOpenStore={(id) => setDrawerStoreId(id)}
-        />
-
         {/* Brief */}
         <section
           className="rounded-2xl p-6"
@@ -280,6 +274,12 @@ export default function IntelligencePage() {
             border: "1px solid var(--color-border)",
           }}
         >
+          {/* Channel Managers — live visit analytics for the selected date */}
+          <ChannelManagersSection
+            date={activeDate}
+            onOpenStore={(id) => setDrawerStoreId(id)}
+          />
+
           {loadingReport && (
             <p className="text-[13px]" style={{ color: "var(--color-ink-300)" }}>Loading…</p>
           )}
@@ -292,6 +292,7 @@ export default function IntelligencePage() {
           )}
           {!loadingReport && report && !editing && (
             <>
+              <hr style={{ borderColor: "var(--color-border)", margin: "1.25rem 0" }} />
               <div className="flex items-center gap-2 text-[11px] mb-4" style={{ color: "var(--color-ink-300)" }}>
                 <span>v{report.version}</span>
                 {report.edited_by_human && (
