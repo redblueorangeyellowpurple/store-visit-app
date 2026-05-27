@@ -328,9 +328,19 @@ export interface StoreVisitSummary {
   follow_up: string | null;
   buzz_plan: string | null;
   training: string | null;
+  people_training: string | null;
   photo_count: number;
   thumb_urls: string[];
   photo_urls: string[];
+}
+
+export interface StoreMemoryNote {
+  slug: string;
+  scope: "store" | "person" | "theme" | "channel";
+  title: string;
+  summary: string;
+  version: number;
+  last_touched_at: string;
 }
 
 export async function signPhotoUrls(paths: string[], ttlSec = 300): Promise<string[]> {
@@ -352,23 +362,31 @@ export async function getVisitPhotos(visitId: string): Promise<string[]> {
   return signPhotoUrls(paths);
 }
 
-export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[] }> {
-  const [storeRes, visitsRes] = await Promise.all([
+export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[] }> {
+  const [storeRes, visitsRes, notesRes] = await Promise.all([
     supabase.from('stores').select('id, name, chain, market, tier').eq('id', storeId).single(),
     supabase
       .from('visits')
-      .select('id, visit_date, good_news, competitors, display_stock, follow_up, buzz_plan, training, cms!cm_telegram_id(full_name, nickname)')
+      .select('id, visit_date, good_news, competitors, display_stock, follow_up, buzz_plan, training, people_training, cms!cm_telegram_id(full_name, nickname)')
       .eq('store_id', storeId)
       .eq('is_locked', true)
       .order('visit_date', { ascending: false }),
+    supabase
+      .from('v_memory_notes_current')
+      .select('slug, scope, title, summary, version, last_touched_at')
+      .eq('scope', 'store')
+      .eq('scope_ref', storeId)
+      .order('last_touched_at', { ascending: false }),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const store = (storeRes.data as any) as StoreInfo | null ?? null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visitRows = (visitsRes.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const memory_notes = (notesRes.data ?? []) as StoreMemoryNote[];
 
-  if (visitRows.length === 0) return { store, visits: [] };
+  if (visitRows.length === 0) return { store, visits: [], memory_notes };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ids = visitRows.map((v: any) => v.id);
@@ -411,12 +429,13 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     follow_up: v.follow_up ?? null,
     buzz_plan: v.buzz_plan ?? null,
     training: v.training ?? null,
+    people_training: v.people_training ?? null,
     photo_count: countByVisit.get(v.id) ?? 0,
     thumb_urls: (thumbPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
     photo_urls: (allPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
   }));
 
-  return { store, visits };
+  return { store, visits, memory_notes };
 }
 
 export interface DashboardCM {

@@ -3,13 +3,13 @@
 export const dynamic = "force-dynamic";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
 import StoreVisitDrawer from "@/components/StoreVisitDrawer";
+import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
 
 // Allow <details> and <summary> HTML tags through the sanitizer
 const sanitizeSchema = {
@@ -114,6 +114,7 @@ export default function IntelligencePage() {
   const [saving, setSaving] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
+  const [drawerNoteSlug, setDrawerNoteSlug] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setUser(d));
@@ -461,13 +462,14 @@ export default function IntelligencePage() {
 
           <div className="grid gap-2">
             {filteredNotes.map((n) => (
-              <Link
+              <button
                 key={n.slug}
-                href={`/intelligence/notes/${encodeURIComponent(n.slug)}`}
-                className="rounded-xl p-4 transition-all hover:-translate-y-0.5"
+                onClick={() => setDrawerNoteSlug(n.slug)}
+                className="rounded-xl p-4 transition-all hover:-translate-y-0.5 text-left"
                 style={{
                   background: "var(--color-surface)",
                   border: "1px solid var(--color-border)",
+                  cursor: "pointer",
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -507,7 +509,7 @@ export default function IntelligencePage() {
                     {fmtRelative(n.last_touched_at)}
                   </span>
                 </div>
-              </Link>
+              </button>
             ))}
             {filteredNotes.length === 0 && (
               <p className="text-[13px] text-center py-6" style={{ color: "var(--color-ink-300)" }}>
@@ -519,6 +521,7 @@ export default function IntelligencePage() {
           </div>
         </section>
 
+
         <p className="text-[11px] pt-4" style={{ color: "var(--color-ink-300)" }}>
           {activeDate && fmtDate(activeDate)} · Generated daily from locked store visits
         </p>
@@ -527,6 +530,12 @@ export default function IntelligencePage() {
       <StoreVisitDrawer
         storeId={drawerStoreId}
         onClose={() => setDrawerStoreId(null)}
+        onOpenNote={(slug) => setDrawerNoteSlug(slug)}
+      />
+
+      <MemoryNoteDrawer
+        slug={drawerNoteSlug}
+        onClose={() => setDrawerNoteSlug(null)}
       />
     </>
   );

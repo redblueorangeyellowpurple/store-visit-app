@@ -19,14 +19,24 @@ interface StoreVisit {
   display_stock: string | null;
   follow_up: string | null;
   buzz_plan: string | null;
+  training: string | null;
+  people_training: string | null;
   photo_count: number;
   thumb_urls: string[];
   photo_urls: string[];
 }
 
+interface StoreMemoryNote {
+  slug: string;
+  scope: string;
+  title: string;
+  summary: string;
+}
+
 interface Props {
   storeId: string | null;
   onClose: () => void;
+  onOpenNote?: (slug: string) => void;
 }
 
 const TIER_COLORS: Record<string, { bg: string; color: string }> = {
@@ -37,27 +47,35 @@ const TIER_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 const SECTIONS = [
-  { key: "good_news",     label: "Good News",          icon: "🎉", bg: "var(--color-section-amber-bg)" },
-  { key: "competitors",   label: "Competitor Insights", icon: "🔍", bg: "var(--color-section-blue-bg)" },
-  { key: "display_stock", label: "Display & Stock",     icon: "📦", bg: "var(--color-section-green-bg)" },
-  { key: "follow_up",     label: "Follow Up",           icon: "✅", bg: "var(--color-section-pink-bg)" },
-  { key: "buzz_plan",     label: "Buzz Plan",           icon: "⚡", bg: "var(--color-section-purple-bg)" },
+  { key: "good_news",       label: "Good News",          icon: "🎉", bg: "var(--color-section-amber-bg)" },
+  { key: "competitors",     label: "Competitor Insights", icon: "🔍", bg: "var(--color-section-blue-bg)" },
+  { key: "display_stock",   label: "Display & Stock",     icon: "📦", bg: "var(--color-section-green-bg)" },
+  { key: "people_training", label: "People & Training",   icon: "👥", bg: "var(--color-section-teal-bg)" },
+  { key: "follow_up",       label: "Follow Up",           icon: "✅", bg: "var(--color-section-pink-bg)" },
+  { key: "buzz_plan",       label: "Buzz Plan",           icon: "⚡", bg: "var(--color-section-purple-bg)" },
 ] as const;
+
+const SCOPE_BG: Record<string, string> = {
+  theme:   "var(--color-section-purple-bg)",
+  store:   "var(--color-section-green-bg)",
+  person:  "var(--color-section-blue-bg)",
+  channel: "var(--color-ink-50)",
+};
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function StoreVisitDrawer({ storeId, onClose }: Props) {
+export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props) {
   const [store, setStore] = useState<StoreInfo | null>(null);
   const [visits, setVisits] = useState<StoreVisit[]>([]);
+  const [memoryNotes, setMemoryNotes] = useState<StoreMemoryNote[]>([]);
   const [loading, setLoading] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const prevStoreId = useRef<string | null>(null);
 
   const isOpen = storeId !== null;
 
-  // Fetch whenever storeId changes
   useEffect(() => {
     if (!storeId) return;
     if (storeId === prevStoreId.current) return;
@@ -65,20 +83,22 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
 
     setStore(null);
     setVisits([]);
+    setMemoryNotes([]);
     setLoading(true);
     fetch(`/api/visits/store/${storeId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
-        if (d) { setStore(d.store); setVisits(d.visits); }
+        if (d) {
+          setStore(d.store);
+          setVisits(d.visits);
+          setMemoryNotes(d.memory_notes ?? []);
+        }
         setLoading(false);
       });
   }, [storeId]);
 
-  // Close on Escape
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
     if (isOpen) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
@@ -87,7 +107,6 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
 
   return (
     <>
-      {/* Drawer */}
       <div
         style={{
           position: "fixed",
@@ -106,7 +125,7 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
           overflow: "hidden",
         }}
       >
-        {/* Drawer header */}
+        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -120,17 +139,12 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
           <div style={{ minWidth: 0, flex: 1 }}>
             {store ? (
               <>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                   <span
                     style={{
-                      fontSize: 10,
-                      fontWeight: 800,
-                      padding: "2px 7px",
-                      borderRadius: 6,
-                      background: tierStyle.bg,
-                      color: tierStyle.color,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
+                      fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6,
+                      background: tierStyle.bg, color: tierStyle.color,
+                      textTransform: "uppercase", letterSpacing: "0.5px",
                     }}
                   >
                     {store.tier ?? "—"}
@@ -139,9 +153,21 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
                     {store.chain} · {store.market}
                   </span>
                 </div>
-                <p style={{ fontSize: 16, fontWeight: 800, color: "var(--color-ink-900)", lineHeight: 1.2 }}>
-                  {store.name}
-                </p>
+                {/* Clickable store name → opens full store page */}
+                <a
+                  href={`/visits/store/${store.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "block", fontSize: 17, fontWeight: 800,
+                    color: "var(--color-tc-600)", lineHeight: 1.2,
+                    textDecoration: "none", marginBottom: 3,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+                >
+                  {store.name} ↗
+                </a>
                 <p style={{ fontSize: 11, color: "var(--color-ink-300)", marginTop: 2 }}>
                   {visits.length} visit{visits.length !== 1 ? "s" : ""}
                   {visits[0] ? ` · last ${fmtDate(visits[0].visit_date)}` : ""}
@@ -157,16 +183,10 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
             onClick={onClose}
             aria-label="Close drawer"
             style={{
-              marginLeft: 12,
-              padding: "4px 8px",
-              borderRadius: 8,
-              background: "var(--color-ink-50)",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 16,
-              lineHeight: 1,
-              color: "var(--color-ink-500)",
-              flexShrink: 0,
+              marginLeft: 12, padding: "4px 8px", borderRadius: 8,
+              background: "var(--color-ink-50)", border: "none",
+              cursor: "pointer", fontSize: 16, lineHeight: 1,
+              color: "var(--color-ink-500)", flexShrink: 0,
             }}
           >
             ✕
@@ -174,7 +194,7 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
         </div>
 
         {/* Scrollable content */}
-        <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px 32px" }}>
+        <div style={{ overflowY: "auto", flex: 1, padding: "20px 20px 40px" }}>
           {loading && (
             <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 40 }}>
               Loading visits…
@@ -193,20 +213,25 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
               <div
                 key={v.id}
                 style={{
-                  marginBottom: idx < visits.length - 1 ? 24 : 0,
-                  paddingBottom: idx < visits.length - 1 ? 24 : 0,
+                  marginBottom: idx < visits.length - 1 ? 28 : 0,
+                  paddingBottom: idx < visits.length - 1 ? 28 : 0,
                   borderBottom: idx < visits.length - 1 ? "1px solid var(--color-border)" : "none",
                 }}
               >
                 {/* Visit header */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink-900)" }}>
+                <div
+                  style={{
+                    display: "flex", alignItems: "center",
+                    justifyContent: "space-between", marginBottom: 14,
+                  }}
+                >
+                  <span style={{ fontSize: 15, fontWeight: 700, color: "var(--color-ink-900)" }}>
                     {fmtDate(v.visit_date)}
                   </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 12, color: "var(--color-ink-400)" }}>{v.cm_name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 13, color: "var(--color-ink-500)" }}>{v.cm_name}</span>
                     {v.photo_count > 0 && (
-                      <span style={{ fontSize: 11, color: "var(--color-ink-300)" }}>📸 {v.photo_count}</span>
+                      <span style={{ fontSize: 12, color: "var(--color-ink-300)" }}>📸 {v.photo_count}</span>
                     )}
                   </div>
                 </div>
@@ -215,11 +240,8 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
                 {v.photo_urls.length > 0 && (
                   <div
                     style={{
-                      display: "flex",
-                      gap: 6,
-                      overflowX: "auto",
-                      marginBottom: 12,
-                      paddingBottom: 4,
+                      display: "flex", gap: 6, overflowX: "auto",
+                      marginBottom: 16, paddingBottom: 4,
                     }}
                   >
                     {v.photo_urls.map((url, i) => (
@@ -227,15 +249,10 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
                         key={i}
                         onClick={() => setLightbox(url)}
                         style={{
-                          flexShrink: 0,
-                          width: 72,
-                          height: 72,
-                          borderRadius: 8,
-                          overflow: "hidden",
+                          flexShrink: 0, width: 80, height: 80,
+                          borderRadius: 8, overflow: "hidden",
                           border: "1px solid var(--color-border)",
-                          cursor: "pointer",
-                          padding: 0,
-                          background: "none",
+                          cursor: "pointer", padding: 0, background: "none",
                         }}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -251,22 +268,29 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
 
                 {/* Sections */}
                 {filledSections.length === 0 ? (
-                  <p style={{ fontSize: 12, color: "var(--color-ink-300)" }}>No notes logged.</p>
+                  <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>No notes logged.</p>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     {filledSections.map((s) => (
                       <div
                         key={s.key}
-                        style={{
-                          borderRadius: 10,
-                          padding: "10px 12px",
-                          background: s.bg,
-                        }}
+                        style={{ borderRadius: 10, padding: "12px 14px", background: s.bg }}
                       >
-                        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-600, var(--color-ink-500))", marginBottom: 4 }}>
+                        <p
+                          style={{
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.4px",
+                            color: "var(--color-ink-600, var(--color-ink-500))",
+                            marginBottom: 6, textTransform: "uppercase",
+                          }}
+                        >
                           {s.icon} {s.label}
                         </p>
-                        <p style={{ fontSize: 13, color: "var(--color-ink-700)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
+                        <p
+                          style={{
+                            fontSize: 13.5, color: "var(--color-ink-700)",
+                            lineHeight: 1.6, whiteSpace: "pre-wrap",
+                          }}
+                        >
                           {v[s.key]}
                         </p>
                       </div>
@@ -276,6 +300,52 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
               </div>
             );
           })}
+
+          {/* Memory notes for this store */}
+          {memoryNotes.length > 0 && (
+            <div style={{ marginTop: visits.length > 0 ? 28 : 0, paddingTop: visits.length > 0 ? 28 : 0, borderTop: visits.length > 0 ? "1px solid var(--color-border)" : "none" }}>
+              <p
+                style={{
+                  fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+                  letterSpacing: "0.6px", color: "var(--color-ink-300)", marginBottom: 10,
+                }}
+              >
+                🧠 Memory notes ({memoryNotes.length})
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {memoryNotes.map((n) => (
+                  <button
+                    key={n.slug}
+                    onClick={() => onOpenNote?.(n.slug)}
+                    style={{
+                      textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                      background: "var(--color-ink-50)",
+                      border: "1px solid var(--color-border)",
+                      cursor: onOpenNote ? "pointer" : "default",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span
+                        style={{
+                          fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 4,
+                          background: SCOPE_BG[n.scope] ?? "var(--color-ink-100)",
+                          color: "var(--color-ink-700)", textTransform: "uppercase", letterSpacing: "0.4px",
+                        }}
+                      >
+                        {n.scope}
+                      </span>
+                      <p style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-900)" }}>
+                        {n.title}
+                      </p>
+                    </div>
+                    <p style={{ fontSize: 11.5, color: "var(--color-ink-500)", lineHeight: 1.4 }}>
+                      {n.summary}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -284,13 +354,9 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
         <div
           onClick={() => setLightbox(null)}
           style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 300,
+            position: "fixed", inset: 0, zIndex: 300,
             background: "rgba(0,0,0,0.82)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -302,16 +368,10 @@ export default function StoreVisitDrawer({ storeId, onClose }: Props) {
           <button
             onClick={() => setLightbox(null)}
             style={{
-              position: "absolute",
-              top: 20,
-              right: 24,
-              background: "rgba(255,255,255,0.15)",
-              border: "none",
-              color: "white",
-              fontSize: 18,
-              borderRadius: 8,
-              padding: "4px 10px",
-              cursor: "pointer",
+              position: "absolute", top: 20, right: 24,
+              background: "rgba(255,255,255,0.15)", border: "none",
+              color: "white", fontSize: 18, borderRadius: 8,
+              padding: "4px 10px", cursor: "pointer",
             }}
           >
             ✕
