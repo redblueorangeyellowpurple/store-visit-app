@@ -124,22 +124,25 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
     log(`Memory: ${notes.length} current notes`);
 
     log('Calling Claude…');
-    const result = await runDailyIntelligence({
+    const outcome = await runDailyIntelligence({
       reportDate: opts.date,
       visits,
       notes,
     });
-    if (!result) {
+    if (!outcome.ok) {
+      log(`Claude run failed: ${outcome.reason}${outcome.partial_cost_usd ? ` (partial cost ~$${outcome.partial_cost_usd.toFixed(4)})` : ''}`);
       return {
         status: 'null_result',
-        message: 'Intelligence run returned null.',
+        message: outcome.reason,
         dryRun,
         visits: visits.length,
         notesIn: notes.length,
         notesWritten: 0,
         edgesUpserted: 0,
+        costUsd: outcome.partial_cost_usd,
       };
     }
+    const result = outcome.result;
     log(
       `Claude returned: model=${result.model}  in=${result.prompt_tokens}  out=${result.completion_tokens}  cached_read=${result.cache_read_tokens}  cached_write=${result.cache_creation_tokens}  cost≈$${result.cost_usd.toFixed(4)}`,
     );

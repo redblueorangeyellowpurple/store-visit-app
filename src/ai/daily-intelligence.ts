@@ -16,7 +16,11 @@ function getClient(): Anthropic {
 // ─── Model + budget ───────────────────────────────────────────────────────────
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_OUTPUT_TOKENS = 6000;
+// 4000 keeps two back-to-back calls under the Tier-1 8K-output-tokens-per-minute
+// rate limit. Raise if/when Anthropic tier is upgraded. Combined with the prompt
+// constraints (≤5 note updates, ≤200-token bodies, ≤3 signals per pillar),
+// real output typically lands at 2500–3500 tokens.
+const MAX_OUTPUT_TOKENS = 4000;
 
 // Sonnet 4 pricing — keep in sync with https://www.anthropic.com/pricing
 const PRICE_INPUT_PER_M = 3.0;
@@ -271,29 +275,38 @@ Today's signal:
 - No recommendations. No "should." Pure intelligence.
 - A pattern needs 2+ visits to be called a pattern. One-offs live in their store note, not the brief.
 - Decay: drop items >30d from store/person memory bodies unless still active.
+- Max 3 bullets per pillar in the brief. Pick the highest-signal ones; everything else lives in memory.
 
 ### MEMORY RULES
 - Every store visited today gets its note updated (or created if absent).
 - Person notes ONLY for people mentioned 2+ times across the portfolio. One-offs stay in store notes.
 - Theme notes ONLY when 2+ visits across stores support it.
-- Each note: body <= ~300 tokens. Decay old context, keep load-bearing context.
+- Each note body_markdown: HARD CAP 200 tokens. Decay old context, keep load-bearing context.
+- Max 8 total note_updates per run (prioritize stores visited today, then people/theme touches). If you'd exceed, merge or skip — never split a note across runs.
 - related_slugs is the source of edges — make them bidirectional in your head (cron will dedupe).
 `;
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Outcome from a Claude run. Callers must check `ok` before accessing `result`.
+ * On `ok=false`, `reason` is human-readable and surfaces in admin replies,
+ * and `partial_cost_usd` carries any tokens we were billed for before the failure.
+ */
+export type IntelligenceRunOutcome =
+  | { ok: true; result: IntelligenceRunResult }
+  | { ok: false; reason: string; partial_cost_usd?: number };
+
 export async function runDailyIntelligence(args: {
   reportDate: string;
   visits: VisitForReport[];
   notes: MemoryNote[];
-}): Promise<IntelligenceRunResult | null> {
+}): Promise<IntelligenceRunOutcome> {
   if (!config.anthropic.apiKey) {
-    console.error('runDailyIntelligence: ANTHROPIC_API_KEY not set');
-    return null;
+    return { ok: false, reason: 'ANTHROPIC_API_KEY not set on bot service' };
   }
   if (args.visits.length === 0) {
-    console.log('runDailyIntelligence: no visits for', args.reportDate);
-    return null;
+    return { ok: false, reason: `no locked visits for ${args.reportDate}` };
   }
 
   // Lean prompt: only memory notes that today actually touches.
@@ -311,6 +324,13 @@ ${buildMemoryBlock(relevantNotes)}
 ---
 
 ${USER_INSTRUCTIONS}`;
+
+  // Pre-flight diagnostic — char count is a rough proxy for token count (~3.5 chars/token).
+  const promptChars = userMessage.length + SYSTEM_PROMPT.length;
+  const estTokens = Math.round(promptChars / 3.5);
+  console.log(
+    `runDailyIntelligence: prompt ~${promptChars} chars (~${estTokens} tokens) · ${args.visits.length} visits · ${relevantNotes.length} memory notes loaded`,
+  );
 
   try {
     const response = await getClient().messages.create({
@@ -330,25 +350,6 @@ ${USER_INSTRUCTIONS}`;
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error(
-        'runDailyIntelligence: hit max_tokens cap — tool call likely truncated. Raise MAX_OUTPUT_TOKENS or trim prompt.',
-      );
-      return null;
-    }
-
-    const toolUse = response.content.find(
-      (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use',
-    );
-    if (!toolUse || toolUse.name !== SUBMIT_TOOL.name) {
-      console.error(
-        'runDailyIntelligence: model did not call submit_intelligence_run. stop_reason:',
-        response.stop_reason,
-      );
-      return null;
-    }
-
-    const parsed = toolUse.input as Partial<IntelligenceRunResult>;
     const usage = response.usage;
     const cost_usd = estimateCostUsd({
       input_tokens: usage?.input_tokens ?? 0,
@@ -357,27 +358,68 @@ ${USER_INSTRUCTIONS}`;
       cache_read_input_tokens: usage?.cache_read_input_tokens ?? 0,
     });
 
+    if (response.stop_reason === 'max_tokens') {
+      return {
+        ok: false,
+        reason: `hit ${MAX_OUTPUT_TOKENS}-token output cap — Claude couldn't finish the tool call. Trim memory or raise MAX_OUTPUT_TOKENS.`,
+        partial_cost_usd: cost_usd,
+      };
+    }
+
+    const toolUse = response.content.find(
+      (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use',
+    );
+    if (!toolUse || toolUse.name !== SUBMIT_TOOL.name) {
+      return {
+        ok: false,
+        reason: `Claude returned text instead of calling submit_intelligence_run (stop_reason: ${response.stop_reason ?? 'unknown'})`,
+        partial_cost_usd: cost_usd,
+      };
+    }
+
+    const parsed = toolUse.input as Partial<IntelligenceRunResult>;
+
     return {
-      brief_markdown: parsed.brief_markdown ?? '',
-      telegram_summary: parsed.telegram_summary ?? '',
-      note_updates: parsed.note_updates ?? [],
-      edges: parsed.edges ?? [],
-      stats: parsed.stats ?? {
-        themes_active: 0,
-        themes_promoted: [],
-        notes_touched: 0,
-        new_notes: [],
+      ok: true,
+      result: {
+        brief_markdown: parsed.brief_markdown ?? '',
+        telegram_summary: parsed.telegram_summary ?? '',
+        note_updates: parsed.note_updates ?? [],
+        edges: parsed.edges ?? [],
+        stats: parsed.stats ?? {
+          themes_active: 0,
+          themes_promoted: [],
+          notes_touched: 0,
+          new_notes: [],
+        },
+        model: MODEL,
+        prompt_tokens: usage?.input_tokens ?? 0,
+        completion_tokens: usage?.output_tokens ?? 0,
+        cache_read_tokens: usage?.cache_read_input_tokens ?? 0,
+        cache_creation_tokens: usage?.cache_creation_input_tokens ?? 0,
+        cost_usd,
       },
-      model: MODEL,
-      prompt_tokens: usage?.input_tokens ?? 0,
-      completion_tokens: usage?.output_tokens ?? 0,
-      cache_read_tokens: usage?.cache_read_input_tokens ?? 0,
-      cache_creation_tokens: usage?.cache_creation_input_tokens ?? 0,
-      cost_usd,
     };
   } catch (err) {
     console.error('runDailyIntelligence error:', err);
-    return null;
+    // Rate-limit errors carry exact retry timing in the headers — surface that so
+    // the operator knows to wait, not to keep retrying (every retry within the
+    // window also 429s; some still cost partial output billing).
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 429) {
+      const headers = ((err as unknown as { headers?: Record<string, string> }).headers) ?? {};
+      const retryAfter = headers['retry-after'] ?? '60';
+      const reset = headers['anthropic-ratelimit-output-tokens-reset'];
+      const resetSuffix = reset ? ` (reset ${reset})` : '';
+      return {
+        ok: false,
+        reason:
+          `Anthropic rate limit hit — 8K output-tokens-per-minute cap (Tier 1). ` +
+          `Wait ${retryAfter}s before retrying${resetSuffix}. ` +
+          `To raise the limit, upgrade tier at console.anthropic.com/settings/billing.`,
+      };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `Anthropic API error: ${msg}` };
   }
 }
 

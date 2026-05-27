@@ -101,7 +101,15 @@ export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
       return;
     }
     if (result.status === 'null_result') {
-      await ctx.reply('❌ Claude run returned null. Check bot logs for details.');
+      const reason = result.message ?? 'unknown reason';
+      const costNote = result.costUsd
+        ? `\n\n💰 *Partial cost incurred:* ~$${result.costUsd.toFixed(4)} (Claude was billed before the failure).`
+        : '\n\n💰 *No cost incurred* (request rejected before token use).';
+      await ctx.reply(
+        `❌ *Claude run failed*\n\n${reason}${costNote}\n\n` +
+          `⚠️ Don't keep retrying — every attempt that reaches Claude can cost tokens. Wait or fix the root cause first.`,
+        { parse_mode: 'Markdown' },
+      );
       return;
     }
     if (result.status === 'validation_failed') {
