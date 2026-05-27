@@ -51,6 +51,7 @@ export interface RunFlowResult {
   bcastSent?: number;
   bcastFailed?: number;
   briefPreview?: string;
+  telegramPreview?: string;
 }
 
 export interface RunFlowOpts {
@@ -163,12 +164,17 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         cacheCreationTokens: result.cache_creation_tokens,
         costUsd: result.cost_usd,
         briefPreview: result.brief_markdown.slice(0, 1000),
+        telegramPreview: result.telegram_summary,
       };
     }
 
     if (dryRun) {
       log('─'.repeat(70));
-      log('DRY RUN — output:');
+      log('DRY RUN — Telegram summary:');
+      log('─'.repeat(70));
+      log(result.telegram_summary);
+      log('─'.repeat(70));
+      log('DRY RUN — full brief (dashboard):');
       log('─'.repeat(70));
       log(result.brief_markdown);
       log('─'.repeat(70));
@@ -188,6 +194,7 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         cacheCreationTokens: result.cache_creation_tokens,
         costUsd: result.cost_usd,
         briefPreview: result.brief_markdown,
+        telegramPreview: result.telegram_summary,
       };
     }
 
@@ -236,7 +243,10 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
       log('skipTelegram=true — not broadcasting.');
     } else {
       log('Broadcasting to intelligence recipients…');
-      const bcast = await broadcastIntelligenceBrief(result.brief_markdown);
+      const bcast = await broadcastIntelligenceBrief({
+        telegramSummary: result.telegram_summary,
+        reportDate: opts.date,
+      });
       bcastSent = bcast.sent;
       bcastFailed = bcast.failed.length;
       log(`Broadcast: sent=${bcast.sent} failed=${bcast.failed.length}`);

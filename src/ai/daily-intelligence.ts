@@ -44,7 +44,10 @@ export function estimateCostUsd(usage: {
 // ─── Result shape ─────────────────────────────────────────────────────────────
 
 export interface IntelligenceRunResult {
+  /** Full markdown brief — lives on the dashboard, organized by 4 pillars. */
   brief_markdown: string;
+  /** Compact plain-text version for Telegram (one message, no markdown). */
+  telegram_summary: string;
   note_updates: MemoryNoteWrite[];
   edges: MemoryEdgeWrite[];
   stats: {
@@ -84,7 +87,12 @@ const SUBMIT_TOOL = {
     properties: {
       brief_markdown: {
         type: 'string',
-        description: 'Full daily brief in markdown — follow the BRIEF FORMAT in the user message exactly.',
+        description: 'Full daily brief in markdown (lives on dashboard) — follow the BRIEF FORMAT in the user message exactly. Organized around 4 pillars: People, Training, Competitor, Market/Store.',
+      },
+      telegram_summary: {
+        type: 'string',
+        description:
+          'Compact ONE-MESSAGE plain-text summary for Telegram. ≤900 chars. NO markdown (no **bold**, no #headers, no tables). Format: header line, blank line, "Visited:" with • prefixed CM list, blank line, "Today\'s signal:" with one bullet per pillar that has a real signal — prefix each with its pillar emoji (👥 People, 🎓 Training, ⚔️ Competitor, 🏬 Market). Skip pillars with no signal entirely. If >7 stores visited, show first 5 + "+N more on dashboard".',
       },
       note_updates: {
         type: 'array',
@@ -128,7 +136,7 @@ const SUBMIT_TOOL = {
         required: ['themes_active', 'themes_promoted', 'notes_touched', 'new_notes'],
       },
     },
-    required: ['brief_markdown', 'note_updates', 'edges', 'stats'],
+    required: ['brief_markdown', 'telegram_summary', 'note_updates', 'edges', 'stats'],
   },
 };
 
@@ -188,7 +196,7 @@ Last touched: ${n.last_touched_at}`,
     .join('\n\n---\n\n');
 }
 
-const USER_INSTRUCTIONS = `Call submit_intelligence_run with brief_markdown, note_updates, edges, and stats.
+const USER_INSTRUCTIONS = `Call submit_intelligence_run with brief_markdown, telegram_summary, note_updates, edges, and stats.
 
 Slug conventions:
 - store: "store:<store_id>"
@@ -199,48 +207,69 @@ Slug conventions:
 scope_ref = store_id for store notes, the slug body for everything else.
 Each note body_markdown ≤ ~300 tokens; decay items >30d unless still active.
 
-### BRIEF FORMAT (markdown — goes in brief_markdown)
+### FOUR PILLARS (same taxonomy used by brief, telegram_summary, and memory)
+
+- 👥 People — relationships, good news, sales opportunities, staff dynamics, allies, customer reactions.
+- 🎓 Training — who was trained, training quality, knowledge gaps, requests for more training.
+- ⚔️ Competitor — rival activity (Bose, Sony, Samsung, JBL, Marshall), launches, pricing, share-of-shelf, promoter strength.
+- 🏬 Market / Store — display quality, stock issues, channel-level trends, store performance signals.
+
+A pillar section appears in the output ONLY if today's visits produced a real signal for it. Empty pillars are skipped, not stubbed.
+
+### BRIEF FORMAT (markdown — goes in brief_markdown, rendered on dashboard)
 
 # 📍 Daily Intelligence Brief — <date>
 
-## 🎯 Today's signal
-- <bullet 1>
-- <bullet 2>
-- <bullet 3>
-- → <implication or open window — keep crisp>
+## 🚶 Visited today
 
-(Skip section if no real cross-visit pattern today.)
+| Store | CM |
+|---|---|
+| <store name> | <CM full name> |
+| ... | ... |
 
-## 🟢 Wins
+<N visits · M CMs · K outlets>
 
-| Where | What | Who |
-|---|---|---|
-| <store> | <what happened> | <who closed it> |
+## 👥 People
+- <signal>
+- <signal>
 
-## 🔴 Competitor moves
+## 🎓 Training
+- <signal>
 
-| Brand | Move | Where | Source |
-|---|---|---|---|
-| Bose / JBL / Sony / Samsung / Marshall | <what they did> | <store> | <staff who reported> |
+## ⚔️ Competitor
+- <signal>
 
-## 🟡 Watch
-- <store>: <concern>
-- ...
+## 🏬 Market & Store
+- <signal>
 
 ## 🧵 Threads
 - <theme name> — <Nth visit / M days>, <what's new>
-- ...
 
----
+(Skip any pillar section that has no real signal today. Threads only if 2+ visits across stores support a theme.)
 
-<footer line: <N> visits · <M> CMs · <K> outlets · Key people today: <comma list>>
+### TELEGRAM_SUMMARY FORMAT (plain text, no markdown, one message ≤900 chars)
+
+📍 Intel — <date, e.g. Mon 26 May 2026>
+<N visits · M stores · K CMs>
+
+Visited:
+• <Store> — <CM>
+• <Store> — <CM>
+(If >7 stores: show first 5 + "+<N> more on dashboard")
+
+Today's signal:
+👥 <one-line people signal>
+🎓 <one-line training signal>
+⚔️ <one-line competitor signal>
+🏬 <one-line market signal>
+
+(Skip any pillar that has no signal — do not stub with "—" or "none today". Drop the line entirely.)
 
 ### RULES
-- Quote staff / store / product names verbatim. Never "a CM" or "a competitor."
-- Lean. Bullets and tables, not paragraphs. Skip empty sections entirely.
+- Quote staff / store / product / brand names verbatim. Never "a CM" or "a competitor."
+- Lean. Bullets, no paragraphs. Skip empty sections entirely (don't stub).
 - No recommendations. No "should." Pure intelligence.
-- A pattern needs 2+ visits to be called a pattern. One-offs stay under their store note.
-- Promotion: a theme moves from "watching" to "active" when 2+ visits across stores support it.
+- A pattern needs 2+ visits to be called a pattern. One-offs live in their store note, not the brief.
 - Decay: drop items >30d from store/person memory bodies unless still active.
 
 ### MEMORY RULES
@@ -330,6 +359,7 @@ ${USER_INSTRUCTIONS}`;
 
     return {
       brief_markdown: parsed.brief_markdown ?? '',
+      telegram_summary: parsed.telegram_summary ?? '',
       note_updates: parsed.note_updates ?? [],
       edges: parsed.edges ?? [],
       stats: parsed.stats ?? {
@@ -367,6 +397,14 @@ export function validateRunResult(
 
   if (!result.brief_markdown || result.brief_markdown.length < 50) {
     return { ok: false, warnings, reason: 'brief_markdown empty or too short' };
+  }
+  if (!result.telegram_summary || result.telegram_summary.length < 30) {
+    return { ok: false, warnings, reason: 'telegram_summary empty or too short' };
+  }
+  if (result.telegram_summary.length > 1200) {
+    warnings.push(
+      `telegram_summary is ${result.telegram_summary.length} chars (target ≤900) — may exceed one Telegram message`,
+    );
   }
 
   // Brief must mention at least one store visited today (no hallucination check)

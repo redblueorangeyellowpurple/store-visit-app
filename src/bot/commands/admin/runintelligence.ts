@@ -119,15 +119,17 @@ export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
     const costLine = formatCost(result);
 
     if (dryRun) {
-      const preview = (result.briefPreview ?? '').slice(0, 1500);
+      // For dry-run, show what the Telegram broadcast would look like — that's
+      // the format Wilson is iterating on. The full dashboard brief is in
+      // briefPreview but skipped here to keep the reply scannable.
+      const tgPreview = (result.telegramPreview ?? '').slice(0, 1500);
       await ctx.reply(
         `*Dry-run preview* — ${result.visits} visits, ${result.notesWritten} note updates queued.\n\n` +
-          '```\n' +
-          preview +
-          ((result.briefPreview?.length ?? 0) > 1500 ? '\n…(truncated)' : '') +
-          '\n```\n\n' +
+          `*Telegram message (what recipients would see):*\n\`\`\`\n` +
+          tgPreview +
+          `\n\`\`\`\n\n` +
           costLine +
-          '\n_No DB writes, no broadcast._',
+          '\n_No DB writes, no broadcast. Full dashboard brief is in the bot logs._',
         { parse_mode: 'Markdown' },
       );
       return;
