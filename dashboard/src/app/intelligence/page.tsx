@@ -99,6 +99,16 @@ function fmtRelative(iso: string): string {
   return fmtDateShort(iso);
 }
 
+/**
+ * Strip legacy "## 📊 Analytics" sections from stored brief markdown.
+ * The Channel Managers React component above the brief now shows this data live.
+ * Old stored briefs may still contain the Analytics table — remove it at render time.
+ */
+function stripAnalyticsSection(md: string): string {
+  // Matches from ## 📊 Analytics (or ## Analytics) to the next ## / # heading or end of string
+  return md.replace(/\n## (?:📊 )?Analytics[\s\S]*?(?=\n## |\n# |$)/, "");
+}
+
 export default function IntelligencePage() {
   const [user, setUser] = useState<User | null>(null);
   const [reports, setReports] = useState<ReportSummary[]>([]);
@@ -327,7 +337,7 @@ export default function IntelligencePage() {
                     },
                   }}
                 >
-                  {report.brief_markdown}
+                  {stripAnalyticsSection(report.brief_markdown)}
                 </ReactMarkdown>
               </div>
             </>
