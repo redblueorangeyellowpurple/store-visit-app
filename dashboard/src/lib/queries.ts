@@ -19,6 +19,8 @@ export interface VisitRow {
   photo_urls: string[];
   sections_filled: number;
   edited_at: string | null;
+  training_count: number;
+  follow_up_count: number;
 }
 
 export interface StaffRow {
@@ -185,6 +187,8 @@ export async function getVisitsFeed(opts: {
       photo_urls: [],
       sections_filled: countSections(row),
       edited_at: row.edited_at,
+      training_count: 0,
+      follow_up_count: 0,
     };
   });
 
@@ -212,6 +216,37 @@ export async function getVisitsFeed(opts: {
       const paths = pathsByVisit.get(v.id) ?? [];
       v.photo_count = paths.length;
       v.photo_urls = paths.map((p) => signedMap.get(p) ?? "").filter(Boolean);
+    }
+
+    // Training counts: staff marked was_trained for each visit
+    const { data: trainedRows, error: trainedErr } = await supabase
+      .from("visit_staff")
+      .select("visit_id")
+      .in("visit_id", ids)
+      .eq("was_trained", true);
+    if (!trainedErr && trainedRows) {
+      const countMap = new Map<string, number>();
+      for (const r of trainedRows) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vid = (r as any).visit_id as string;
+        countMap.set(vid, (countMap.get(vid) ?? 0) + 1);
+      }
+      for (const v of visits) v.training_count = countMap.get(v.id) ?? 0;
+    }
+
+    // Follow-up counts: structured follow-ups created from each visit
+    const { data: fuRows, error: fuErr } = await supabase
+      .from("visit_follow_ups")
+      .select("visit_id")
+      .in("visit_id", ids);
+    if (!fuErr && fuRows) {
+      const countMap = new Map<string, number>();
+      for (const r of fuRows) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vid = (r as any).visit_id as string;
+        countMap.set(vid, (countMap.get(vid) ?? 0) + 1);
+      }
+      for (const v of visits) v.follow_up_count = countMap.get(v.id) ?? 0;
     }
   }
 

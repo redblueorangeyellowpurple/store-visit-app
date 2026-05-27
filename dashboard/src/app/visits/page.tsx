@@ -22,6 +22,8 @@ interface VisitRow {
   photo_count: number;
   photo_urls: string[];
   edited_at: string | null;
+  training_count: number;
+  follow_up_count: number;
 }
 
 interface CMOption { telegram_id: number; name: string }
@@ -257,6 +259,18 @@ export default function VisitsPage() {
                           <>
                             <span className="visit-meta-item">·</span>
                             <span className="visit-meta-item">📸 {v.photo_count}</span>
+                          </>
+                        )}
+                        {v.training_count > 0 && (
+                          <>
+                            <span className="visit-meta-item">·</span>
+                            <span className="visit-meta-item">🎓 {v.training_count} trained</span>
+                          </>
+                        )}
+                        {v.follow_up_count > 0 && (
+                          <>
+                            <span className="visit-meta-item">·</span>
+                            <span className="visit-meta-item">📌 {v.follow_up_count} follow-up{v.follow_up_count !== 1 ? "s" : ""}</span>
                           </>
                         )}
                         {v.edited_at && (
