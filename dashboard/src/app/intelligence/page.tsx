@@ -40,6 +40,8 @@ interface NoteSummary {
 }
 
 type ScopeFilter = "all" | "theme" | "store" | "person" | "channel";
+type TierFilter = "all" | "short" | "long";
+type SortBy = "recent" | "updated" | "alpha";
 
 const SCOPE_TABS: { value: ScopeFilter; label: string; icon: string }[] = [
   { value: "all", label: "All", icon: "✦" },
@@ -47,6 +49,18 @@ const SCOPE_TABS: { value: ScopeFilter; label: string; icon: string }[] = [
   { value: "store", label: "Stores", icon: "🏬" },
   { value: "person", label: "People", icon: "👤" },
   { value: "channel", label: "Channels", icon: "🔗" },
+];
+
+const TIER_TABS: { value: TierFilter; label: string }[] = [
+  { value: "all", label: "All tiers" },
+  { value: "short", label: "Short-term" },
+  { value: "long", label: "Long-term" },
+];
+
+const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: "recent", label: "Recent" },
+  { value: "updated", label: "Most updated" },
+  { value: "alpha", label: "A–Z" },
 ];
 
 function fmtDate(iso: string): string {
@@ -82,6 +96,10 @@ export default function IntelligencePage() {
   const [report, setReport] = useState<ReportFull | null>(null);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
+  const [tier, setTier] = useState<TierFilter>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
+  const [search, setSearch] = useState("");
+  const [touchedOnly, setTouchedOnly] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -124,9 +142,32 @@ export default function IntelligencePage() {
   }, [activeDate]);
 
   const filteredNotes = useMemo(() => {
-    if (scope === "all") return notes;
-    return notes.filter((n) => n.scope === scope);
-  }, [notes, scope]);
+    const q = search.trim().toLowerCase();
+    let out = notes.slice();
+    if (scope !== "all") out = out.filter((n) => n.scope === scope);
+    if (tier !== "all") out = out.filter((n) => n.tier === tier);
+    if (touchedOnly && activeDate) {
+      out = out.filter((n) => n.last_touched_at.slice(0, 10) === activeDate);
+    }
+    if (q) {
+      out = out.filter(
+        (n) => n.title.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q),
+      );
+    }
+    if (sortBy === "recent") {
+      out.sort((a, b) => b.last_touched_at.localeCompare(a.last_touched_at));
+    } else if (sortBy === "updated") {
+      out.sort((a, b) => b.version - a.version || b.last_touched_at.localeCompare(a.last_touched_at));
+    } else {
+      out.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return out;
+  }, [notes, scope, tier, sortBy, search, touchedOnly, activeDate]);
+
+  const touchedCount = useMemo(() => {
+    if (!activeDate) return 0;
+    return notes.filter((n) => n.last_touched_at.slice(0, 10) === activeDate).length;
+  }, [notes, activeDate]);
 
   async function saveEdit() {
     if (!activeDate) return;
@@ -286,7 +327,7 @@ export default function IntelligencePage() {
             </p>
           </div>
 
-          <div className="flex gap-1.5 mb-3">
+          <div className="flex flex-wrap gap-1.5 mb-3">
             {SCOPE_TABS.map((tab) => {
               const isActive = scope === tab.value;
               const count = tab.value === "all" ? notes.length : notes.filter((n) => n.scope === tab.value).length;
@@ -307,6 +348,72 @@ export default function IntelligencePage() {
                 </button>
               );
             })}
+          </div>
+
+          {/* Filter bar: search + sort + tier chips + touched-in-brief toggle */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search title or summary…"
+              className="rounded-lg px-3 py-1.5 text-[12px] flex-1 min-w-[180px]"
+              style={{
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-ink-900)",
+              }}
+            />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className="rounded-lg px-2 py-1.5 text-[12px] font-medium"
+              style={{
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-ink-700)",
+              }}
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>Sort: {o.label}</option>
+              ))}
+            </select>
+            <div className="flex gap-1">
+              {TIER_TABS.map((t) => {
+                const isActive = tier === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    onClick={() => setTier(t.value)}
+                    className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
+                    style={{
+                      background: isActive ? "var(--color-tc-50)" : "transparent",
+                      color: isActive ? "var(--color-tc-600)" : "var(--color-ink-500)",
+                      fontWeight: isActive ? 700 : 500,
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            {activeDate && (
+              <button
+                onClick={() => setTouchedOnly((v) => !v)}
+                disabled={touchedCount === 0}
+                className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: touchedOnly ? "var(--color-tc-500)" : "transparent",
+                  color: touchedOnly ? "#fff" : "var(--color-ink-500)",
+                  border: "1px solid var(--color-border)",
+                  fontWeight: touchedOnly ? 700 : 500,
+                }}
+                title={`${touchedCount} notes touched by the ${fmtDateShort(activeDate)} brief`}
+              >
+                🔗 Touched in this brief
+                <span className="ml-1 opacity-75">{touchedCount}</span>
+              </button>
+            )}
           </div>
 
           <div className="grid gap-2">
@@ -361,7 +468,9 @@ export default function IntelligencePage() {
             ))}
             {filteredNotes.length === 0 && (
               <p className="text-[13px] text-center py-6" style={{ color: "var(--color-ink-300)" }}>
-                No {scope === "all" ? "" : scope} notes yet.
+                {search || tier !== "all" || touchedOnly
+                  ? "No notes match the current filters."
+                  : `No ${scope === "all" ? "" : scope} notes yet.`}
               </p>
             )}
           </div>
