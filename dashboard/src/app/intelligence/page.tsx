@@ -10,6 +10,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
 import StoreVisitDrawer from "@/components/StoreVisitDrawer";
 import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
+import ChannelManagersSection from "@/components/ChannelManagersSection";
 
 // Allow <details> and <summary> HTML tags through the sanitizer
 const sanitizeSchema = {
@@ -254,6 +255,12 @@ export default function IntelligencePage() {
             </div>
           )}
         </header>
+
+        {/* Channel Managers — live visit analytics for the selected date */}
+        <ChannelManagersSection
+          date={activeDate}
+          onOpenStore={(id) => setDrawerStoreId(id)}
+        />
 
         {/* Brief */}
         <section
