@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { TrainedStaffItem, FollowUpItem } from "@/lib/queries";
+import { TrainedStaffItem, FollowUpItem, CMOption } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +30,6 @@ interface VisitRow {
   follow_up_items: FollowUpItem[];
 }
 
-interface CMOption { telegram_id: number; name: string }
 interface User { first_name: string; username?: string }
 
 interface StoreNode { id: string; name: string; tier: string | null }
@@ -77,6 +76,21 @@ const SECTIONS = [
 
 type SectionKey = typeof SECTIONS[number]["key"];
 
+// Markets for CM dropdown grouping
+const MARKET_ORDER_CM = ["SG", "MY", "TH", "HK"];
+const MARKET_FLAG_CM: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+
+// Tier ordering for browse tree
+const TIER_ORDER: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
+function sortStoresByTier(stores: StoreNode[]): StoreNode[] {
+  return [...stores].sort((a, b) => {
+    const ta = a.tier ? (TIER_ORDER[a.tier] ?? 99) : 99;
+    const tb = b.tier ? (TIER_ORDER[b.tier] ?? 99) : 99;
+    if (ta !== tb) return ta - tb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 const TIER_STYLE: Record<string, { bg: string; color: string }> = {
   T1: { bg: "var(--color-tier-t1-bg)", color: "var(--color-tier-t1-fg)" },
   T2: { bg: "var(--color-tier-t2-bg)", color: "var(--color-tier-t2-fg)" },
@@ -121,7 +135,11 @@ export default function VisitsPage() {
   const [openChains,    setOpenChains]    = useState<Set<string>>(new Set());
   const [focusSection,  setFocusSection]  = useState<SectionKey | null>(null);
   const [lightbox,      setLightbox]      = useState<string | null>(null);
-  const feedRef = useRef<HTMLDivElement>(null);
+  const feedRef       = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth]     = useState(340);
+  const [cmDropdownOpen, setCmDropdownOpen] = useState(false);
+  const cmDropdownRef  = useRef<HTMLDivElement>(null);
+  const dragState      = useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Bootstrap
   useEffect(() => {
@@ -146,6 +164,18 @@ export default function VisitsPage() {
   }, [selection, filterCM]);
 
   useEffect(() => { fetchVisits(); }, [fetchVisits]);
+
+  // Close CM dropdown when clicking outside
+  useEffect(() => {
+    if (!cmDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (cmDropdownRef.current && !cmDropdownRef.current.contains(e.target as Node)) {
+        setCmDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [cmDropdownOpen]);
 
   if (!user) return null;
 
@@ -184,6 +214,42 @@ export default function VisitsPage() {
     setFocusSection(null);
   }
 
+  function handleResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    dragState.current = { startX: e.clientX, startWidth: sidebarWidth };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    function onMove(ev: MouseEvent) {
+      if (!dragState.current) return;
+      const delta = ev.clientX - dragState.current.startX;
+      setSidebarWidth(Math.max(160, Math.min(620, dragState.current.startWidth + delta)));
+    }
+    function onUp() {
+      dragState.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  // Build CM groups for custom dropdown
+  const cmsByMarketMap = new Map<string, CMOption[]>();
+  for (const cm of cms) {
+    const m = cm.market ?? "Other";
+    if (!cmsByMarketMap.has(m)) cmsByMarketMap.set(m, []);
+    cmsByMarketMap.get(m)!.push(cm);
+  }
+  const cmGroups = [
+    ...MARKET_ORDER_CM.filter(m => cmsByMarketMap.has(m)).map(m => ({
+      market: m, flag: MARKET_FLAG_CM[m] ?? m, cms: cmsByMarketMap.get(m)!,
+    })),
+    ...(cmsByMarketMap.has("Other") ? [{ market: "Other", flag: "🌐", cms: cmsByMarketMap.get("Other")! }] : []),
+  ];
+  const selectedCmName = cms.find(c => String(c.telegram_id) === filterCM)?.name ?? "All CMs";
+
   return (
     <div>
       <NavBar user={user} />
@@ -191,22 +257,46 @@ export default function VisitsPage() {
       <div className="visits-inbox">
 
         {/* ── LEFT SIDEBAR ──────────────────────────────────── */}
-        <div className="visits-sidebar">
-          <div className="visits-sidebar-inner">
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        <div className="visits-sidebar" style={{ "--sidebar-w": sidebarWidth + "px" } as any}>
 
-            {/* CM filter */}
-            <p className="vsb-section-label">Filter</p>
+          {/* Pinned filter area (outside scroll so dropdown doesn't clip) */}
+          <div className="vsb-filter-area">
+            <p className="vsb-section-label" style={{ marginBottom: 6 }}>CM Filter</p>
             {cms.length > 0 && (
-              <select
-                value={filterCM}
-                onChange={e => setFilterCM(e.target.value)}
-                className="filter-select"
-                style={{ width: "100%", marginBottom: 10 }}
-              >
-                <option value="">All CMs</option>
-                {cms.map(c => <option key={c.telegram_id} value={c.telegram_id}>{c.name}</option>)}
-              </select>
+              <div className="cm-dropdown" ref={cmDropdownRef}>
+                <button
+                  className={`cm-dropdown-btn${cmDropdownOpen ? " open" : ""}`}
+                  onClick={() => setCmDropdownOpen(o => !o)}
+                >
+                  <span className="cm-dropdown-btn-label">{selectedCmName}</span>
+                  <span className="cm-dropdown-arrow">▼</span>
+                </button>
+                {cmDropdownOpen && (
+                  <div className="cm-dropdown-panel">
+                    <div
+                      className={`cm-dropdown-all${filterCM === "" ? " selected" : ""}`}
+                      onClick={() => { setFilterCM(""); setCmDropdownOpen(false); }}
+                    >All CMs</div>
+                    {cmGroups.map(g => (
+                      <div key={g.market}>
+                        <div className="cm-dropdown-mkt-header">{g.flag} {g.market}</div>
+                        {g.cms.map(c => (
+                          <div
+                            key={c.telegram_id}
+                            className={`cm-dropdown-item${String(c.telegram_id) === filterCM ? " selected" : ""}`}
+                            onClick={() => { setFilterCM(String(c.telegram_id)); setCmDropdownOpen(false); }}
+                          >{c.name}</div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
+          </div>
+
+          <div className="visits-sidebar-inner">
 
             {/* Section chips */}
             <div className="section-chips" style={{ marginBottom: 2 }}>
@@ -273,7 +363,7 @@ export default function VisitsPage() {
                           {ch.chain}
                         </div>
 
-                        {chOpen && ch.stores.map(st => {
+                        {chOpen && sortStoresByTier(ch.stores).map(st => {
                           const stActive = selection.type === "store" && selection.storeId === st.id;
                           return (
                             <div
@@ -301,6 +391,9 @@ export default function VisitsPage() {
 
           </div>
         </div>
+
+        {/* ── RESIZE HANDLE ────────────────────────────────── */}
+        <div className="visits-resize-handle" onMouseDown={handleResizeMouseDown} />
 
         {/* ── RIGHT FEED PANEL ──────────────────────────────── */}
         <div className="visits-feed-panel">

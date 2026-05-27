@@ -56,7 +56,7 @@ export interface StaffRow {
   last_trained_products?: string | null;
 }
 
-export interface CMOption { telegram_id: number; name: string }
+export interface CMOption { telegram_id: number; name: string; market: string | null }
 export interface StoreOption { id: string; name: string; chain: string; tier: string | null; market?: 'SG' | 'MY' | 'TH' | 'HK' }
 
 export interface TeamStats {
@@ -288,8 +288,8 @@ export async function getVisitsFeed(opts: {
 }
 
 export async function getCMsList(): Promise<CMOption[]> {
-  const { data } = await supabase.from("cms").select("telegram_id, full_name").order("full_name");
-  return (data ?? []).map((r: { telegram_id: number; full_name: string }) => ({ telegram_id: r.telegram_id, name: r.full_name }));
+  const { data } = await supabase.from("cms").select("telegram_id, full_name, market").order("full_name");
+  return (data ?? []).map((r: { telegram_id: number; full_name: string; market: string | null }) => ({ telegram_id: r.telegram_id, name: r.full_name, market: r.market }));
 }
 
 export async function getStoresList(): Promise<StoreOption[]> {

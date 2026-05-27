@@ -1047,13 +1047,21 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 
 /* Left sidebar */
 .visits-sidebar {
-  width: 256px;
+  position: relative;
+  z-index: 10;
+  width: var(--sidebar-w, 340px);
   flex-shrink: 0;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* no overflow:hidden — allows CM dropdown to float over feed */
+}
+/* Pinned filter zone (outside scroll, so dropdown isn't clipped) */
+.vsb-filter-area {
+  flex-shrink: 0;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid var(--color-border);
 }
 .visits-sidebar-inner {
   flex: 1;
@@ -1210,26 +1218,31 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   font-weight: 500;
 }
 
-/* Section chips (compact) */
-.section-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+/* Section chips (vertical list) */
+.section-chips { display: flex; flex-direction: column; gap: 3px; }
 .section-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 9px;
-  border-radius: 20px;
-  font-size: 11px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px;
+  width: 100%;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 600;
-  background: var(--color-ink-50);
-  color: var(--color-ink-400);
-  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-ink-500);
+  border: none;
   cursor: pointer;
   transition: all 0.1s;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-family: inherit;
 }
-.section-chip:hover { color: var(--color-ink-700); border-color: var(--color-border-strong); }
+.section-chip:hover { background: var(--color-ink-50); color: var(--color-ink-700); }
 .section-chip.active {
   background: var(--color-tc-50);
   color: var(--color-tc-600);
-  border-color: var(--color-tc-100);
+  font-weight: 700;
 }
 
 /* Mobile: stack sidebar above feed */
@@ -1240,11 +1253,12 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
     overflow: visible;
   }
   .visits-sidebar {
-    width: 100%;
+    width: 100% !important; /* override --sidebar-w custom property */
     border-right: none;
     border-bottom: 1px solid var(--color-border);
-    max-height: 280px;
+    max-height: 360px;
   }
+  .visits-resize-handle { display: none; }
   .visits-feed-panel {
     height: auto;
     overflow: visible;
@@ -1253,4 +1267,109 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
     overflow: visible;
     padding: 12px 12px 32px;
   }
+}
+
+/* ── Drag-resize handle ──────────────────────────────────── */
+.visits-resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  position: relative;
+  cursor: col-resize;
+  background: var(--color-border);
+  transition: background 0.15s;
+  z-index: 5;
+}
+.visits-resize-handle:hover { background: var(--color-tc-500); }
+
+/* ── CM dropdown ─────────────────────────────────────────── */
+.cm-dropdown { position: relative; width: 100%; }
+.cm-dropdown-btn {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 7px 10px 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-700);
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  transition: border-color 0.15s;
+  text-align: left;
+  min-width: 0;
+}
+.cm-dropdown-btn:hover { border-color: var(--color-tc-500); }
+.cm-dropdown-btn.open {
+  border-color: var(--color-tc-500);
+  box-shadow: 0 0 0 3px var(--color-tc-50);
+}
+.cm-dropdown-btn-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cm-dropdown-arrow {
+  font-size: 9px;
+  color: var(--color-ink-300);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.cm-dropdown-btn.open .cm-dropdown-arrow { transform: rotate(180deg); }
+.cm-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  z-index: 100;
+  overflow: hidden;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.cm-dropdown-all {
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-700);
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid var(--color-border);
+}
+.cm-dropdown-all:hover { background: var(--color-ink-50); }
+.cm-dropdown-all.selected { background: var(--color-tc-50); color: var(--color-tc-600); }
+.cm-dropdown-mkt-header {
+  padding: 5px 14px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-ink-300);
+  background: var(--color-ink-50);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+}
+.cm-dropdown-item {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-ink-700);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.cm-dropdown-item:hover { background: var(--color-ink-50); }
+.cm-dropdown-item.selected {
+  background: var(--color-tc-50);
+  color: var(--color-tc-600);
+  font-weight: 700;
 }
