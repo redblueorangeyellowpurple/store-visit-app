@@ -21,70 +21,6 @@ function fmtTime(iso: string): string {
   });
 }
 
-// ─── Sub-tables (Good News / Competitor / Display & Stock) ───────────────────
-
-interface SectionEntry {
-  cm_name: string;
-  store_id: string;
-  store_name: string;
-  content: string;
-  locked_at: string;
-}
-
-interface SectionTableProps {
-  title: string;
-  icon: string;
-  market: string;
-  entries: SectionEntry[];
-  onOpenStore: (storeId: string) => void;
-}
-
-function SectionTable({ title, icon, market, entries, onOpenStore }: SectionTableProps) {
-  if (entries.length === 0) return null;
-  return (
-    <div className="mt-4">
-      <h4 className="text-[11px] font-bold uppercase tracking-wider mb-2"
-        style={{ color: "var(--color-ink-400)" }}>
-        {icon} {title} — {MARKET_FLAG[market]} {market}
-      </h4>
-      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--color-border)" }}>
-        <table className="w-full text-[12px]">
-          <thead>
-            <tr style={{ background: "var(--color-ink-50)" }}>
-              <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-ink-500)", width: "15%" }}>CM</th>
-              <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-ink-500)", width: "18%" }}>Store</th>
-              <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-ink-500)" }}>Note</th>
-              <th className="text-right px-3 py-2 font-semibold whitespace-nowrap" style={{ color: "var(--color-ink-500)", width: "8%" }}>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e, i) => (
-              <tr key={i} style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined }}>
-                <td className="px-3 py-2 align-top" style={{ color: "var(--color-ink-700)" }}>{e.cm_name.split(" ").slice(-1)[0]}</td>
-                <td className="px-3 py-2 align-top">
-                  <button
-                    onClick={() => onOpenStore(e.store_id)}
-                    className="text-left hover:underline"
-                    style={{ color: "var(--color-tc-600)", fontWeight: 600 }}
-                  >
-                    {e.store_name}
-                  </button>
-                </td>
-                <td className="px-3 py-2 align-top leading-snug" style={{ color: "var(--color-ink-700)" }}>
-                  {e.content}
-                </td>
-                <td className="px-3 py-2 align-top text-right whitespace-nowrap" style={{ color: "var(--color-ink-300)" }}>
-                  {fmtTime(e.locked_at)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 // ─── CM Visit Row (returns <td> fragments, parent owns the <tr>) ─────────────
 
 interface CMRowProps {
@@ -146,20 +82,6 @@ interface MarketGroupBlockProps {
 function MarketGroupBlock({ group, onOpenStore }: MarketGroupBlockProps) {
   const [expanded, setExpanded] = useState(true);
 
-  // Build sub-table entries by section
-  const goodNews: SectionEntry[] = [];
-  const competitor: SectionEntry[] = [];
-  const displayStock: SectionEntry[] = [];
-
-  for (const cm of group.cms) {
-    for (const v of cm.visits) {
-      const base = { cm_name: cm.full_name, store_id: v.store_id, store_name: v.store_name, locked_at: v.locked_at };
-      if (v.good_news) goodNews.push({ ...base, content: v.good_news });
-      if (v.competitors) competitor.push({ ...base, content: v.competitors });
-      if (v.display_stock) displayStock.push({ ...base, content: v.display_stock });
-    }
-  }
-
   return (
     <div
       className="rounded-2xl overflow-hidden"
@@ -215,28 +137,6 @@ function MarketGroupBlock({ group, onOpenStore }: MarketGroupBlockProps) {
             </table>
           </div>
 
-          {/* Sub-tables: Good News, Competitor, Display & Stock */}
-          <SectionTable
-            title="Good News"
-            icon="🌟"
-            market={group.market}
-            entries={goodNews}
-            onOpenStore={onOpenStore}
-          />
-          <SectionTable
-            title="Competitor Intelligence"
-            icon="🔍"
-            market={group.market}
-            entries={competitor}
-            onOpenStore={onOpenStore}
-          />
-          <SectionTable
-            title="Display & Stock"
-            icon="📦"
-            market={group.market}
-            entries={displayStock}
-            onOpenStore={onOpenStore}
-          />
         </div>
       )}
     </div>
