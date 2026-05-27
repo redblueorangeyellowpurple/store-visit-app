@@ -231,12 +231,13 @@ body {
 }
 .visit-card-header:hover { background: var(--color-ink-50); }
 .visit-card-store { flex: 1; min-width: 0; }
-.visit-store-name { font-size: 14px; font-weight: 700; color: var(--color-ink-900); }
+.visit-store-name { font-size: 16px; font-weight: 700; color: var(--color-ink-900); }
 .visit-meta-row { display: flex; align-items: center; gap: 12px; margin-top: 3px; flex-wrap: wrap; }
-.visit-meta-item { font-size: 12px; color: var(--color-ink-400); font-weight: 500; }
+.visit-meta-item { font-size: 13px; color: var(--color-ink-400); font-weight: 500; }
 .visit-sections { display: flex; gap: 2px; align-items: center; }
 .visit-section-dot { width: 9px; height: 9px; border-radius: 2px; }
-.visit-chevron { font-size: 12px; color: var(--color-ink-300); flex-shrink: 0; }
+.visit-chevron { font-size: 14px; color: var(--color-ink-300); flex-shrink: 0; transition: transform 0.2s; }
+.visit-chevron.open { transform: rotate(90deg); }
 
 .visit-detail {
   padding: 0 18px 16px;
@@ -248,10 +249,10 @@ body {
 }
 .visit-section-label {
   display: flex; align-items: center; gap: 6px;
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
   margin-bottom: 6px;
 }
-.visit-section-text { font-size: 12px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
+.visit-section-text { font-size: 14px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
 
 /* ── Filter bar ─────────────────────────────────────────── */
 .filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -303,7 +304,7 @@ body {
 }
 .photo-strip::-webkit-scrollbar { display: none; }
 .photo-thumb {
-  flex-shrink: 0; width: 120px; height: 120px;
+  flex-shrink: 0; width: 160px; height: 160px;
   border-radius: 12px; overflow: hidden;
   border: none; padding: 0; cursor: pointer;
   background: var(--color-ink-100);
@@ -1071,7 +1072,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   scrollbar-color: var(--color-border) transparent;
 }
 .vsb-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.7px;
@@ -1087,7 +1088,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   gap: 6px;
   padding: 6px 10px 6px 6px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--color-ink-700);
   cursor: pointer;
@@ -1133,13 +1134,13 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   gap: 10px;
 }
 .vfp-title {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--color-ink-900);
   letter-spacing: -0.2px;
 }
 .vfp-count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-ink-300);
   font-weight: 500;
 }
@@ -1161,7 +1162,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 .day-divider:first-child { margin-top: 0; }
 .day-divider-line { flex: 1; border: none; border-top: 1px solid var(--color-border); }
 .day-divider-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--color-ink-300);
   text-transform: uppercase;
@@ -1218,30 +1219,39 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   font-weight: 500;
 }
 
-/* Section chips (vertical list) */
-.section-chips { display: flex; flex-direction: column; gap: 3px; }
-.section-chip {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 9px;
-  width: 100%;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  background: transparent;
-  color: var(--color-ink-500);
-  border: none;
-  cursor: pointer;
-  transition: all 0.1s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: left;
-  font-family: inherit;
+/* Section filter bar (horizontal pill strip above feed) */
+.vfp-section-bar {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.section-chip:hover { background: var(--color-ink-50); color: var(--color-ink-700); }
+.vfp-section-bar::-webkit-scrollbar { display: none; }
+
+/* Section chips (horizontal pills) */
+.section-chips { display: flex; align-items: center; gap: 6px; }
+.section-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--color-ink-50);
+  color: var(--color-ink-500);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.section-chip:hover { color: var(--color-ink-700); border-color: var(--color-border-strong); }
 .section-chip.active {
   background: var(--color-tc-50);
   color: var(--color-tc-600);
+  border-color: var(--color-tc-100);
   font-weight: 700;
 }
 
@@ -1289,7 +1299,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 7px 10px 7px 12px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-ink-700);
   cursor: pointer;
@@ -1361,7 +1371,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 }
 .cm-dropdown-item {
   padding: 8px 14px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--color-ink-700);
   cursor: pointer;

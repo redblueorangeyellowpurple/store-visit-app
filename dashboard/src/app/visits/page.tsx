@@ -133,7 +133,8 @@ export default function VisitsPage() {
   const [selection,     setSelection]     = useState<Selection>({ type: "all" });
   const [openMarkets,   setOpenMarkets]   = useState<Set<string>>(new Set(["SG"]));
   const [openChains,    setOpenChains]    = useState<Set<string>>(new Set());
-  const [focusSection,  setFocusSection]  = useState<SectionKey | null>(null);
+  const [focusSections, setFocusSections] = useState<Set<SectionKey>>(new Set());
+  const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
   const [lightbox,      setLightbox]      = useState<string | null>(null);
   const feedRef       = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth]     = useState(340);
@@ -179,10 +180,10 @@ export default function VisitsPage() {
 
   if (!user) return null;
 
-  // Filter by section focus
-  const filtered = focusSection === null
+  // Filter by section focus (OR — show if any selected section matches)
+  const filtered = focusSections.size === 0
     ? visits
-    : visits.filter(v => visitMatchesSection(v, focusSection));
+    : visits.filter(v => [...focusSections].some(k => visitMatchesSection(v, k)));
 
   // Group by date for day dividers
   const byDate = new Map<string, VisitRow[]>();
@@ -211,7 +212,8 @@ export default function VisitsPage() {
 
   function selectNode(s: Selection) {
     setSelection(s);
-    setFocusSection(null);
+    setFocusSections(new Set());
+    setExpandedVisits(new Set());
   }
 
   function handleResizeMouseDown(e: React.MouseEvent) {
@@ -297,25 +299,6 @@ export default function VisitsPage() {
           </div>
 
           <div className="visits-sidebar-inner">
-
-            {/* Section chips */}
-            <div className="section-chips" style={{ marginBottom: 2 }}>
-              <button
-                className={`section-chip${focusSection === null ? " active" : ""}`}
-                onClick={() => setFocusSection(null)}
-              >All</button>
-              {SECTIONS.map(s => (
-                <button
-                  key={s.key}
-                  className={`section-chip${focusSection === s.key ? " active" : ""}`}
-                  onClick={() => setFocusSection(curr => curr === s.key ? null : s.key)}
-                >
-                  {s.icon} {s.label}
-                </button>
-              ))}
-            </div>
-
-            <hr className="vsb-divider" />
 
             {/* Browse tree */}
             <p className="vsb-section-label">Browse</p>
@@ -403,8 +386,29 @@ export default function VisitsPage() {
             <span className="vfp-title">{selectionLabel(selection)}</span>
             <span className="vfp-count">
               {loading ? "Loading…" : `${total} visit${total !== 1 ? "s" : ""}`}
-              {focusSection && ` · ${SECTIONS.find(s => s.key === focusSection)?.icon} ${SECTIONS.find(s => s.key === focusSection)?.label}`}
+              {focusSections.size > 0 && ` · ${[...focusSections].map(k => SECTIONS.find(s => s.key === k)?.icon ?? "").join(" ")}`}
             </span>
+          </div>
+
+          {/* Section filter bar */}
+          <div className="vfp-section-bar">
+            <div className="section-chips">
+              <button
+                className={`section-chip${focusSections.size === 0 ? " active" : ""}`}
+                onClick={() => setFocusSections(new Set())}
+              >All</button>
+              {SECTIONS.map(s => (
+                <button
+                  key={s.key}
+                  className={`section-chip${focusSections.has(s.key) ? " active" : ""}`}
+                  onClick={() => setFocusSections(prev => {
+                    const next = new Set(prev);
+                    next.has(s.key) ? next.delete(s.key) : next.add(s.key);
+                    return next;
+                  })}
+                >{s.icon} {s.label}</button>
+              ))}
+            </div>
           </div>
 
           {/* Feed */}
@@ -416,7 +420,7 @@ export default function VisitsPage() {
             ) : filtered.length === 0 ? (
               <div className="empty-state">
                 <p className="empty-state-icon">📋</p>
-                <p>No visits {focusSection ? `with ${SECTIONS.find(s => s.key === focusSection)?.label}` : ""} for this scope.</p>
+                <p>No visits {focusSections.size > 0 ? `matching the selected filter${focusSections.size > 1 ? "s" : ""}` : ""} for this scope.</p>
               </div>
             ) : (
               <div>
@@ -432,7 +436,13 @@ export default function VisitsPage() {
                         <VisitCard
                           key={v.id}
                           v={v}
-                          focusSection={focusSection}
+                          focusSections={focusSections}
+                          isExpanded={expandedVisits.has(v.id)}
+                          onToggle={() => setExpandedVisits(prev => {
+                            const next = new Set(prev);
+                            next.has(v.id) ? next.delete(v.id) : next.add(v.id);
+                            return next;
+                          })}
                           onPhoto={setLightbox}
                         />
                       ))}
@@ -461,40 +471,49 @@ export default function VisitsPage() {
 
 function VisitCard({
   v,
-  focusSection,
+  focusSections,
+  isExpanded,
+  onToggle,
   onPhoto,
 }: {
   v: VisitRow;
-  focusSection: SectionKey | null;
+  focusSections: Set<SectionKey>;
+  isExpanded: boolean;
+  onToggle: () => void;
   onPhoto: (url: string) => void;
 }) {
   const tier = v.store_tier;
   const ts   = tier ? TIER_STYLE[tier] : null;
 
-  // Which text sections to show
+  // Which text sections to show (respects multi-select focus, OR logic)
+  const textFocus = [...focusSections].filter(k => k !== "trainings" && k !== "follow_ups");
   const textSections = SECTIONS
     .filter(s => s.key !== "trainings" && s.key !== "follow_ups")
     .filter(s => {
-      if (focusSection && focusSection !== "trainings" && focusSection !== "follow_ups") {
-        return s.key === focusSection && !!v[s.key as keyof VisitRow];
+      if (textFocus.length > 0) {
+        return textFocus.includes(s.key) && !!v[s.key as keyof VisitRow];
       }
       return !!v[s.key as keyof VisitRow];
     });
 
-  const showTrainings = (focusSection === null || focusSection === "trainings") && v.training_count > 0;
-  const showFollowUps = (focusSection === null || focusSection === "follow_ups") && v.follow_up_count > 0;
+  const showTrainings = (focusSections.size === 0 || focusSections.has("trainings")) && v.training_count > 0;
+  const showFollowUps = (focusSections.size === 0 || focusSections.has("follow_ups")) && v.follow_up_count > 0;
 
   const hasContent = textSections.length > 0 || showTrainings || showFollowUps || v.photo_count > 0;
 
   return (
     <div className="visit-card">
-      {/* Card header */}
-      <div className="visit-card-header" style={{ cursor: "default" }}>
+      {/* Card header — click to expand/collapse */}
+      <div className="visit-card-header" onClick={onToggle}>
         {ts && (
           <span className="tier-badge" style={{ background: ts.bg, color: ts.color }}>{tier}</span>
         )}
         <div className="visit-card-store">
-          <Link href={`/visits/store/${v.store_id}`} className="visit-store-name visit-store-link">
+          <Link
+            href={`/visits/store/${v.store_id}`}
+            className="visit-store-name visit-store-link"
+            onClick={(e) => e.stopPropagation()}
+          >
             {v.store_name}
           </Link>
           <div className="visit-meta-row">
@@ -515,10 +534,11 @@ function VisitCard({
             )}
           </div>
         </div>
+        <span className={`visit-chevron${isExpanded ? " open" : ""}`}>›</span>
       </div>
 
-      {/* Card body */}
-      <div className="visit-detail">
+      {/* Card body — only rendered when expanded */}
+      {isExpanded && <div className="visit-detail">
         {/* Photo strip */}
         {v.photo_urls.length > 0 && (
           <div className="photo-strip-wrap">
@@ -616,7 +636,7 @@ function VisitCard({
 
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
