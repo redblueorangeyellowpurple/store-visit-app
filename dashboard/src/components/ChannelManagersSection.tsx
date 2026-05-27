@@ -119,7 +119,7 @@ function MarketGroupBlock({ group, onOpenStore }: MarketGroupBlockProps) {
                 <tr style={{ borderBottom: "2px solid var(--color-border)" }}>
                   <th className="text-left pb-2 pr-3 font-semibold" style={{ color: "var(--color-ink-500)", width: "22%" }}>Channel Manager</th>
                   <th className="text-center pb-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-ink-500)", width: "12%" }}># Stores</th>
-                  <th className="text-center pb-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-ink-500)", width: "12%" }}>Trainings</th>
+                  <th className="text-center pb-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-ink-500)", width: "12%" }}>Engagements</th>
                   <th className="text-left pb-2 pl-3 font-semibold" style={{ color: "var(--color-ink-500)" }}>Visits</th>
                 </tr>
               </thead>
