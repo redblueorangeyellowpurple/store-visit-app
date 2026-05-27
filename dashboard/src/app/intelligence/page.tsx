@@ -282,9 +282,25 @@ export default function IntelligencePage() {
         >
           {/* Panel header — derived from selected date */}
           {activeDate && (
-            <h2 className="text-xl font-black tracking-tight mb-4" style={{ color: "var(--color-ink-900)" }}>
+            <h2 className="text-xl font-black tracking-tight" style={{ color: "var(--color-ink-900)" }}>
               Daily Intelligence — {activeDate}
             </h2>
+          )}
+
+          {/* Brief metadata — shown directly below header when report is loaded */}
+          {!loadingReport && report && (
+            <div className="flex items-center gap-2 text-[11px] mt-1 mb-4" style={{ color: "var(--color-ink-300)" }}>
+              <span>v{report.version}</span>
+              {report.edited_by_human && (
+                <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}>
+                  ✎ edited
+                </span>
+              )}
+              {report.model && <span>· {report.model}</span>}
+              {report.prompt_tokens && (
+                <span>· {report.prompt_tokens.toLocaleString()} in / {report.completion_tokens?.toLocaleString()} out</span>
+              )}
+            </div>
           )}
 
           {/* Channel Managers — live visit analytics for the selected date */}
@@ -306,18 +322,6 @@ export default function IntelligencePage() {
           {!loadingReport && report && !editing && (
             <>
               <hr style={{ borderColor: "var(--color-border)", margin: "1.25rem 0" }} />
-              <div className="flex items-center gap-2 text-[11px] mb-4" style={{ color: "var(--color-ink-300)" }}>
-                <span>v{report.version}</span>
-                {report.edited_by_human && (
-                  <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}>
-                    ✎ edited
-                  </span>
-                )}
-                {report.model && <span>· {report.model}</span>}
-                {report.prompt_tokens && (
-                  <span>· {report.prompt_tokens.toLocaleString()} in / {report.completion_tokens?.toLocaleString()} out</span>
-                )}
-              </div>
               <div className="markdown-brief">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
