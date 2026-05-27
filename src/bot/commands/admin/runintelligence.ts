@@ -83,6 +83,14 @@ export async function handleRunIntelligence(ctx: BotContext): Promise<void> {
       force,
     });
 
+    if (result.status === 'paused') {
+      await ctx.reply(
+        `🛑 *Intelligence is paused.*\n\n${result.message ?? ''}\n\n` +
+          `Use \`/resumeintelligence\` to re-enable.`,
+        { parse_mode: 'Markdown' },
+      );
+      return;
+    }
     if (result.status === 'no_visits') {
       await ctx.reply(`No locked & unanalyzed visits found for ${reportDate}. Nothing to run.`);
       return;

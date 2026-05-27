@@ -17,6 +17,8 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
       `/revokeaccess — remove a CM\n` +
       `/listaccess — list all active CMs\n` +
       `/runintelligence — generate today's daily brief (or for a past date)\n` +
+      `/stopintelligence — 🛑 kill switch: pause all intelligence (cron + manual). Add a reason after the command.\n` +
+      `/resumeintelligence — re-enable intelligence after a pause\n` +
       `_(per-market alert groups are configured in the dashboard Admin tab)_\n`
     : '';
 

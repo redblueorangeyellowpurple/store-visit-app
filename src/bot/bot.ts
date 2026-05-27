@@ -15,6 +15,8 @@ import { handleGrantAccess } from './commands/admin/grant.js';
 import { handleRevokeAccess } from './commands/admin/revoke.js';
 import { handleListAccess } from './commands/admin/list.js';
 import { handleRunIntelligence } from './commands/admin/runintelligence.js';
+import { handleStopIntelligence } from './commands/admin/stopintelligence.js';
+import { handleResumeIntelligence } from './commands/admin/resumeintelligence.js';
 import { handleDashboard } from './commands/dashboard.js';
 import { visitFlow } from './conversations/visit-flow.js';
 import { joinRequestFlow } from './conversations/join-request.js';
@@ -457,6 +459,8 @@ export function createBot(): Bot<BotContext> {
   bot.command('revokeaccess', handleRevokeAccess);
   bot.command('listaccess', handleListAccess);
   bot.command('runintelligence', handleRunIntelligence);
+  bot.command('stopintelligence', handleStopIntelligence);
+  bot.command('resumeintelligence', handleResumeIntelligence);
 
   bot.catch((err) => {
     const ctx = err.ctx;

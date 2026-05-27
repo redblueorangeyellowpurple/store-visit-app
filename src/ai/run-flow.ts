@@ -19,6 +19,7 @@ import {
   acquireIntelligenceLock,
   releaseIntelligenceLock,
 } from '../db/queries/intelligence.js';
+import { getIntelligencePauseState } from '../db/queries/settings.js';
 import {
   runDailyIntelligence,
   validateRunResult,
@@ -32,7 +33,8 @@ export type RunFlowStatus =
   | 'null_result'
   | 'validation_failed'
   | 'report_insert_failed'
-  | 'report_exists';
+  | 'report_exists'
+  | 'paused';
 
 export interface RunFlowResult {
   status: RunFlowStatus;
@@ -72,6 +74,25 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
   log('─'.repeat(70));
   log(`SVA Daily Intelligence — report_date=${opts.date}  dry_run=${dryRun}  skip_telegram=${skipTelegram}  force=${force}`);
   log('─'.repeat(70));
+
+  // Kill switch: refuse before any Claude call (and before any DB writes) if
+  // /stopintelligence has been called. Force does NOT override — the operator
+  // must explicitly /resumeintelligence to undo the pause.
+  const pauseState = await getIntelligencePauseState();
+  if (pauseState.paused) {
+    const reasonSuffix = pauseState.reason ? ` Reason: ${pauseState.reason}` : '';
+    const bySuffix = pauseState.paused_by ? ` (paused by ${pauseState.paused_by})` : '';
+    log(`Intelligence is PAUSED${bySuffix}.${reasonSuffix} Refusing run.`);
+    return {
+      status: 'paused',
+      message: `Intelligence is paused${bySuffix}.${reasonSuffix} Use /resumeintelligence to re-enable.`,
+      dryRun,
+      visits: 0,
+      notesIn: 0,
+      notesWritten: 0,
+      edgesUpserted: 0,
+    };
+  }
 
   // Cost guard: refuse to spend Claude tokens for a date that already has a
   // committed report unless the caller passed force=true. Dry-runs bypass this
