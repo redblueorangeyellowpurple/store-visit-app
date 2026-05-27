@@ -16,7 +16,30 @@ function getClient(): Anthropic {
 // ─── Model + budget ───────────────────────────────────────────────────────────
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_OUTPUT_TOKENS = 8000;
+const MAX_OUTPUT_TOKENS = 6000;
+
+// Sonnet 4 pricing — keep in sync with https://www.anthropic.com/pricing
+const PRICE_INPUT_PER_M = 3.0;
+const PRICE_OUTPUT_PER_M = 15.0;
+const PRICE_CACHE_WRITE_PER_M = 3.75; // 1.25× input
+const PRICE_CACHE_READ_PER_M = 0.30; // 0.1× input
+
+export function estimateCostUsd(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}): number {
+  const inUncached = usage.input_tokens; // SDK already excludes cached from this
+  const inCacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const inCacheRead = usage.cache_read_input_tokens ?? 0;
+  return (
+    (inUncached * PRICE_INPUT_PER_M) / 1_000_000 +
+    (inCacheWrite * PRICE_CACHE_WRITE_PER_M) / 1_000_000 +
+    (inCacheRead * PRICE_CACHE_READ_PER_M) / 1_000_000 +
+    (usage.output_tokens * PRICE_OUTPUT_PER_M) / 1_000_000
+  );
+}
 
 // ─── Result shape ─────────────────────────────────────────────────────────────
 
@@ -33,6 +56,9 @@ export interface IntelligenceRunResult {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  cost_usd: number;
 }
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
@@ -129,29 +155,37 @@ ${sections || '(no notes)'}`;
     .join('\n\n---\n\n');
 }
 
+/**
+ * Filter accumulated memory to only the notes this run actually needs:
+ *   - store notes for stores visited today (we may update them)
+ *   - all theme / person / channel notes (cross-store — always relevant context)
+ * Drops store notes for stores not visited today — they aren't being analyzed
+ * this run, so their bodies don't earn their token cost.
+ */
+export function filterRelevantNotes(
+  notes: MemoryNote[],
+  visits: VisitForReport[],
+): MemoryNote[] {
+  const todayStoreIds = new Set(visits.map((v) => v.store_id));
+  return notes.filter((n) => {
+    if (n.scope === 'store') return todayStoreIds.has(n.scope_ref);
+    return true;
+  });
+}
+
 function buildMemoryBlock(notes: MemoryNote[]): string {
-  if (notes.length === 0) return '(no memory yet — this is the first run)';
+  if (notes.length === 0) return '(no relevant memory yet)';
 
-  const summaries = notes
-    .map((n) => `- [${n.slug}] (${n.tier ?? 'short'}) — ${n.summary}`)
-    .join('\n');
-
-  const shortFull = notes
-    .filter((n) => n.tier === 'short' || !n.tier)
+  // Just full bodies — no separate index. The model sees the slug + scope inline.
+  return notes
     .map(
       (n) =>
-        `### ${n.slug}
+        `### ${n.slug} (${n.scope})
 ${n.body_markdown}
 Related: ${n.related_slugs.join(', ') || '(none)'}
 Last touched: ${n.last_touched_at}`,
     )
     .join('\n\n---\n\n');
-
-  return `## Note index (all current notes, by summary)
-${summaries}
-
-## Short-tier notes in full (last 14 days of activity)
-${shortFull}`;
 }
 
 const USER_INSTRUCTIONS = `Call submit_intelligence_run with brief_markdown, note_updates, edges, and stats.
@@ -233,14 +267,17 @@ export async function runDailyIntelligence(args: {
     return null;
   }
 
+  // Lean prompt: only memory notes that today actually touches.
+  const relevantNotes = filterRelevantNotes(args.notes, args.visits);
+
   const userMessage = `## Report date
 ${args.reportDate}
 
 ## Today's visits (locked & unanalyzed)
 ${buildVisitBlock(args.visits)}
 
-## Memory state going in
-${buildMemoryBlock(args.notes)}
+## Memory state going in (filtered to today's scope)
+${buildMemoryBlock(relevantNotes)}
 
 ---
 
@@ -250,8 +287,16 @@ ${USER_INSTRUCTIONS}`;
     const response = await getClient().messages.create({
       model: MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
-      system: SYSTEM_PROMPT,
-      tools: [SUBMIT_TOOL],
+      // cache_control on system + last tool = ~90% input discount on repeat runs
+      // within 5 min (debug retries, back-to-back cron in dev, etc).
+      system: [
+        {
+          type: 'text',
+          text: SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [{ ...SUBMIT_TOOL, cache_control: { type: 'ephemeral' } }],
       tool_choice: { type: 'tool', name: SUBMIT_TOOL.name },
       messages: [{ role: 'user', content: userMessage }],
     });
@@ -275,6 +320,13 @@ ${USER_INSTRUCTIONS}`;
     }
 
     const parsed = toolUse.input as Partial<IntelligenceRunResult>;
+    const usage = response.usage;
+    const cost_usd = estimateCostUsd({
+      input_tokens: usage?.input_tokens ?? 0,
+      output_tokens: usage?.output_tokens ?? 0,
+      cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: usage?.cache_read_input_tokens ?? 0,
+    });
 
     return {
       brief_markdown: parsed.brief_markdown ?? '',
@@ -287,8 +339,11 @@ ${USER_INSTRUCTIONS}`;
         new_notes: [],
       },
       model: MODEL,
-      prompt_tokens: response.usage?.input_tokens ?? 0,
-      completion_tokens: response.usage?.output_tokens ?? 0,
+      prompt_tokens: usage?.input_tokens ?? 0,
+      completion_tokens: usage?.output_tokens ?? 0,
+      cache_read_tokens: usage?.cache_read_input_tokens ?? 0,
+      cache_creation_tokens: usage?.cache_creation_input_tokens ?? 0,
+      cost_usd,
     };
   } catch (err) {
     console.error('runDailyIntelligence error:', err);

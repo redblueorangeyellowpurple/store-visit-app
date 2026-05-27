@@ -14,6 +14,7 @@ import {
   insertMemoryNoteVersion,
   upsertMemoryEdges,
   insertIntelligenceReport,
+  getReportForDate,
   markVisitsAnalyzed,
   acquireIntelligenceLock,
   releaseIntelligenceLock,
@@ -30,7 +31,8 @@ export type RunFlowStatus =
   | 'lock_failed'
   | 'null_result'
   | 'validation_failed'
-  | 'report_insert_failed';
+  | 'report_insert_failed'
+  | 'report_exists';
 
 export interface RunFlowResult {
   status: RunFlowStatus;
@@ -42,6 +44,9 @@ export interface RunFlowResult {
   edgesUpserted: number;
   promptTokens?: number;
   completionTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  costUsd?: number;
   report?: { id: string; version: number };
   bcastSent?: number;
   bcastFailed?: number;
@@ -52,6 +57,8 @@ export interface RunFlowOpts {
   date: string;
   dryRun?: boolean;
   skipTelegram?: boolean;
+  /** Regenerate even if a report already exists for this date. Default false. */
+  force?: boolean;
   log?: (line: string) => void;
 }
 
@@ -59,10 +66,30 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
   const log = opts.log ?? ((l) => console.log(l));
   const dryRun = !!opts.dryRun;
   const skipTelegram = !!opts.skipTelegram;
+  const force = !!opts.force;
 
   log('─'.repeat(70));
-  log(`SVA Daily Intelligence — report_date=${opts.date}  dry_run=${dryRun}  skip_telegram=${skipTelegram}`);
+  log(`SVA Daily Intelligence — report_date=${opts.date}  dry_run=${dryRun}  skip_telegram=${skipTelegram}  force=${force}`);
   log('─'.repeat(70));
+
+  // Cost guard: refuse to spend Claude tokens for a date that already has a
+  // committed report unless the caller passed force=true. Dry-runs bypass this
+  // because they're explicitly previews, not duplicates.
+  if (!dryRun && !force) {
+    const existing = await getReportForDate(opts.date);
+    if (existing) {
+      return {
+        status: 'report_exists',
+        message: `Report v${existing.version} already exists for ${opts.date}. Append \`force\` to regenerate.`,
+        dryRun: false,
+        visits: 0,
+        notesIn: 0,
+        notesWritten: 0,
+        edgesUpserted: 0,
+        report: { id: existing.id, version: existing.version },
+      };
+    }
+  }
 
   const lockAcquired = await acquireIntelligenceLock();
   if (!lockAcquired) {
@@ -112,7 +139,9 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         edgesUpserted: 0,
       };
     }
-    log(`Claude returned: model=${result.model} prompt_tokens=${result.prompt_tokens} completion_tokens=${result.completion_tokens}`);
+    log(
+      `Claude returned: model=${result.model}  in=${result.prompt_tokens}  out=${result.completion_tokens}  cached_read=${result.cache_read_tokens}  cached_write=${result.cache_creation_tokens}  cost≈$${result.cost_usd.toFixed(4)}`,
+    );
 
     const validation = validateRunResult(result, { previousNotes: notes, visits });
     if (validation.warnings.length > 0) {
@@ -130,6 +159,9 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         edgesUpserted: 0,
         promptTokens: result.prompt_tokens,
         completionTokens: result.completion_tokens,
+        cacheReadTokens: result.cache_read_tokens,
+        cacheCreationTokens: result.cache_creation_tokens,
+        costUsd: result.cost_usd,
         briefPreview: result.brief_markdown.slice(0, 1000),
       };
     }
@@ -152,6 +184,9 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         edgesUpserted: 0,
         promptTokens: result.prompt_tokens,
         completionTokens: result.completion_tokens,
+        cacheReadTokens: result.cache_read_tokens,
+        cacheCreationTokens: result.cache_creation_tokens,
+        costUsd: result.cost_usd,
         briefPreview: result.brief_markdown,
       };
     }
@@ -185,6 +220,9 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
         edgesUpserted: edgesOk ? result.edges.length : 0,
         promptTokens: result.prompt_tokens,
         completionTokens: result.completion_tokens,
+        cacheReadTokens: result.cache_read_tokens,
+        cacheCreationTokens: result.cache_creation_tokens,
+        costUsd: result.cost_usd,
       };
     }
     log(`Report inserted: id=${report.id} version=${report.version}`);
@@ -214,6 +252,9 @@ export async function runDailyIntelligenceFlow(opts: RunFlowOpts): Promise<RunFl
       edgesUpserted: edgesOk ? result.edges.length : 0,
       promptTokens: result.prompt_tokens,
       completionTokens: result.completion_tokens,
+      cacheReadTokens: result.cache_read_tokens,
+      cacheCreationTokens: result.cache_creation_tokens,
+      costUsd: result.cost_usd,
       report: { id: report.id, version: report.version },
       bcastSent,
       bcastFailed,
