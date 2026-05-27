@@ -47,13 +47,15 @@ const TIER_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 const SECTIONS = [
-  { key: "good_news",       label: "Good News",          icon: "🎉", bg: "var(--color-section-amber-bg)" },
-  { key: "competitors",     label: "Competitor Insights", icon: "🔍", bg: "var(--color-section-blue-bg)" },
-  { key: "display_stock",   label: "Display & Stock",     icon: "📦", bg: "var(--color-section-green-bg)" },
-  { key: "people_training", label: "People & Training",   icon: "👥", bg: "var(--color-section-teal-bg)" },
-  { key: "follow_up",       label: "Follow Up",           icon: "✅", bg: "var(--color-section-pink-bg)" },
-  { key: "buzz_plan",       label: "Buzz Plan",           icon: "⚡", bg: "var(--color-section-purple-bg)" },
+  { key: "good_news",       label: "Good News",      icon: "🌟" },
+  { key: "competitors",     label: "Competitors",     icon: "🔍" },
+  { key: "display_stock",   label: "Display & Stock", icon: "📦" },
+  { key: "people_training", label: "Training",        icon: "🤝" },
+  { key: "follow_up",       label: "Follow Up",       icon: "📌" },
+  { key: "buzz_plan",       label: "Buzz Plan",       icon: "⚡" },
 ] as const;
+
+type SectionKey = typeof SECTIONS[number]["key"];
 
 const SCOPE_BG: Record<string, string> = {
   theme:   "var(--color-section-purple-bg)",
@@ -66,12 +68,21 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Which section emoji icons are present in a visit (for compact summary row)
+function presentSectionIcons(v: StoreVisit): string {
+  return SECTIONS
+    .filter(s => !!v[s.key as keyof StoreVisit])
+    .map(s => s.icon)
+    .join(" ");
+}
+
 export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props) {
   const [store, setStore] = useState<StoreInfo | null>(null);
   const [visits, setVisits] = useState<StoreVisit[]>([]);
   const [memoryNotes, setMemoryNotes] = useState<StoreMemoryNote[]>([]);
   const [loading, setLoading] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<SectionKey | "all">("all");
   const prevStoreId = useRef<string | null>(null);
 
   const isOpen = storeId !== null;
@@ -85,6 +96,7 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
     setVisits([]);
     setMemoryNotes([]);
     setLoading(true);
+    setActiveSection("all");
     fetch(`/api/visits/store/${storeId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
@@ -105,14 +117,15 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
 
   const tierStyle = store?.tier ? TIER_COLORS[store.tier] : TIER_COLORS.T4;
 
+  // For section view: visits that have content for the active section
+  const sectionEntries = activeSection === "all" ? [] : visits.filter(v => !!v[activeSection as keyof StoreVisit]);
+
   return (
     <>
       <div
         style={{
           position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
+          top: 0, right: 0, bottom: 0,
           width: 480,
           zIndex: 200,
           background: "var(--color-surface)",
@@ -125,35 +138,28 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
           overflow: "hidden",
         }}
       >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            padding: "18px 20px 14px",
-            borderBottom: "1px solid var(--color-border)",
-            flexShrink: 0,
-          }}
-        >
+        {/* ── Header ── */}
+        <div style={{
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+          padding: "18px 20px 14px",
+          borderBottom: "1px solid var(--color-border)",
+          flexShrink: 0,
+        }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             {store ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span
-                    style={{
-                      fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6,
-                      background: tierStyle.bg, color: tierStyle.color,
-                      textTransform: "uppercase", letterSpacing: "0.5px",
-                    }}
-                  >
+                  <span style={{
+                    fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6,
+                    background: tierStyle.bg, color: tierStyle.color,
+                    textTransform: "uppercase", letterSpacing: "0.5px",
+                  }}>
                     {store.tier ?? "—"}
                   </span>
                   <span style={{ fontSize: 11, color: "var(--color-ink-400)", fontWeight: 500 }}>
                     {store.chain} · {store.market}
                   </span>
                 </div>
-                {/* Clickable store name → opens full store page */}
                 <a
                   href={`/visits/store/${store.id}`}
                   target="_blank"
@@ -193,8 +199,38 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
           </button>
         </div>
 
-        {/* Scrollable content */}
-        <div style={{ overflowY: "auto", flex: 1, padding: "20px 20px 40px" }}>
+        {/* ── Section filter chips ── */}
+        {!loading && visits.length > 0 && (
+          <div style={{
+            display: "flex", gap: 6, flexWrap: "wrap",
+            padding: "10px 20px 10px",
+            borderBottom: "1px solid var(--color-border)",
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setActiveSection("all")}
+              style={chipStyle(activeSection === "all")}
+            >
+              All
+            </button>
+            {SECTIONS.map(s => {
+              const hasAny = visits.some(v => !!v[s.key as keyof StoreVisit]);
+              if (!hasAny) return null;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setActiveSection(s.key)}
+                  style={chipStyle(activeSection === s.key)}
+                >
+                  {s.icon} {s.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Scrollable content ── */}
+        <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px 40px" }}>
           {loading && (
             <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 40 }}>
               Loading visits…
@@ -207,109 +243,100 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
             </p>
           )}
 
-          {visits.map((v, idx) => {
-            const filledSections = SECTIONS.filter((s) => v[s.key]);
-            return (
-              <div
-                key={v.id}
-                style={{
-                  marginBottom: idx < visits.length - 1 ? 28 : 0,
-                  paddingBottom: idx < visits.length - 1 ? 28 : 0,
-                  borderBottom: idx < visits.length - 1 ? "1px solid var(--color-border)" : "none",
-                }}
-              >
-                {/* Visit header */}
+          {/* ── All view: compact visit list ── */}
+          {!loading && activeSection === "all" && visits.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {visits.map((v, idx) => (
                 <div
+                  key={v.id}
                   style={{
-                    display: "flex", alignItems: "center",
-                    justifyContent: "space-between", marginBottom: 14,
+                    padding: "12px 0",
+                    borderBottom: idx < visits.length - 1 ? "1px solid var(--color-border)" : "none",
                   }}
                 >
-                  <span style={{ fontSize: 15, fontWeight: 700, color: "var(--color-ink-900)" }}>
-                    {fmtDate(v.visit_date)}
-                  </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 13, color: "var(--color-ink-500)" }}>{v.cm_name}</span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink-900)" }}>
+                      {fmtDate(v.visit_date)}
+                    </span>
+                    <span style={{ fontSize: 12.5, color: "var(--color-ink-500)" }}>{v.cm_name}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {presentSectionIcons(v) && (
+                      <span style={{ fontSize: 13, color: "var(--color-ink-400)", letterSpacing: 2 }}>
+                        {presentSectionIcons(v)}
+                      </span>
+                    )}
                     {v.photo_count > 0 && (
-                      <span style={{ fontSize: 12, color: "var(--color-ink-300)" }}>📸 {v.photo_count}</span>
+                      <span style={{ fontSize: 12, color: "var(--color-ink-300)" }}>
+                        · 📸 {v.photo_count}
+                      </span>
                     )}
                   </div>
+                  {/* Photo thumbnails */}
+                  {v.photo_urls.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, overflowX: "auto", marginTop: 10, paddingBottom: 2 }}>
+                      {v.photo_urls.map((url, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setLightbox(url)}
+                          style={{
+                            flexShrink: 0, width: 72, height: 72,
+                            borderRadius: 8, overflow: "hidden",
+                            border: "1px solid var(--color-border)",
+                            cursor: "pointer", padding: 0, background: "none",
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt={`Photo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              ))}
+            </div>
+          )}
 
-                {/* Photo strip */}
-                {v.photo_urls.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex", gap: 6, overflowX: "auto",
-                      marginBottom: 16, paddingBottom: 4,
-                    }}
-                  >
-                    {v.photo_urls.map((url, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setLightbox(url)}
-                        style={{
-                          flexShrink: 0, width: 80, height: 80,
-                          borderRadius: 8, overflow: "hidden",
-                          border: "1px solid var(--color-border)",
-                          cursor: "pointer", padding: 0, background: "none",
-                        }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={`Photo ${i + 1}`}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                )}
+          {/* ── Section view: flat content list ── */}
+          {!loading && activeSection !== "all" && (
+            <>
+              {sectionEntries.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 40 }}>
+                  No {SECTIONS.find(s => s.key === activeSection)?.label.toLowerCase()} logged for this store.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {sectionEntries.map((v, idx) => (
+                    <div
+                      key={v.id}
+                      style={{
+                        padding: "12px 0",
+                        borderBottom: idx < sectionEntries.length - 1 ? "1px solid var(--color-border)" : "none",
+                      }}
+                    >
+                      <p style={{ fontSize: 12, color: "var(--color-ink-400)", fontWeight: 600, marginBottom: 5 }}>
+                        {fmtDate(v.visit_date)} · {v.cm_name}
+                      </p>
+                      <p style={{ fontSize: 13.5, color: "var(--color-ink-700)", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+                        {v[activeSection as keyof StoreVisit] as string}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
 
-                {/* Sections */}
-                {filledSections.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>No notes logged.</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {filledSections.map((s) => (
-                      <div
-                        key={s.key}
-                        style={{ borderRadius: 10, padding: "12px 14px", background: s.bg }}
-                      >
-                        <p
-                          style={{
-                            fontSize: 11, fontWeight: 700, letterSpacing: "0.4px",
-                            color: "var(--color-ink-600, var(--color-ink-500))",
-                            marginBottom: 6, textTransform: "uppercase",
-                          }}
-                        >
-                          {s.icon} {s.label}
-                        </p>
-                        <p
-                          style={{
-                            fontSize: 13.5, color: "var(--color-ink-700)",
-                            lineHeight: 1.6, whiteSpace: "pre-wrap",
-                          }}
-                        >
-                          {v[s.key]}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Memory notes for this store */}
-          {memoryNotes.length > 0 && (
-            <div style={{ marginTop: visits.length > 0 ? 28 : 0, paddingTop: visits.length > 0 ? 28 : 0, borderTop: visits.length > 0 ? "1px solid var(--color-border)" : "none" }}>
-              <p
-                style={{
-                  fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-                  letterSpacing: "0.6px", color: "var(--color-ink-300)", marginBottom: 10,
-                }}
-              >
+          {/* ── Memory notes ── */}
+          {!loading && memoryNotes.length > 0 && (
+            <div style={{
+              marginTop: 28, paddingTop: 28,
+              borderTop: "1px solid var(--color-border)",
+            }}>
+              <p style={{
+                fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.6px", color: "var(--color-ink-300)", marginBottom: 10,
+              }}>
                 🧠 Memory notes ({memoryNotes.length})
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -325,22 +352,16 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                      <span
-                        style={{
-                          fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 4,
-                          background: SCOPE_BG[n.scope] ?? "var(--color-ink-100)",
-                          color: "var(--color-ink-700)", textTransform: "uppercase", letterSpacing: "0.4px",
-                        }}
-                      >
+                      <span style={{
+                        fontSize: 9, fontWeight: 800, padding: "1px 5px", borderRadius: 4,
+                        background: SCOPE_BG[n.scope] ?? "var(--color-ink-100)",
+                        color: "var(--color-ink-700)", textTransform: "uppercase", letterSpacing: "0.4px",
+                      }}>
                         {n.scope}
                       </span>
-                      <p style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-900)" }}>
-                        {n.title}
-                      </p>
+                      <p style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-900)" }}>{n.title}</p>
                     </div>
-                    <p style={{ fontSize: 11.5, color: "var(--color-ink-500)", lineHeight: 1.4 }}>
-                      {n.summary}
-                    </p>
+                    <p style={{ fontSize: 11.5, color: "var(--color-ink-500)", lineHeight: 1.4 }}>{n.summary}</p>
                   </button>
                 ))}
               </div>
@@ -349,7 +370,7 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
         </div>
       </div>
 
-      {/* Lightbox */}
+      {/* ── Lightbox ── */}
       {lightbox && (
         <div
           onClick={() => setLightbox(null)}
@@ -380,4 +401,21 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
       )}
     </>
   );
+}
+
+// ── Chip style helper ──
+function chipStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "5px 12px",
+    borderRadius: 20,
+    fontSize: 12.5,
+    fontWeight: 600,
+    border: active ? "1.5px solid var(--color-tc-100)" : "1.5px solid var(--color-border)",
+    background: active ? "var(--color-tc-50)" : "transparent",
+    color: active ? "var(--color-tc-600)" : "var(--color-ink-500)",
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+    transition: "all 0.13s",
+    fontFamily: "inherit",
+  };
 }
