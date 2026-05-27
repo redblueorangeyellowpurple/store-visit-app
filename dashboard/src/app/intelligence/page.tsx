@@ -6,7 +6,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
+import StoreVisitDrawer from "@/components/StoreVisitDrawer";
+
+// Allow <details> and <summary> HTML tags through the sanitizer
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
+};
 
 interface User { first_name: string; username?: string }
 
@@ -104,6 +113,7 @@ export default function IntelligencePage() {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setUser(d));
@@ -277,7 +287,40 @@ export default function IntelligencePage() {
                 )}
               </div>
               <div className="markdown-brief">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.brief_markdown}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                  components={{
+                    // Intercept /visits/store/[id] links → open drawer
+                    a({ href, children, ...props }) {
+                      const match = href?.match(/^\/visits\/store\/([^/?#]+)/);
+                      if (match) {
+                        return (
+                          <button
+                            onClick={() => setDrawerStoreId(match[1])}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              cursor: "pointer",
+                              color: "var(--color-tc-600)",
+                              fontWeight: 600,
+                              fontSize: "inherit",
+                              fontFamily: "inherit",
+                              textDecoration: "underline",
+                              textDecorationStyle: "dotted",
+                            }}
+                          >
+                            {children}
+                          </button>
+                        );
+                      }
+                      return <a href={href} {...props}>{children}</a>;
+                    },
+                  }}
+                >
+                  {report.brief_markdown}
+                </ReactMarkdown>
               </div>
             </>
           )}
@@ -480,6 +523,11 @@ export default function IntelligencePage() {
           {activeDate && fmtDate(activeDate)} · Generated daily from locked store visits
         </p>
       </main>
+
+      <StoreVisitDrawer
+        storeId={drawerStoreId}
+        onClose={() => setDrawerStoreId(null)}
+      />
     </>
   );
 }
