@@ -280,16 +280,9 @@ export default function IntelligencePage() {
             border: "1px solid var(--color-border)",
           }}
         >
-          {/* Panel header — derived from selected date */}
-          {activeDate && (
-            <h2 className="text-xl font-black tracking-tight" style={{ color: "var(--color-ink-900)" }}>
-              Daily Intelligence — {activeDate}
-            </h2>
-          )}
-
-          {/* Brief metadata — shown directly below header when report is loaded */}
+          {/* Brief metadata — shown above header when report is loaded */}
           {!loadingReport && report && (
-            <div className="flex items-center gap-2 text-[11px] mt-1 mb-4" style={{ color: "var(--color-ink-300)" }}>
+            <div className="flex items-center gap-2 text-[11px] mb-1" style={{ color: "var(--color-ink-300)" }}>
               <span>v{report.version}</span>
               {report.edited_by_human && (
                 <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}>
@@ -301,6 +294,13 @@ export default function IntelligencePage() {
                 <span>· {report.prompt_tokens.toLocaleString()} in / {report.completion_tokens?.toLocaleString()} out</span>
               )}
             </div>
+          )}
+
+          {/* Panel header — derived from selected date */}
+          {activeDate && (
+            <h2 className="text-xl font-black tracking-tight mb-4" style={{ color: "var(--color-ink-900)" }}>
+              Daily Intelligence — {activeDate}
+            </h2>
           )}
 
           {/* Channel Managers — live visit analytics for the selected date */}
