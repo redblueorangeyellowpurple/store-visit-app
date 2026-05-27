@@ -859,10 +859,30 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   padding: 10px 12px;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-ink-700);
-  vertical-align: top;
+  vertical-align: middle;
 }
 .markdown-brief tbody tr:last-child td { border-bottom: none; }
 .markdown-brief tbody tr:hover { background: var(--color-ink-50); }
+.markdown-brief details { margin: 0 0 16px; }
+.markdown-brief details summary {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-ink-900);
+  cursor: pointer;
+  list-style: none;
+  padding: 4px 0 10px;
+  user-select: none;
+}
+.markdown-brief details summary::-webkit-details-marker { display: none; }
+.markdown-brief details summary::before {
+  content: "▶ ";
+  font-size: 10px;
+  color: var(--color-ink-400);
+  margin-right: 4px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.markdown-brief details[open] summary::before { transform: rotate(90deg); }
 .markdown-brief a {
   color: var(--color-tc-600);
   text-decoration: underline;
