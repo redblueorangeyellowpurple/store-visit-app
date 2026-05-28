@@ -209,7 +209,7 @@ body {
 .visit-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 @media (max-width: 880px) {
@@ -217,7 +217,7 @@ body {
 }
 .visit-card {
   background: var(--color-surface);
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid var(--color-border);
   overflow: hidden;
   margin-bottom: 0;
@@ -226,17 +226,17 @@ body {
 .visit-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .visit-card-header {
   display: flex; align-items: center; gap: 12px;
-  padding: 16px 20px;
+  padding: 18px 20px;
   cursor: pointer;
 }
 .visit-card-header:hover { background: var(--color-ink-50); }
 .visit-card-store { flex: 1; min-width: 0; }
 .visit-store-name { font-size: 16px; font-weight: 700; color: var(--color-ink-900); }
 .visit-meta-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
-.visit-meta-item { font-size: 14px; color: var(--color-ink-400); font-weight: 500; }
+.visit-meta-item { font-size: 12px; color: var(--color-ink-400); font-weight: 500; }
 .visit-cm-link {
   background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
-  font-size: 14px; font-weight: 600; color: var(--color-tc-600);
+  font-size: 12px; font-weight: 600; color: var(--color-tc-600);
   text-decoration: underline dotted var(--color-tc-100); text-underline-offset: 2px;
   transition: color 0.12s;
 }
@@ -262,10 +262,10 @@ body {
 .visit-section-card + .visit-section-card { border-top: 1px solid var(--color-border); }
 .visit-section-label {
   display: flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
   margin-bottom: 5px;
 }
-.visit-section-text { font-size: 15px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
+.visit-section-text { font-size: 14px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
 
 /* Section pills (collapsed card header) */
 .sec-pill {
