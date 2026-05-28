@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { TrainedStaffItem, FollowUpItem, CMOption } from "@/lib/queries";
+import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ interface VisitRow {
   id: string;
   visit_date: string;
   cm_name: string;
+  cm_telegram_id: number;
   store_id: string;
   store_name: string;
   store_chain: string;
@@ -62,23 +63,34 @@ function selectionParams(s: Selection): URLSearchParams {
   return p;
 }
 
+// ─── Detail panel ─────────────────────────────────────────────────────────────
+
+type DetailView =
+  | { type: "store"; storeId: string; storeName: string }
+  | { type: "cm"; telegramId: number; name: string; market: string }
+  | null;
+
 // ─── Section definitions ──────────────────────────────────────────────────────
 
 const SECTIONS = [
-  { key: "good_news",     label: "Good News",         icon: "🌟", iconBg: "var(--color-section-amber-bg)",  color: "var(--color-tc-600)" },
+  { key: "good_news",     label: "Good News",         icon: "🌟", iconBg: "var(--color-section-amber-bg)",  color: "#92400E" },
   { key: "competitors",   label: "Competitors",        icon: "🔍", iconBg: "var(--color-section-blue-bg)",   color: "var(--color-tier-t1-fg)" },
   { key: "display_stock", label: "Display & Stock",    icon: "📦", iconBg: "var(--color-section-green-bg)",  color: "var(--color-tier-t2-fg)" },
-  { key: "follow_up",     label: "Follow Up",          icon: "✅", iconBg: "var(--color-section-pink-bg)",   color: "#C0185A" },
+  { key: "follow_up",     label: "Follow Up",          icon: "📌", iconBg: "var(--color-section-pink-bg)",   color: "#C0185A" },
   { key: "buzz_plan",     label: "Buzz Plan",          icon: "⚡", iconBg: "var(--color-section-purple-bg)", color: "#5B2DB5" },
   { key: "trainings",     label: "Trainings",          icon: "🎓", iconBg: "var(--color-section-green-bg)",  color: "var(--color-tier-t2-fg)" },
   { key: "follow_ups",    label: "Follow-ups",         icon: "📌", iconBg: "var(--color-section-pink-bg)",   color: "#C0185A" },
 ] as const;
+
+// Text-only sections (used for pills + section blocks, not trainings/follow_ups rows)
+const TEXT_SECTION_KEYS = ["good_news", "competitors", "display_stock", "follow_up", "buzz_plan"] as const;
 
 type SectionKey = typeof SECTIONS[number]["key"];
 
 // Markets for CM dropdown grouping
 const MARKET_ORDER_CM = ["SG", "MY", "TH", "HK"];
 const MARKET_FLAG_CM: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
 
 // Tier ordering for browse tree
 const TIER_ORDER: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
@@ -104,6 +116,10 @@ function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+function fmtDateFull(d: string) {
+  return new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function dayLabel(d: string): string {
   const date = new Date(d + "T00:00:00");
   const today = new Date();
@@ -114,33 +130,51 @@ function dayLabel(d: string): string {
   return date.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 }
 
+function daysSince(dateStr: string): number {
+  const ms = Date.now() - new Date(dateStr + "T00:00:00").getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
 function visitMatchesSection(v: VisitRow, key: SectionKey): boolean {
   if (key === "trainings")  return v.training_count > 0;
   if (key === "follow_ups") return v.follow_up_count > 0;
   return !!v[key as keyof VisitRow];
 }
 
+// Section icons present in a StoreVisitSummary (for detail panel visits tab)
+function storeSectionIcons(v: StoreVisitSummary): string {
+  return TEXT_SECTION_KEYS
+    .filter(k => !!v[k as keyof StoreVisitSummary])
+    .map(k => SECTIONS.find(s => s.key === k)?.icon ?? "")
+    .join(" ");
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function VisitsPage() {
-  const [user,          setUser]          = useState<User | null>(null);
-  const [visits,        setVisits]        = useState<VisitRow[]>([]);
-  const [total,         setTotal]         = useState(0);
-  const [loading,       setLoading]       = useState(false);
-  const [cms,           setCms]           = useState<CMOption[]>([]);
-  const [filterCM,      setFilterCM]      = useState("");
-  const [tree,          setTree]          = useState<BrowseTree | null>(null);
-  const [selection,     setSelection]     = useState<Selection>({ type: "all" });
-  const [openMarkets,   setOpenMarkets]   = useState<Set<string>>(new Set(["SG"]));
-  const [openChains,    setOpenChains]    = useState<Set<string>>(new Set());
-  const [focusSections, setFocusSections] = useState<Set<SectionKey>>(new Set());
+  const [user,           setUser]           = useState<User | null>(null);
+  const [visits,         setVisits]         = useState<VisitRow[]>([]);
+  const [total,          setTotal]          = useState(0);
+  const [loading,        setLoading]        = useState(false);
+  const [cms,            setCms]            = useState<CMOption[]>([]);
+  const [filterCM,       setFilterCM]       = useState("");
+  const [dateFrom,       setDateFrom]       = useState("");
+  const [dateTo,         setDateTo]         = useState("");
+  const [tree,           setTree]           = useState<BrowseTree | null>(null);
+  const [selection,      setSelection]      = useState<Selection>({ type: "all" });
+  const [openMarkets,    setOpenMarkets]    = useState<Set<string>>(new Set(["SG"]));
+  const [openChains,     setOpenChains]     = useState<Set<string>>(new Set());
+  const [focusSections,  setFocusSections]  = useState<Set<SectionKey>>(new Set());
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
-  const [lightbox,      setLightbox]      = useState<string | null>(null);
-  const feedRef       = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth]     = useState(340);
+  const [lightbox,       setLightbox]       = useState<string | null>(null);
+  const [detail,         setDetail]         = useState<DetailView>(null);
+  const [detailWidth,    setDetailWidth]    = useState(300);
+  const feedRef         = useRef<HTMLDivElement>(null);
+  const [sidebarWidth,   setSidebarWidth]   = useState(340);
   const [cmDropdownOpen, setCmDropdownOpen] = useState(false);
-  const cmDropdownRef  = useRef<HTMLDivElement>(null);
-  const dragState      = useRef<{ startX: number; startWidth: number } | null>(null);
+  const cmDropdownRef   = useRef<HTMLDivElement>(null);
+  const dragState       = useRef<{ startX: number; startWidth: number } | null>(null);
+  const detailDrag      = useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Bootstrap
   useEffect(() => {
@@ -149,11 +183,13 @@ export default function VisitsPage() {
     fetch("/api/browse").then(r => r.ok ? r.json() : null).then(d => { if (d) setTree(d); });
   }, []);
 
-  // Fetch visits whenever selection or CM filter changes
+  // Fetch visits whenever selection, CM filter, or date range changes
   const fetchVisits = useCallback(async () => {
     setLoading(true);
     const p = selectionParams(selection);
     if (filterCM) p.set("cm", filterCM);
+    if (dateFrom) p.set("from", dateFrom);
+    if (dateTo)   p.set("to", dateTo);
     const res = await fetch(`/api/visits?${p}`);
     if (res.ok) {
       const data = await res.json();
@@ -162,7 +198,7 @@ export default function VisitsPage() {
     }
     setLoading(false);
     feedRef.current?.scrollTo({ top: 0 });
-  }, [selection, filterCM]);
+  }, [selection, filterCM, dateFrom, dateTo]);
 
   useEffect(() => { fetchVisits(); }, [fetchVisits]);
 
@@ -237,6 +273,27 @@ export default function VisitsPage() {
     document.addEventListener("mouseup", onUp);
   }
 
+  function handleDetailResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    detailDrag.current = { startX: e.clientX, startWidth: detailWidth };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    function onMove(ev: MouseEvent) {
+      if (!detailDrag.current) return;
+      const delta = detailDrag.current.startX - ev.clientX; // inverted: drag left = grow
+      setDetailWidth(Math.max(240, Math.min(560, detailDrag.current.startWidth + delta)));
+    }
+    function onUp() {
+      detailDrag.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
   // Build CM groups for custom dropdown
   const cmsByMarketMap = new Map<string, CMOption[]>();
   for (const cm of cms) {
@@ -262,8 +319,24 @@ export default function VisitsPage() {
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         <div className="visits-sidebar" style={{ "--sidebar-w": sidebarWidth + "px" } as any}>
 
-          {/* Pinned filter area (outside scroll so dropdown doesn't clip) */}
+          {/* Pinned filter area */}
           <div className="vsb-filter-area">
+
+            {/* Date range */}
+            <p className="vsb-section-label" style={{ marginBottom: 6 }}>Date Range</p>
+            <div className="vsb-date-row" style={{ marginBottom: 12 }}>
+              <input
+                type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="vsb-date-inp"
+              />
+              <span className="vsb-date-sep">→</span>
+              <input
+                type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="vsb-date-inp"
+              />
+            </div>
+
+            {/* CM filter */}
             <p className="vsb-section-label" style={{ marginBottom: 6 }}>CM Filter</p>
             {cms.length > 0 && (
               <div className="cm-dropdown" ref={cmDropdownRef}>
@@ -444,6 +517,8 @@ export default function VisitsPage() {
                             return next;
                           })}
                           onPhoto={setLightbox}
+                          onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
+                          onOpenCM={(telegramId, name, market) => setDetail({ type: "cm", telegramId, name, market })}
                         />
                       ))}
                     </div>
@@ -453,6 +528,36 @@ export default function VisitsPage() {
             )}
           </div>
         </div>
+
+        {/* ── DETAIL PANEL (column 3) ──────────────────────── */}
+        {detail && (
+          <div className="visits-resize-handle" onMouseDown={handleDetailResizeMouseDown} />
+        )}
+        {detail && (
+          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+          <div className="visits-detail-panel" style={{ "--detail-w": detailWidth + "px" } as any}>
+            {detail.type === "store" && (
+              <StoreDetailPanel
+                key={detail.storeId}
+                storeId={detail.storeId}
+                storeName={detail.storeName}
+                onClose={() => setDetail(null)}
+                onOpenCM={(id, name, market) => setDetail({ type: "cm", telegramId: id, name, market })}
+                onPhoto={setLightbox}
+              />
+            )}
+            {detail.type === "cm" && (
+              <CMDetailPanel
+                key={detail.telegramId}
+                telegramId={detail.telegramId}
+                name={detail.name}
+                market={detail.market}
+                onClose={() => setDetail(null)}
+                onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Lightbox */}
@@ -475,24 +580,31 @@ function VisitCard({
   isExpanded,
   onToggle,
   onPhoto,
+  onOpenStore,
+  onOpenCM,
 }: {
   v: VisitRow;
   focusSections: Set<SectionKey>;
   isExpanded: boolean;
   onToggle: () => void;
   onPhoto: (url: string) => void;
+  onOpenStore?: (storeId: string, storeName: string) => void;
+  onOpenCM?: (telegramId: number, name: string, market: string) => void;
 }) {
   const tier = v.store_tier;
   const ts   = tier ? TIER_STYLE[tier] : null;
 
-  // Which text sections to show (respects multi-select focus, OR logic)
-  const textFocus = [...focusSections].filter(k => k !== "trainings" && k !== "follow_ups");
+  // Text sections with content (for header pills — always all present, ignore focusSections)
+  const pillSections = SECTIONS
+    .filter(s => (TEXT_SECTION_KEYS as readonly string[]).includes(s.key))
+    .filter(s => !!v[s.key as keyof VisitRow]);
+
+  // Which text sections to show in body (respects multi-select focus)
+  const textFocus = [...focusSections].filter(k => k !== "trainings" && k !== "follow_ups") as SectionKey[];
   const textSections = SECTIONS
-    .filter(s => s.key !== "trainings" && s.key !== "follow_ups")
+    .filter(s => (TEXT_SECTION_KEYS as readonly string[]).includes(s.key))
     .filter(s => {
-      if (textFocus.length > 0) {
-        return textFocus.includes(s.key) && !!v[s.key as keyof VisitRow];
-      }
+      if (textFocus.length > 0) return textFocus.includes(s.key) && !!v[s.key as keyof VisitRow];
       return !!v[s.key as keyof VisitRow];
     });
 
@@ -509,17 +621,31 @@ function VisitCard({
           <span className="tier-badge" style={{ background: ts.bg, color: ts.color }}>{tier}</span>
         )}
         <div className="visit-card-store">
-          <Link
-            href={`/visits/store/${v.store_id}`}
-            className="visit-store-name visit-store-link"
-            onClick={(e) => e.stopPropagation()}
+          {/* Store name → opens store detail panel */}
+          <button
+            className="visit-store-link"
+            onClick={(e) => { e.stopPropagation(); onOpenStore?.(v.store_id, v.store_name); }}
           >
             {v.store_name}
-          </Link>
+          </button>
           <div className="visit-meta-row">
-            <span className="visit-meta-item">{v.cm_name}</span>
+            {/* CM name → opens CM detail panel */}
+            <button
+              className="visit-cm-link"
+              onClick={(e) => { e.stopPropagation(); onOpenCM?.(v.cm_telegram_id, v.cm_name, v.store_market); }}
+            >
+              {v.cm_name}
+            </button>
             <span className="visit-meta-item">·</span>
             <span className="visit-meta-item">{fmtDate(v.visit_date)}</span>
+
+            {/* Section pills */}
+            {pillSections.map(s => (
+              <span key={s.key} className="sec-pill" style={{ background: s.iconBg, color: s.color }}>
+                {s.icon} {s.label}
+              </span>
+            ))}
+
             {v.photo_count > 0 && (
               <><span className="visit-meta-item">·</span><span className="visit-meta-item">📸 {v.photo_count}</span></>
             )}
@@ -560,19 +686,11 @@ function VisitCard({
         ) : (
           <div className="visit-sections-grid" style={{ paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
 
-            {/* Text section cards */}
+            {/* Text section blocks — clean, no colored backgrounds */}
             {textSections.map(s => (
-              <div
-                key={s.key}
-                className="visit-section-card"
-                style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-              >
+              <div key={s.key} className="visit-section-card">
                 <div className="visit-section-label" style={{ color: s.color }}>
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    width: 20, height: 20, borderRadius: 6, background: s.iconBg, fontSize: 11,
-                  }}>{s.icon}</span>
-                  <span>{s.label}</span>
+                  {s.icon} {s.label}
                 </div>
                 <p className="visit-section-text">{v[s.key as keyof VisitRow] as string}</p>
               </div>
@@ -580,16 +698,9 @@ function VisitCard({
 
             {/* Trainings Logged */}
             {showTrainings && (
-              <div
-                className="visit-section-card"
-                style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-              >
+              <div className="visit-section-card">
                 <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    width: 20, height: 20, borderRadius: 6, background: "var(--color-section-green-bg)", fontSize: 11,
-                  }}>🎓</span>
-                  <span>Trainings Logged</span>
+                  🎓 Trainings Logged
                 </div>
                 <div className="sc-staff-list">
                   {v.trained_staff.map((ts, i) => (
@@ -607,16 +718,9 @@ function VisitCard({
 
             {/* Follow-ups */}
             {showFollowUps && (
-              <div
-                className="visit-section-card"
-                style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-              >
+              <div className="visit-section-card">
                 <div className="visit-section-label" style={{ color: "#C0185A" }}>
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    width: 20, height: 20, borderRadius: 6, background: "var(--color-section-pink-bg)", fontSize: 11,
-                  }}>📌</span>
-                  <span>Follow-ups</span>
+                  📌 Follow-ups
                 </div>
                 <div className="sc-fu-list">
                   {v.follow_up_items.map(fu => (
@@ -638,5 +742,373 @@ function VisitCard({
         )}
       </div>}
     </div>
+  );
+}
+
+// ─── Store Detail Panel ───────────────────────────────────────────────────────
+
+const STORE_SECTIONS_DP = [
+  { key: "good_news",       label: "Good News",      icon: "🌟" },
+  { key: "competitors",     label: "Competitors",     icon: "🔍" },
+  { key: "display_stock",   label: "Display & Stock", icon: "📦" },
+  { key: "follow_up",       label: "Follow Up",       icon: "📌" },
+  { key: "buzz_plan",       label: "Buzz Plan",       icon: "⚡" },
+  { key: "people_training", label: "Training",        icon: "🤝" },
+] as const;
+
+type StoreSectionKey = typeof STORE_SECTIONS_DP[number]["key"];
+
+function StoreDetailPanel({
+  storeId, storeName, onClose, onOpenCM, onPhoto,
+}: {
+  storeId: string;
+  storeName: string;
+  onClose: () => void;
+  onOpenCM: (id: number, name: string, market: string) => void;
+  onPhoto: (url: string) => void;
+}) {
+  const [data, setData] = useState<{ store: { id: string; name: string; chain: string; market: string; tier: string | null }; visits: StoreVisitSummary[]; } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"info" | "visits">("info");
+  const [activeSection, setActiveSection] = useState<StoreSectionKey | "all">("all");
+
+  useEffect(() => {
+    setLoading(true);
+    setTab("info");
+    setActiveSection("all");
+    fetch(`/api/visits/store/${storeId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setData(d); setLoading(false); });
+  }, [storeId]);
+
+  const visits = data?.visits ?? [];
+  const store = data?.store;
+
+  // Stats
+  const totalVisits = visits.length;
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const thisMonth = visits.filter(v => v.visit_date >= monthStart).length;
+  const lastVisitDate = visits[0]?.visit_date;
+  const daysSinceLast = lastVisitDate ? daysSince(lastVisitDate) : null;
+
+  // Section entries for visits tab
+  const sectionEntries = activeSection === "all"
+    ? []
+    : visits.filter(v => !!v[activeSection as keyof StoreVisitSummary]);
+
+  const hasSectionData = (key: StoreSectionKey) => visits.some(v => !!v[key as keyof StoreVisitSummary]);
+
+  const TIER_COLORS: Record<string, { bg: string; color: string }> = {
+    T1: { bg: "var(--color-tier-t1-bg)", color: "var(--color-tier-t1-fg)" },
+    T2: { bg: "var(--color-tier-t2-bg)", color: "var(--color-tier-t2-fg)" },
+    T3: { bg: "var(--color-tier-t3-bg)", color: "var(--color-tier-t3-fg)" },
+    T4: { bg: "var(--color-tier-t4-bg)", color: "var(--color-tier-t4-fg)" },
+  };
+  const tierStyle = store?.tier ? TIER_COLORS[store.tier] : null;
+
+  return (
+    <>
+      {/* Header */}
+      <div className="vdp-header">
+        <div className="vdp-header-row">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            {store?.tier && tierStyle && (
+              <span style={{
+                display: "inline-block", fontSize: 9, fontWeight: 800,
+                padding: "2px 6px", borderRadius: 5, marginBottom: 4,
+                background: tierStyle.bg, color: tierStyle.color,
+                textTransform: "uppercase", letterSpacing: "0.5px",
+              }}>{store.tier}</span>
+            )}
+            <div className="vdp-title">{loading ? storeName : (store?.name ?? storeName)}</div>
+            {store && (
+              <div className="vdp-sub">
+                {MARKET_FLAG[store.market] ?? ""} {store.chain} · {store.market}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <Link
+              href={`/visits/store/${storeId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="vdp-open-link"
+              onClick={e => e.stopPropagation()}
+            >↗</Link>
+            <button className="vdp-close" onClick={onClose}>✕</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="vdp-tabs">
+        <button className={`vdp-tab${tab === "info" ? " active" : ""}`} onClick={() => setTab("info")}>Info</button>
+        <button className={`vdp-tab${tab === "visits" ? " active" : ""}`} onClick={() => setTab("visits")}>
+          Visits {!loading && `(${totalVisits})`}
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="vdp-scroll">
+        {loading ? (
+          <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>Loading…</p>
+        ) : tab === "info" ? (
+          <>
+            {/* KV info */}
+            <div className="vdp-kv-list">
+              {store?.tier && tierStyle && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Tier</span>
+                  <span className="vdp-kv-val">
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: tierStyle.bg, color: tierStyle.color }}>{store.tier}</span>
+                  </span>
+                </div>
+              )}
+              {store?.chain && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Chain</span>
+                  <span className="vdp-kv-val">{store.chain}</span>
+                </div>
+              )}
+              {store?.market && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Market</span>
+                  <span className="vdp-kv-val">{MARKET_FLAG[store.market] ?? ""} {store.market}</span>
+                </div>
+              )}
+              {lastVisitDate && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Last visit</span>
+                  <span className="vdp-kv-val">{fmtDateFull(lastVisitDate)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Stats */}
+            {totalVisits > 0 && (
+              <div className="vdp-stats">
+                <div className="vdp-stat-item">
+                  <div className="vdp-stat-num">{totalVisits}</div>
+                  <div className="vdp-stat-label">Total visits</div>
+                </div>
+                <div className="vdp-stat-div" />
+                <div className="vdp-stat-item">
+                  <div className="vdp-stat-num">{thisMonth}</div>
+                  <div className="vdp-stat-label">This month</div>
+                </div>
+                <div className="vdp-stat-div" />
+                <div className="vdp-stat-item">
+                  <div className="vdp-stat-num">{daysSinceLast !== null ? `${daysSinceLast}d` : "—"}</div>
+                  <div className="vdp-stat-label">Since last</div>
+                </div>
+              </div>
+            )}
+
+            {totalVisits === 0 && (
+              <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>No visits logged yet.</p>
+            )}
+          </>
+        ) : (
+          /* Visits tab */
+          <>
+            {/* Section chips */}
+            {visits.length > 0 && (
+              <div className="vdp-visit-chips">
+                <button className={`vdp-visit-chip${activeSection === "all" ? " active" : ""}`} onClick={() => setActiveSection("all")}>
+                  All
+                </button>
+                {STORE_SECTIONS_DP.map(s => {
+                  if (!hasSectionData(s.key)) return null;
+                  return (
+                    <button
+                      key={s.key}
+                      className={`vdp-visit-chip${activeSection === s.key ? " active" : ""}`}
+                      onClick={() => setActiveSection(s.key)}
+                    >
+                      {s.icon}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* All view: compact visit list */}
+            {activeSection === "all" && (
+              visits.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>No visits logged yet.</p>
+              ) : (
+                <div>
+                  {visits.map(v => (
+                    <div key={v.id} className="vdp-item" onClick={() => { /* future: open visit */ }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
+                        <div className="vdp-item-meta">
+                          <button
+                            className="visit-cm-link"
+                            style={{ fontSize: 11.5 }}
+                            onClick={(e) => { e.stopPropagation(); if (v.cm_telegram_id) onOpenCM(v.cm_telegram_id, v.cm_name, store?.market ?? ""); }}
+                          >
+                            {v.cm_name}
+                          </button>
+                          {storeSectionIcons(v) && <> · {storeSectionIcons(v)}</>}
+                          {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
+                        </div>
+                      </div>
+                      <span className="vdp-item-chev">›</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {/* Section view: flat content list */}
+            {activeSection !== "all" && (
+              sectionEntries.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>
+                  No {STORE_SECTIONS_DP.find(s => s.key === activeSection)?.label.toLowerCase()} logged for this store.
+                </p>
+              ) : (
+                <div>
+                  {sectionEntries.map(v => (
+                    <div key={v.id} className="vdp-sec-entry">
+                      <div className="vdp-sec-entry-date">
+                        {fmtDateFull(v.visit_date)} · {v.cm_name}
+                      </div>
+                      <div className="vdp-sec-entry-text">
+                        {v[activeSection as keyof StoreVisitSummary] as string}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── CM Detail Panel ──────────────────────────────────────────────────────────
+
+function CMDetailPanel({
+  telegramId, name, market, onClose, onOpenStore,
+}: {
+  telegramId: number;
+  name: string;
+  market: string;
+  onClose: () => void;
+  onOpenStore: (storeId: string, storeName: string) => void;
+}) {
+  const [data, setData] = useState<{ cm: CMDetailInfo | null; visits: VisitRow[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"stores" | "visits">("stores");
+
+  useEffect(() => {
+    setLoading(true);
+    setTab("stores");
+    fetch(`/api/visits/cm/${telegramId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setData(d); setLoading(false); });
+  }, [telegramId]);
+
+  const cm = data?.cm;
+  const stores = cm?.assigned_stores ?? [];
+  const visits = data?.visits ?? [];
+
+  function visitSectionIcons(v: VisitRow): string {
+    return TEXT_SECTION_KEYS
+      .filter(k => !!v[k as keyof VisitRow])
+      .map(k => SECTIONS.find(s => s.key === k)?.icon ?? "")
+      .join(" ");
+  }
+
+  return (
+    <>
+      {/* Header */}
+      <div className="vdp-header">
+        <div className="vdp-header-row">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="vdp-sub" style={{ marginBottom: 2 }}>
+              {MARKET_FLAG[market] ?? ""} {market} · Channel Manager
+            </div>
+            <div className="vdp-title">{cm?.full_name ?? name}</div>
+            {cm?.am_name && (
+              <div className="vdp-sub">AM: {cm.am_name}</div>
+            )}
+          </div>
+          <button className="vdp-close" onClick={onClose}>✕</button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="vdp-tabs">
+        <button className={`vdp-tab${tab === "stores" ? " active" : ""}`} onClick={() => setTab("stores")}>
+          Stores {!loading && `(${stores.length})`}
+        </button>
+        <button className={`vdp-tab${tab === "visits" ? " active" : ""}`} onClick={() => setTab("visits")}>
+          Visits {!loading && `(${visits.length})`}
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="vdp-scroll">
+        {loading ? (
+          <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>Loading…</p>
+        ) : tab === "stores" ? (
+          stores.length === 0 ? (
+            <div className="vdp-empty">
+              <div className="vdp-empty-icon">🏪</div>
+              <div className="vdp-empty-title">No stores assigned</div>
+            </div>
+          ) : (
+            <div>
+              {stores.map(s => {
+                const ts = s.tier ? TIER_STYLE[s.tier] : null;
+                return (
+                  <div key={s.id} className="vdp-item" onClick={() => onOpenStore(s.id, s.name)}>
+                    {ts && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4,
+                        background: ts.bg, color: ts.color, flexShrink: 0,
+                      }}>{s.tier}</span>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="vdp-item-name">{s.name}</div>
+                      <div className="vdp-item-meta">{s.chain} · {s.market}</div>
+                    </div>
+                    <span className="vdp-item-chev">›</span>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          visits.length === 0 ? (
+            <div className="vdp-empty">
+              <div className="vdp-empty-icon">📋</div>
+              <div className="vdp-empty-title">No visits yet</div>
+            </div>
+          ) : (
+            <div>
+              {visits.map(v => (
+                <div key={v.id} className="vdp-item" onClick={() => onOpenStore(v.store_id, v.store_name)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="vdp-item-name">{v.store_name}</div>
+                    <div className="vdp-item-meta">
+                      {fmtDate(v.visit_date)}
+                      {visitSectionIcons(v) && <> · {visitSectionIcons(v)}</>}
+                      {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
+                    </div>
+                  </div>
+                  <span className="vdp-item-chev">›</span>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+    </>
   );
 }

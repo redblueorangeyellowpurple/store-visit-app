@@ -390,6 +390,7 @@ export interface StoreInfo {
 export interface StoreVisitSummary {
   id: string;
   visit_date: string;
+  cm_telegram_id: number;
   cm_name: string;
   good_news: string | null;
   competitors: string | null;
@@ -436,7 +437,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     supabase.from('stores').select('id, name, chain, market, tier').eq('id', storeId).single(),
     supabase
       .from('visits')
-      .select('id, visit_date, good_news, competitors, display_stock, follow_up, buzz_plan, training, people_training, cms!cm_telegram_id(full_name, nickname)')
+      .select('id, visit_date, cm_telegram_id, good_news, competitors, display_stock, follow_up, buzz_plan, training, people_training, cms!cm_telegram_id(full_name, nickname)')
       .eq('store_id', storeId)
       .eq('is_locked', true)
       .order('visit_date', { ascending: false }),
@@ -491,6 +492,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   const visits: StoreVisitSummary[] = visitRows.map((v: any) => ({
     id: v.id,
     visit_date: v.visit_date,
+    cm_telegram_id: v.cm_telegram_id as number,
     cm_name: v.cms?.nickname ?? v.cms?.full_name ?? 'Unknown',
     good_news: v.good_news ?? null,
     competitors: v.competitors ?? null,
@@ -505,6 +507,67 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   }));
 
   return { store, visits, memory_notes };
+}
+
+// ── CM Detail (for visits page right panel) ──────────────────────────────────
+
+export interface CMDetailInfo {
+  telegram_id: number;
+  full_name: string;
+  market: string;
+  am_name: string | null;
+  assigned_stores: Array<{ id: string; name: string; chain: string; tier: 'T1'|'T2'|'T3'|'T4'|null; market: string }>;
+}
+
+export async function getCMDetail(telegramId: number): Promise<{ cm: CMDetailInfo | null; visits: VisitRow[] }> {
+  const { data: cmData } = await supabase
+    .from('cms')
+    .select('telegram_id, full_name, market, am_telegram_id')
+    .eq('telegram_id', telegramId)
+    .single();
+
+  if (!cmData) return { cm: null, visits: [] };
+
+  // Resolve AM name
+  let amName: string | null = null;
+  if ((cmData as any).am_telegram_id) {
+    const { data: amRow } = await supabase
+      .from('cms').select('full_name').eq('telegram_id', (cmData as any).am_telegram_id).single();
+    amName = (amRow as any)?.full_name ?? null;
+  }
+
+  // Assigned stores
+  const { data: assignData } = await supabase
+    .from('cm_store_assignments')
+    .select('stores(id, name, chain, tier, market)')
+    .eq('cm_telegram_id', telegramId)
+    .eq('is_active', true);
+
+  const TIER_ORDER: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stores = ((assignData ?? []) as any[])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((a: any) => a.stores)
+    .filter(Boolean)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .sort((a: any, b: any) => {
+      const ta = a.tier ? (TIER_ORDER[a.tier] ?? 99) : 99;
+      const tb = b.tier ? (TIER_ORDER[b.tier] ?? 99) : 99;
+      return ta !== tb ? ta - tb : a.name.localeCompare(b.name);
+    });
+
+  const { visits } = await getVisitsFeed({ cm: telegramId, limit: 15 });
+
+  return {
+    cm: {
+      telegram_id: (cmData as any).telegram_id,
+      full_name: (cmData as any).full_name,
+      market: (cmData as any).market,
+      am_name: amName,
+      assigned_stores: stores,
+    },
+    visits,
+  };
 }
 
 export interface DashboardCM {

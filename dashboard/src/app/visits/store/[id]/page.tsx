@@ -191,23 +191,9 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
                             ) : (
                               <div className="visit-sections-grid" style={{ paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
                                 {filledSections.map(s => (
-                                  <div
-                                    key={s.key}
-                                    className="visit-section-card"
-                                    style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-                                  >
-                                    <div className="visit-section-label" style={{ color: s.color, gap: 6 }}>
-                                      <span style={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        width: 20,
-                                        height: 20,
-                                        borderRadius: 6,
-                                        background: s.iconBg,
-                                        fontSize: 11,
-                                      }}>{s.icon}</span>
-                                      <span>{s.label}</span>
+                                  <div key={s.key} className="visit-section-card">
+                                    <div className="visit-section-label" style={{ color: s.color }}>
+                                      {s.icon} {s.label}
                                     </div>
                                     <p className="visit-section-text">{v[s.key]}</p>
                                   </div>
