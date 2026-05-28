@@ -388,7 +388,7 @@ export default function VisitsPage() {
   }
 
   // All section emojis for "Store Updates" header when no filter active
-  const ALL_SECTION_EMOJIS = SECTIONS.map(s => s.icon).join(" ");
+  const ALL_SECTION_EMOJIS = FILTER_OPTIONS.map(s => s.icon).join(" ");
 
   return (
     <div className="visits-page-root">
