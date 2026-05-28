@@ -102,10 +102,14 @@ export function createBot(): Bot<BotContext> {
 
   bot.hears('🔗 Links', handleLinks);
 
-  // Photo debounce handler — runs after conversation exits, catches album photos
+  // Fallback photo handler — catches photos sent outside the visit conversation
+  // (e.g. trailing album photos after the flow exits). Skipped when a
+  // conversation is active because the flow handles uploads via external().
   bot.on('message:photo', async (ctx) => {
     const telegramId = ctx.from?.id ?? 0;
     if (!isCollecting(telegramId)) return;
+    const active = ctx.conversation.active();
+    if (Object.values(active).some(n => n > 0)) return;
     const p = ctx.message?.photo;
     if (p) {
       await handleIncomingPhoto(

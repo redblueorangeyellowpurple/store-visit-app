@@ -10,6 +10,10 @@ interface PhotoCollection {
   sections: number;
   currentSectionKey: SectionKey | null;
   savedCount: number;
+  // In-flight upload promises. awaitPhotoUpload drains these before returning
+  // the final count so fire-and-forget uploads from the visit flow don't race
+  // against the lock step.
+  pendingUploads: Set<Promise<void>>;
   // Pins each Telegram album (media_group_id) to whichever section was
   // active when its first photo arrived. Telegram only attaches the caption
   // to the first photo of an album; if that caption auto-advances the
@@ -45,6 +49,7 @@ export function startPhotoCollection(
     sections,
     currentSectionKey: null,
     savedCount: 0,
+    pendingUploads: new Set(),
     albumSections: new Map(),
   });
 }
@@ -89,19 +94,28 @@ export async function handleIncomingPhoto(
     }
   }
 
-  // Eager per-photo upload. No mid-flow ack — the final visit-done message
-  // reports the total via awaitPhotoUpload(). Only count saves that actually
-  // landed in the DB so the tally matches reality.
-  try {
-    const file = await botApi.getFile(fileId);
-    const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
-    const resp = await fetch(url);
-    const buffer = Buffer.from(await resp.arrayBuffer());
-    const saved = await uploadVisitPhoto(c.visitId, buffer, c.storeId, section);
-    if (saved) c.savedCount++;
-  } catch (err) {
-    console.error('[photos] upload error:', err);
-  }
+  // Fire-and-forget upload — the conversation flow does NOT await this.
+  // awaitPhotoUpload() drains pendingUploads before locking the visit.
+  // 30s AbortSignal guards against indefinite network hangs (no built-in
+  // timeout on fetch or Supabase storage calls).
+  const p = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const file = await botApi.getFile(fileId);
+      const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
+      const resp = await fetch(url, { signal: controller.signal });
+      const buffer = Buffer.from(await resp.arrayBuffer());
+      const saved = await uploadVisitPhoto(c.visitId, buffer, c.storeId, section);
+      if (saved) c.savedCount++;
+    } catch (err) {
+      console.error('[photos] upload error:', err instanceof Error ? err.message : err);
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  c.pendingUploads.add(p);
+  void p.finally(() => c.pendingUploads.delete(p));
 }
 
 // Called after back-nav wipes a section's photos in the DB. Keeps the running
@@ -119,11 +133,17 @@ export function discardPhotoCollection(telegramId: number): void {
   collections.delete(telegramId);
 }
 
-// Called at the end of the visit flow. Returns total photos saved for this
-// visit, then tears down the collection.
+// Called at the end of the visit flow. Drains all in-flight uploads (up to
+// 10s) then returns the final count and tears down the collection.
 export async function awaitPhotoUpload(visitId: string): Promise<number> {
   for (const [telegramId, c] of collections) {
     if (c.visitId === visitId) {
+      if (c.pendingUploads.size > 0) {
+        await Promise.race([
+          Promise.allSettled([...c.pendingUploads]),
+          new Promise<void>(resolve => setTimeout(resolve, 10_000)),
+        ]);
+      }
       const saved = c.savedCount;
       collections.delete(telegramId);
       return saved;

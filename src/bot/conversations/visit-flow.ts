@@ -617,9 +617,11 @@ export async function visitFlow(
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
         const mediaGroupId = upd.message.media_group_id;
-        await conversation.external(() =>
-          handleIncomingPhoto(telegramId, fileId, mediaGroupId),
-        );
+        // Fire-and-forget: section is pinned synchronously at call time;
+        // conversation does not block waiting for the upload to finish.
+        await conversation.external(() => {
+          void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
+        });
         const caption = upd.message.caption ?? null;
         if (caption) {
           textValue = caption;
@@ -753,9 +755,9 @@ export async function visitFlow(
       const arr = upd.message.photo;
       const fileId = arr[arr.length - 1].file_id;
       const mediaGroupId = upd.message.media_group_id;
-      await conversation.external(() =>
-        handleIncomingPhoto(telegramId, fileId, mediaGroupId),
-      );
+      await conversation.external(() => {
+        void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
+      });
       continue;
     }
     if (upd.callbackQuery) {
