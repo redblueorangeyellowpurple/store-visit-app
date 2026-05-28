@@ -86,6 +86,14 @@ const SECTIONS = [
 // Text-only sections (used for pills + section blocks, not trainings/follow_ups rows)
 const TEXT_SECTION_KEYS = ["good_news", "competitors", "display_stock", "follow_up", "buzz_plan"] as const;
 
+// Filter bar chips — 4 user-facing labels mapped to underlying section keys
+const CHIP_SECTIONS: Array<{ key: typeof SECTIONS[number]["key"]; label: string; icon: string }> = [
+  { key: "good_news",   label: "Good News",   icon: "🌟" },
+  { key: "trainings",   label: "Engagements", icon: "🎓" },
+  { key: "competitors", label: "Competition", icon: "🔍" },
+  { key: "follow_ups",  label: "Follow-up",   icon: "📌" },
+];
+
 type SectionKey = typeof SECTIONS[number]["key"];
 
 // Markets for CM dropdown grouping
@@ -160,7 +168,7 @@ export default function VisitsPage() {
   const [loading,        setLoading]        = useState(false);
   const [cms,            setCms]            = useState<CMOption[]>([]);
   const [filterCMs,      setFilterCMs]      = useState<Set<string>>(new Set());
-  const [filterPhotos,   setFilterPhotos]   = useState(false);
+  const [filterPhotos,   setFilterPhotos]   = useState(true);
   const [dateFrom,       setDateFrom]       = useState("");
   const [dateTo,         setDateTo]         = useState("");
   const [tree,           setTree]           = useState<BrowseTree | null>(null);
@@ -171,7 +179,7 @@ export default function VisitsPage() {
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
   const [lightbox,       setLightbox]       = useState<string | null>(null);
   const [detail,         setDetail]         = useState<DetailView>(null);
-  const [detailWidth,    setDetailWidth]    = useState(300);
+  const [detailWidth,    setDetailWidth]    = useState(420);
   const feedRef                             = useRef<HTMLDivElement>(null);
   const [sidebarWidth,   setSidebarWidth]   = useState(340);
   const [cmDropdownOpen, setCmDropdownOpen] = useState(false);
@@ -550,7 +558,7 @@ export default function VisitsPage() {
                 <span className="photo-toggle-dot" />
               </button>
               <span className="section-bar-divider" />
-              {SECTIONS.map(s => (
+              {CHIP_SECTIONS.map(s => (
                 <button
                   key={s.key}
                   className={`section-chip${focusSections.has(s.key) ? " active" : ""}`}
