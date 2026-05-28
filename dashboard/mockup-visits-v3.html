@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SVA Visits — Mockup v3</title>
+<style>
+/* ─── Base ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F5F4F1; --surface: #FFFFFF; --border: #E5E4E1; --border-strong: #CCCBC8;
+  --ink-900: #111110; --ink-700: #3A3936; --ink-500: #716F6A; --ink-400: #9A9893;
+  --ink-300: #A8A7A2; --ink-100: #EEEDEA; --ink-50: #F8F7F4;
+  --tc-600: #B86B00; --tc-500: #E89211; --tc-100: #FDDFA0; --tc-50: #FEF6E4;
+  --t1-bg: #DDE9FB; --t1-fg: #1A5DB5;
+  --t2-bg: #D6F0DC; --t2-fg: #1E7A3A;
+  --t3-bg: #FEF3DC; --t3-fg: #B86B00;
+  --t4-bg: #EDEDF0; --t4-fg: #555560;
+  --amber-bg: #FEF6E4; --amber-border: #FDDFA0;
+  --blue-bg: #EAF1FD; --blue-border: #C4D9F8; --blue-fg: #1A5DB5;
+  --green-bg: #E7F5EA; --green-border: #B8DEC0; --green-fg: #1E7A3A;
+  --pink-bg: #FDE8F0; --pink-border: #F5BDD5; --pink-fg: #C0185A;
+  --teal-bg: #E4F5F6; --teal-fg: #0A7A84;
+  --font: "Inter", system-ui, sans-serif;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.07);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.14);
+}
+body { background: var(--bg); color: var(--ink-700); font-family: var(--font); font-size: 14px; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+button { font-family: var(--font); cursor: pointer; }
+input, select, textarea { font-family: var(--font); }
+
+/* ─── Top bar ─── */
+.topbar {
+  background: var(--ink-900);
+  padding: 0 24px;
+  display: flex; align-items: center; gap: 0;
+  position: sticky; top: 0; z-index: 100; height: 48px;
+}
+.topbar-brand { color: rgba(255,255,255,0.5); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 28px; }
+.topbar-brand span { color: #fff; }
+.nav-link {
+  padding: 0 16px; height: 48px; display: flex; align-items: center;
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.55);
+  border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s;
+  text-decoration: none; white-space: nowrap;
+}
+.nav-link:hover { color: rgba(255,255,255,0.85); }
+.nav-link.active { color: #fff; border-bottom-color: var(--tc-500); font-weight: 700; }
+
+/* ─── Layout ─── */
+.visits-layout { display: flex; height: calc(100vh - 48px); }
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: 288px; flex-shrink: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-section {
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-section-header {
+  padding: 12px 16px 8px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sidebar-section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-400);
+}
+
+/* ─── CM Multi-select ─── */
+.cm-multi-trigger {
+  margin: 0 16px 12px;
+  background: var(--ink-50); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 9px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; transition: all 0.15s; position: relative;
+}
+.cm-multi-trigger:hover { border-color: var(--tc-500); }
+.cm-multi-trigger.open { border-color: var(--tc-500); background: #fff; box-shadow: 0 0 0 3px var(--tc-50); }
+.cm-trigger-inner { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.cm-trigger-label-row { display: flex; align-items: center; gap: 6px; }
+.cm-trigger-main { font-size: 13.5px; font-weight: 600; color: var(--ink-900); }
+.cm-trigger-sub { font-size: 11px; color: var(--ink-400); }
+.cm-trigger-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.cm-selected-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 20px;
+  background: var(--tc-50); color: var(--tc-600);
+  font-size: 11px; font-weight: 700; border: 1px solid var(--tc-100);
+}
+.cm-selected-chip .remove { cursor: pointer; opacity: 0.6; font-size: 10px; }
+.cm-selected-chip .remove:hover { opacity: 1; }
+.cm-chevron { color: var(--ink-400); font-size: 11px; flex-shrink: 0; transition: transform 0.2s; margin-left: 8px; }
+.cm-chevron.open { transform: rotate(180deg); }
+
+.cm-dropdown-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  z-index: 50; overflow: hidden; max-height: 280px; overflow-y: auto;
+}
+.cm-dropdown-all {
+  padding: 9px 14px; font-size: 13px; font-weight: 600; color: var(--ink-700);
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.cm-dropdown-all:hover { background: var(--ink-50); }
+.cm-dropdown-all.selected { color: var(--tc-600); }
+.cm-mkt-row {
+  padding: 7px 14px 5px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-400);
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; transition: background 0.1s;
+  border-top: 1px solid var(--border);
+}
+.cm-mkt-row:hover { background: var(--ink-50); color: var(--ink-700); }
+.cm-mkt-row.selected { color: var(--tc-600); background: var(--tc-50); }
+.cm-mkt-check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 9px; font-weight: 900; }
+.cm-mkt-check.checked { background: var(--tc-600); border-color: var(--tc-600); color: #fff; }
+.cm-person-row {
+  padding: 8px 14px 8px 26px;
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; transition: background 0.1s;
+}
+.cm-person-row:hover { background: var(--ink-50); }
+.cm-person-row.selected { background: var(--tc-50); }
+.cm-person-check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 9px; font-weight: 900; flex-shrink: 0; }
+.cm-person-check.checked { background: var(--tc-600); border-color: var(--tc-600); color: #fff; }
+.cm-person-name { font-size: 13px; font-weight: 500; color: var(--ink-700); flex: 1; }
+.cm-person-count { font-size: 11.5px; font-weight: 700; color: var(--ink-400); background: var(--ink-100); padding: 1px 7px; border-radius: 20px; flex-shrink: 0; }
+.cm-person-count.has-visits { color: var(--tc-600); background: var(--tc-50); }
+
+/* ─── Browse / Scope tree ─── */
+.sidebar-tree-scroll { flex: 1; overflow-y: auto; }
+.tree-all-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; cursor: pointer;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-700);
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+}
+.tree-all-row:hover { background: var(--ink-50); }
+.tree-all-row.active { color: var(--tc-600); background: var(--tc-50); border-left-color: var(--tc-500); }
+.tree-count { font-size: 11.5px; font-weight: 700; color: var(--ink-400); background: var(--ink-100); padding: 1px 7px; border-radius: 20px; margin-left: auto; flex-shrink: 0; }
+.tree-count.active { color: var(--tc-600); background: var(--tc-50); }
+.tree-market-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 16px; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--ink-700);
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+}
+.tree-market-row:hover { background: var(--ink-50); }
+.tree-market-row.active { color: var(--tc-600); background: var(--tc-50); border-left-color: var(--tc-500); }
+.tree-chevron { font-size: 11px; color: var(--ink-300); transition: transform 0.2s; flex-shrink: 0; }
+.tree-chevron.open { transform: rotate(90deg); }
+.tree-chain-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 16px 6px 30px; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-600, var(--ink-700));
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+}
+.tree-chain-row:hover { background: var(--ink-50); }
+.tree-chain-row.active { color: var(--tc-600); background: var(--tc-50); border-left-color: var(--tc-500); }
+.tree-store-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 16px 5px 44px; cursor: pointer;
+  font-size: 12px; color: var(--ink-500);
+  border-left: 2px solid transparent;
+  transition: all 0.12s;
+}
+.tree-store-row:hover { background: var(--ink-50); color: var(--ink-700); }
+.tree-store-row.active { color: var(--tc-600); background: var(--tc-50); border-left-color: var(--tc-500); font-weight: 600; }
+.tier-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+
+/* ─── Feed panel ─── */
+.feed-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+/* ─── Feed toolbar ─── */
+.feed-toolbar {
+  padding: 12px 24px 10px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
+}
+.feed-title-group { flex: 1; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.feed-title { font-size: 16px; font-weight: 800; color: var(--ink-900); white-space: nowrap; }
+.feed-count { font-size: 12.5px; color: var(--ink-400); white-space: nowrap; }
+.feed-section-icons { display: flex; gap: 3px; align-items: center; }
+.feed-section-icon { font-size: 14px; opacity: 0.7; }
+.feed-toolbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* Live pulse */
+.live-indicator {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--ink-50); border: 1px solid var(--border);
+  font-size: 11.5px; font-weight: 600; color: var(--ink-400);
+  white-space: nowrap;
+}
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: #22C55E; animation: livepulse 2s ease-in-out infinite; flex-shrink: 0; }
+.live-dot.paused { background: var(--ink-300); animation: none; }
+@keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.new-badge {
+  padding: 3px 9px; border-radius: 20px;
+  background: var(--blue-bg); color: var(--blue-fg);
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  border: 1px solid var(--blue-border); animation: badge-pop 0.3s ease-out;
+}
+@keyframes badge-pop { from{transform:scale(0.8);opacity:0} to{transform:scale(1);opacity:1} }
+
+/* ─── View toggle (more prominent) ─── */
+.view-toggle {
+  display: flex; background: var(--ink-100); border-radius: var(--radius-md);
+  padding: 3px; gap: 2px;
+}
+.view-btn {
+  padding: 6px 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 600;
+  border: none; background: transparent; color: var(--ink-500); font-family: var(--font);
+  display: flex; align-items: center; gap: 5px; transition: all 0.15s; white-space: nowrap;
+}
+.view-btn.active {
+  background: var(--surface); color: var(--ink-900);
+  box-shadow: var(--shadow-sm);
+}
+.view-btn:hover:not(.active) { color: var(--ink-700); }
+.view-btn-icon { font-size: 13px; }
+
+/* ─── Chips bar ─── */
+.chips-bar {
+  padding: 8px 24px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+  overflow-x: auto; scrollbar-width: none;
+}
+.chips-bar::-webkit-scrollbar { display: none; }
+.chips { display: flex; gap: 5px; align-items: center; flex: 1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 13px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+  background: transparent; color: var(--ink-500); border: 1.5px solid var(--border);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+}
+.chip:hover { color: var(--ink-700); border-color: var(--border-strong); background: var(--ink-50); }
+.chip.active {
+  background: var(--tc-50); color: var(--tc-600);
+  border-color: var(--tc-100); font-weight: 700;
+}
+.chip-divider { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+/* Photos toggle — distinct from section chips */
+.photos-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 13px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+  background: transparent; color: var(--ink-500); border: 1.5px solid var(--border);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+  margin-left: auto;
+}
+.photos-toggle:hover { border-color: var(--border-strong); background: var(--ink-50); color: var(--ink-700); }
+.photos-toggle.on {
+  background: var(--blue-bg); color: var(--blue-fg);
+  border-color: var(--blue-border); font-weight: 700;
+}
+.toggle-dot {
+  width: 28px; height: 16px; border-radius: 8px; background: var(--border);
+  position: relative; transition: background 0.2s; flex-shrink: 0;
+}
+.toggle-dot::after {
+  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; position: absolute; top: 2px; left: 2px;
+  transition: left 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.photos-toggle.on .toggle-dot { background: var(--blue-fg); }
+.photos-toggle.on .toggle-dot::after { left: 14px; }
+
+/* ─── Feed scroll ─── */
+.feed-scroll { flex: 1; overflow-y: auto; padding: 20px 24px 40px; }
+
+/* ─── Day divider ─── */
+.day-divider {
+  display: flex; align-items: center; gap: 10px; padding: 14px 0 10px;
+}
+.day-line { flex: 1; border: none; border-top: 1px solid var(--border); }
+.day-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-300); white-space: nowrap;
+}
+
+/* ─── Visit Cards ─── */
+.cards-stack { display: flex; flex-direction: column; gap: 8px; }
+.visit-card {
+  background: var(--surface); border-radius: var(--radius-md);
+  border: 1px solid var(--border); overflow: visible;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.visit-card:hover { box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.visit-card-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; cursor: pointer; position: relative;
+}
+.card-store-block { flex: 1; min-width: 0; }
+.card-store-name {
+  font-size: 15px; font-weight: 700; color: var(--ink-900);
+  text-decoration: none; display: block;
+}
+.card-store-name:hover { color: var(--tc-600); }
+.card-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+.meta { font-size: 12.5px; color: var(--ink-500); }
+.meta-sep { font-size: 12px; color: var(--ink-300); }
+.meta-link {
+  font-size: 12.5px; color: var(--tc-600); font-weight: 600;
+  cursor: pointer; text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.meta-link:hover { text-decoration: underline; }
+/* ⋮ more button */
+.more-btn {
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent; color: var(--ink-400);
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all 0.15s; position: relative;
+}
+.more-btn:hover { background: var(--ink-50); border-color: var(--border); color: var(--ink-700); }
+.more-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  min-width: 140px; overflow: hidden;
+  opacity: 0; pointer-events: none; transform: translateY(-6px);
+  transition: all 0.15s;
+}
+.more-menu.open { opacity: 1; pointer-events: all; transform: translateY(0); }
+.more-menu-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 14px; font-size: 13px; font-weight: 500; cursor: pointer;
+  color: var(--ink-700); transition: background 0.1s;
+}
+.more-menu-item:hover { background: var(--ink-50); }
+.more-menu-item.danger { color: var(--pink-fg); }
+.more-menu-item.danger:hover { background: #FFF0F0; }
+.more-menu-divider { height: 1px; background: var(--border); }
+/* chevron */
+.card-chevron {
+  font-size: 12px; color: var(--ink-300); flex-shrink: 0;
+  transition: transform 0.2s; margin-right: 2px;
+}
+.card-chevron.open { transform: rotate(90deg); }
+
+/* ─── Card body ─── */
+.visit-detail { padding: 0 14px 14px; }
+.photo-strip-wrap { overflow-x: auto; scrollbar-width: none; }
+.photo-strip-wrap::-webkit-scrollbar { display: none; }
+.photo-strip { display: flex; gap: 8px; padding: 4px 0 8px; }
+.photo-thumb {
+  width: 160px; height: 160px; border-radius: var(--radius-md);
+  flex-shrink: 0; background: var(--ink-50); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 4px; font-size: 26px; color: var(--ink-300);
+  cursor: pointer;
+}
+.photo-thumb span { font-size: 11px; color: var(--ink-400); }
+.sections-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 4px; }
+.section-card {
+  border-radius: var(--radius-md); border: 1px solid var(--border);
+  padding: 10px 12px; background: var(--surface);
+}
+.section-card-label { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.section-icon-wrap { width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+.section-text { font-size: 13.5px; color: var(--ink-700); line-height: 1.45; }
+
+/* ─── Table view ─── */
+.table-wrap { overflow-x: auto; min-height: 100%; }
+.visits-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.visits-table th {
+  padding: 9px 14px; text-align: left; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400);
+  border-bottom: 1.5px solid var(--border); background: var(--surface);
+  white-space: nowrap; position: sticky; top: 0; z-index: 1;
+}
+.visits-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  vertical-align: middle; color: var(--ink-700);
+}
+.visits-table tr:last-child td { border-bottom: none; }
+.visits-table tr:hover td { background: var(--ink-50); }
+.visits-table td.date-col { color: var(--ink-400); font-size: 12px; white-space: nowrap; font-weight: 600; }
+.visits-table td.time-col { color: var(--ink-400); font-size: 12px; white-space: nowrap; }
+.tbl-store { font-weight: 700; color: var(--ink-900); cursor: pointer; }
+.tbl-store:hover { color: var(--tc-600); text-decoration: underline; }
+.tbl-cm { color: var(--tc-600); font-weight: 600; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.tbl-cm:hover { text-decoration: underline; }
+.tbl-section-cell { font-size: 12.5px; color: var(--ink-700); max-width: 200px; }
+.tbl-section-cell .excerpt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.tbl-section-cell .none { color: var(--ink-300); }
+.tbl-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.tbl-action-btn {
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent; color: var(--ink-400);
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.tbl-action-btn:hover { background: var(--ink-50); border-color: var(--border-strong); color: var(--ink-700); }
+.tbl-action-btn.danger:hover { background: #FFF0F0; border-color: #FFC5C5; color: var(--pink-fg); }
+
+/* ─── Drawers ─── */
+.drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.2); z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s; backdrop-filter: blur(2px);
+}
+.drawer-overlay.open { opacity: 1; pointer-events: all; }
+.drawer {
+  position: fixed; top: 0; right: -520px; width: 480px; height: 100vh;
+  background: var(--surface); box-shadow: -4px 0 32px rgba(0,0,0,0.12);
+  z-index: 201; overflow-y: auto; transition: right 0.3s cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column;
+}
+.drawer.open { right: 0; }
+.drawer-header {
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+  flex-shrink: 0;
+}
+.drawer-header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.drawer-avatar {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--tc-500), var(--tc-600));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0;
+}
+.drawer-title { font-size: 19px; font-weight: 800; color: var(--ink-900); line-height: 1.2; }
+.drawer-subtitle { font-size: 12.5px; color: var(--ink-400); margin-top: 3px; }
+.drawer-close {
+  padding: 5px 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); font-size: 12px; font-weight: 600;
+  background: transparent; color: var(--ink-500); transition: all 0.15s;
+}
+.drawer-close:hover { background: var(--ink-50); }
+.drawer-body { padding: 20px 24px; flex: 1; overflow-y: auto; }
+.drawer-section-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-400); margin-bottom: 10px;
+}
+/* CM drawer — assigned stores */
+.assigned-store-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--surface);
+  margin-bottom: 7px;
+}
+.assigned-store-name { font-size: 13.5px; font-weight: 600; color: var(--ink-900); flex: 1; }
+.assigned-store-meta { font-size: 11.5px; color: var(--ink-400); }
+/* CM drawer — recent visits */
+.drawer-visit-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--surface);
+  margin-bottom: 7px; cursor: pointer;
+}
+.drawer-visit-item:hover { background: var(--ink-50); }
+.drawer-visit-main { flex: 1; min-width: 0; }
+.drawer-visit-store { font-size: 13px; font-weight: 600; color: var(--ink-900); }
+.drawer-visit-meta { font-size: 11.5px; color: var(--ink-400); margin-top: 2px; }
+/* Store drawer */
+.store-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.store-info-item { background: var(--ink-50); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; }
+.store-info-label { font-size: 10.5px; font-weight: 700; color: var(--ink-400); letter-spacing: 0.06em; text-transform: uppercase; }
+.store-info-value { font-size: 14px; font-weight: 700; color: var(--ink-900); margin-top: 3px; }
+/* Staff drawer */
+.training-item {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 10px 12px; margin-bottom: 7px;
+}
+.training-date-cm { font-size: 12.5px; font-weight: 700; color: var(--ink-900); }
+.training-products { font-size: 12px; color: var(--ink-500); margin-top: 3px; }
+.training-response {
+  margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--green-bg); border: 1px solid var(--green-border);
+  font-size: 12px; color: var(--green-fg);
+}
+
+/* ─── Edit Modal ─── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface); border-radius: var(--radius-lg);
+  width: 520px; max-height: 88vh; overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  transform: scale(0.96) translateY(8px); transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: scale(1) translateY(0); }
+.modal-header {
+  padding: 20px 22px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.modal-title { font-size: 16px; font-weight: 800; color: var(--ink-900); }
+.modal-subtitle { font-size: 12px; color: var(--ink-400); margin-top: 3px; }
+.modal-close {
+  padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; background: transparent; color: var(--ink-500); flex-shrink: 0;
+  transition: all 0.15s;
+}
+.modal-close:hover { background: var(--ink-50); }
+.modal-body { padding: 18px 22px; }
+.modal-field { margin-bottom: 14px; }
+.field-label { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: 6px; }
+.field-input {
+  width: 100%; padding: 9px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); font-family: var(--font); font-size: 13.5px;
+  color: var(--ink-700); background: var(--ink-50); outline: none; transition: all 0.15s;
+}
+.field-input:focus { border-color: var(--tc-500); background: #fff; box-shadow: 0 0 0 3px var(--tc-50); }
+textarea.field-input { resize: vertical; min-height: 68px; line-height: 1.5; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-footer {
+  padding: 14px 22px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+}
+.btn { padding: 9px 20px; border-radius: var(--radius-md); font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); border: none; transition: all 0.15s; }
+.btn-primary { background: var(--ink-900); color: #fff; }
+.btn-primary:hover { background: var(--tc-600); }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--ink-500); }
+.btn-ghost:hover { background: var(--ink-50); color: var(--ink-700); }
+
+/* ─── Delete modal ─── */
+.delete-modal {
+  background: var(--surface); border-radius: var(--radius-lg);
+  width: 380px; box-shadow: var(--shadow-lg);
+  transform: scale(0.96) translateY(8px); transition: transform 0.2s;
+}
+.modal-overlay.open .delete-modal { transform: scale(1) translateY(0); }
+.delete-modal-icon { font-size: 32px; margin-bottom: 10px; }
+.delete-modal-title { font-size: 17px; font-weight: 800; color: var(--ink-900); margin-bottom: 6px; }
+.delete-modal-body { padding: 28px 24px 8px; text-align: center; }
+.delete-modal-desc { font-size: 13px; color: var(--ink-500); line-height: 1.5; }
+.delete-modal-store { font-weight: 700; color: var(--ink-900); }
+.delete-modal-footer { padding: 16px 24px 20px; display: flex; gap: 8px; }
+.btn-danger { background: var(--pink-fg); color: #fff; flex: 1; }
+.btn-danger:hover { background: #98103F; }
+.btn-ghost-full { flex: 1; }
+
+/* ─── Decision panels ─── */
+.decisions-wrap {
+  background: #EFEDE8; border-top: 2px solid var(--border-strong);
+  padding: 32px 0 48px;
+}
+.decisions-heading {
+  padding: 0 28px 20px;
+  font-size: 20px; font-weight: 800; color: var(--ink-900);
+  display: flex; align-items: center; gap: 10px;
+}
+.decisions-heading span { font-size: 14px; color: var(--ink-400); font-weight: 400; }
+.dec-group { padding: 0 28px; margin-bottom: 28px; }
+.dec-group-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--tc-600); margin-bottom: 10px; display: flex; align-items: center; gap: 7px;
+}
+.dec-group-title .num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--tc-600); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 900; flex-shrink: 0;
+}
+.dec-cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.dec-card {
+  flex: 1; min-width: 190px; background: var(--surface);
+  border: 1.5px solid var(--border); border-radius: var(--radius-md);
+  padding: 13px 15px; cursor: pointer; transition: all 0.15s;
+}
+.dec-card:hover { border-color: var(--tc-100); box-shadow: 0 2px 8px rgba(184,107,0,0.08); }
+.dec-card.selected { border-color: var(--tc-500); background: var(--tc-50); }
+.dec-card-title { font-size: 13px; font-weight: 700; color: var(--ink-900); margin-bottom: 4px; }
+.dec-card-desc { font-size: 12px; color: var(--ink-500); line-height: 1.45; }
+.dec-tag { display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 700; background: var(--tc-50); color: var(--tc-600); }
+.dec-tag.blue { background: var(--blue-bg); color: var(--blue-fg); }
+.alert-panel {
+  margin: 0 28px 24px;
+  background: #FFFBF3; border: 1.5px solid var(--tc-100); border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+.alert-panel-title { font-size: 12px; font-weight: 700; color: var(--tc-600); margin-bottom: 8px; }
+.alert-item { font-size: 13px; color: var(--ink-700); padding: 3px 0; display: flex; gap: 8px; }
+.alert-item::before { content: "→"; color: var(--tc-500); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ── -->
+<div class="topbar">
+  <div class="topbar-brand">TC Acoustic · <span>SVA</span></div>
+  <a class="nav-link">Home</a>
+  <a class="nav-link active">Store Updates</a>
+  <a class="nav-link">Staff</a>
+  <a class="nav-link">Channel Managers</a>
+  <a class="nav-link">Intelligence</a>
+  <a class="nav-link">Admin</a>
+</div>
+
+<div class="visits-layout">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+
+    <!-- CM Multi-select -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-label">Channel Manager</span>
+      </div>
+      <div style="position:relative; margin: 0 16px 12px;">
+        <div class="cm-multi-trigger" id="cmTrigger" onclick="toggleCmDropdown()">
+          <div class="cm-trigger-inner" id="cmTriggerInner">
+            <!-- Default state: all selected -->
+            <div class="cm-trigger-label-row">
+              <span class="cm-trigger-main" id="cmTriggerMain">All Channel Managers</span>
+            </div>
+            <!-- Multi-selected state (hidden by default): -->
+            <div class="cm-trigger-chips" id="cmTriggerChips" style="display:none">
+              <span class="cm-selected-chip">Wei Liang <span class="remove" onclick="removeCmChip(event,'wei')">×</span></span>
+              <span class="cm-selected-chip">Ahmad <span class="remove" onclick="removeCmChip(event,'ahmad')">×</span></span>
+            </div>
+          </div>
+          <span class="cm-chevron" id="cmChevron">▼</span>
+        </div>
+        <div class="cm-dropdown-panel" id="cmDropdown" style="display:none">
+          <div class="cm-dropdown-all selected" id="cmAllRow" onclick="selectAllCMs()">
+            All Channel Managers
+            <span style="font-size:11.5px;font-weight:700;color:var(--ink-400)">24</span>
+          </div>
+          <!-- SG market -->
+          <div class="cm-mkt-row" onclick="toggleMarketCm('sg')">
+            <div style="display:flex;align-items:center;gap:6px;flex:1">
+              <div class="cm-mkt-check" id="mkt-sg-check">✓</div>
+              🇸🇬 Singapore
+            </div>
+            <span style="font-size:11px;font-weight:700;color:var(--ink-400)">12</span>
+          </div>
+          <div class="cm-person-row selected" onclick="toggleCm('wei')">
+            <div class="cm-person-check checked" id="check-wei">✓</div>
+            <span class="cm-person-name">Wei Liang</span>
+            <span class="cm-person-count has-visits">7</span>
+          </div>
+          <div class="cm-person-row selected" onclick="toggleCm('jasper')">
+            <div class="cm-person-check checked" id="check-jasper">✓</div>
+            <span class="cm-person-name">Jasper</span>
+            <span class="cm-person-count has-visits">5</span>
+          </div>
+          <!-- MY market -->
+          <div class="cm-mkt-row" onclick="toggleMarketCm('my')">
+            <div style="display:flex;align-items:center;gap:6px;flex:1">
+              <div class="cm-mkt-check checked" id="mkt-my-check">✓</div>
+              🇲🇾 Malaysia
+            </div>
+            <span style="font-size:11px;font-weight:700;color:var(--ink-400)">8</span>
+          </div>
+          <div class="cm-person-row selected" onclick="toggleCm('ahmad')">
+            <div class="cm-person-check checked" id="check-ahmad">✓</div>
+            <span class="cm-person-name">Ahmad</span>
+            <span class="cm-person-count has-visits">8</span>
+          </div>
+          <!-- TH market -->
+          <div class="cm-mkt-row" onclick="toggleMarketCm('th')">
+            <div style="display:flex;align-items:center;gap:6px;flex:1">
+              <div class="cm-mkt-check checked" id="mkt-th-check">✓</div>
+              🇹🇭 Thailand
+            </div>
+            <span style="font-size:11px;font-weight:700;color:var(--ink-400)">4</span>
+          </div>
+          <div class="cm-person-row selected" onclick="toggleCm('supanat')">
+            <div class="cm-person-check checked" id="check-supanat">✓</div>
+            <span class="cm-person-name">Supanat</span>
+            <span class="cm-person-count has-visits">4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browse tree (name TBD) -->
+    <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="sidebar-section-header">
+        <!-- ① DECISION: name for this section -->
+        <span class="sidebar-section-label" id="browseLabel" style="cursor:pointer" onclick="cycleBrowseName()">
+          SCOPE ← tap to try options
+        </span>
+        <span style="font-size:10px;color:var(--tc-500);font-weight:700;cursor:pointer" onclick="cycleBrowseName()">change ›</span>
+      </div>
+      <div class="sidebar-tree-scroll">
+        <!-- All -->
+        <div class="tree-all-row active" onclick="selectTree('all',this)">
+          <span>🌐</span>
+          <span style="flex:1">All Markets</span>
+          <span class="tree-count active">24</span>
+        </div>
+        <!-- Singapore (full name) -->
+        <div class="tree-market-row" onclick="toggleTreeMarket('sg-tree',this)">
+          <span class="tree-chevron open" id="sg-chevron">›</span>
+          <span>🇸🇬</span>
+          <span style="flex:1">Singapore</span>
+          <span class="tree-count">12</span>
+        </div>
+        <div id="sg-tree">
+          <!-- Best Denki -->
+          <div class="tree-chain-row" onclick="toggleTreeChain('sg-bd',this)">
+            <span class="tree-chevron open" id="sg-bd-chevron">›</span>
+            <span style="flex:1">Best Denki</span>
+            <span class="tree-count">5</span>
+          </div>
+          <div id="sg-bd">
+            <div class="tree-store-row">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <span style="flex:1">VivoCity</span>
+              <span class="tree-count">3</span>
+            </div>
+            <div class="tree-store-row">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Nex</span>
+              <span class="tree-count">2</span>
+            </div>
+          </div>
+          <!-- Challenger -->
+          <div class="tree-chain-row" onclick="toggleTreeChain('sg-ch',this)">
+            <span class="tree-chevron" id="sg-ch-chevron">›</span>
+            <span style="flex:1">Challenger</span>
+            <span class="tree-count">4</span>
+          </div>
+          <div id="sg-ch" style="display:none">
+            <div class="tree-store-row">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Bugis Junction</span>
+              <span class="tree-count">2</span>
+            </div>
+            <div class="tree-store-row">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Funan</span>
+              <span class="tree-count">2</span>
+            </div>
+          </div>
+          <!-- Harvey Norman -->
+          <div class="tree-chain-row">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Harvey Norman</span>
+            <span class="tree-count">3</span>
+          </div>
+        </div>
+        <!-- Malaysia (full name) -->
+        <div class="tree-market-row" onclick="toggleTreeMarket('my-tree',this)">
+          <span class="tree-chevron" id="my-chevron">›</span>
+          <span>🇲🇾</span>
+          <span style="flex:1">Malaysia</span>
+          <span class="tree-count">8</span>
+        </div>
+        <div id="my-tree" style="display:none">
+          <div class="tree-chain-row">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Harvey Norman</span>
+            <span class="tree-count">4</span>
+          </div>
+          <div class="tree-chain-row">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">AV Life</span>
+            <span class="tree-count">4</span>
+          </div>
+        </div>
+        <!-- Thailand (full name) -->
+        <div class="tree-market-row" onclick="toggleTreeMarket('th-tree',this)">
+          <span class="tree-chevron" id="th-chevron">›</span>
+          <span>🇹🇭</span>
+          <span style="flex:1">Thailand</span>
+          <span class="tree-count">4</span>
+        </div>
+        <div id="th-tree" style="display:none">
+          <div class="tree-chain-row">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Power Buy</span>
+            <span class="tree-count">4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+  <!-- ── Feed panel ── -->
+  <div class="feed-panel">
+
+    <!-- Feed toolbar -->
+    <div class="feed-toolbar">
+      <div class="feed-title-group">
+        <span class="feed-title" id="feedTitle">All Markets</span>
+        <span class="feed-count" id="feedCount">24 visits</span>
+        <!-- All-selected: show all section icons -->
+        <div class="feed-section-icons" id="feedSectionIcons">
+          <span class="feed-section-icon">🌟</span>
+          <span class="feed-section-icon">🤝</span>
+          <span class="feed-section-icon">🔍</span>
+          <span class="feed-section-icon">📦</span>
+          <span class="feed-section-icon">📌</span>
+          <span class="feed-section-icon">🎓</span>
+        </div>
+        <div class="live-indicator">
+          <div class="live-dot" id="liveDot"></div>
+          <span id="liveLabel">Live · 28s</span>
+        </div>
+        <span class="new-badge">New</span>
+      </div>
+      <div class="feed-toolbar-right">
+        <div class="view-toggle">
+          <button class="view-btn active" id="cardBtn" onclick="setView('card')">
+            <span class="view-btn-icon">▤</span> Cards
+          </button>
+          <button class="view-btn" id="tableBtn" onclick="setView('table')">
+            <span class="view-btn-icon">☰</span> Table
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chips + Photos toggle -->
+    <div class="chips-bar">
+      <div class="chips">
+        <button class="chip active" data-chip="all" onclick="clickChip(this)">All</button>
+        <div class="chip-divider"></div>
+        <button class="chip" data-chip="good_news" onclick="clickChip(this)">🌟 Good News</button>
+        <button class="chip" data-chip="engagements" onclick="clickChip(this)">🤝 Engagements</button>
+        <button class="chip" data-chip="competitors" onclick="clickChip(this)">🔍 Competitors</button>
+        <button class="chip" data-chip="display_stock" onclick="clickChip(this)">📦 Display &amp; Stock</button>
+        <button class="chip" data-chip="follow_ups" onclick="clickChip(this)">📌 Follow Ups</button>
+      </div>
+      <button class="photos-toggle" id="photosToggle" onclick="togglePhotos()">
+        <div class="toggle-dot"></div>
+        📸 Photos
+      </button>
+    </div>
+
+    <!-- Feed scroll -->
+    <div class="feed-scroll">
+      <!-- ── CARD VIEW ── -->
+      <div id="cardView">
+
+        <div class="day-divider">
+          <hr class="day-line">
+          <span class="day-label">Today — 28 May 2026</span>
+          <hr class="day-line">
+        </div>
+
+        <div class="cards-stack">
+
+          <!-- Card 1 -->
+          <div class="visit-card">
+            <div class="visit-card-header" onclick="toggleCard('c1')">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <div class="card-store-block">
+                <a class="card-store-name" onclick="event.stopPropagation();openStoreDrawer()">Best Denki VivoCity</a>
+                <div class="card-meta">
+                  <span class="meta-link" onclick="event.stopPropagation();openCmDrawer()">Wei Liang</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">28 May</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">🌟 🔍 📸 4</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">🎓 <span class="meta-link" onclick="event.stopPropagation();openStaffDrawer()">Jasmine</span></span>
+                </div>
+              </div>
+              <!-- ⋮ Menu -->
+              <div style="position:relative" onclick="event.stopPropagation()">
+                <button class="more-btn" id="menu1-btn" onclick="toggleMenu('menu1')">⋮</button>
+                <div class="more-menu" id="menu1">
+                  <div class="more-menu-item" onclick="openEditModal();closeMenu('menu1')">✏️ &nbsp;Edit visit</div>
+                  <div class="more-menu-divider"></div>
+                  <div class="more-menu-item danger" onclick="openDeleteModal('Best Denki VivoCity','28 May');closeMenu('menu1')">🗑 &nbsp;Delete visit</div>
+                </div>
+              </div>
+              <span class="card-chevron" id="c1-chev">›</span>
+            </div>
+            <div id="c1-body" style="display:none">
+              <div class="visit-detail">
+                <!-- Photos (shown when photos toggle is ON) -->
+                <div class="photo-strip-wrap" id="c1-photos" style="display:none">
+                  <div class="photo-strip">
+                    <div class="photo-thumb">🖼️<span>Photo 1</span></div>
+                    <div class="photo-thumb">🖼️<span>Photo 2</span></div>
+                    <div class="photo-thumb">🖼️<span>Photo 3</span></div>
+                  </div>
+                </div>
+                <div class="sections-grid">
+                  <div class="section-card">
+                    <div class="section-card-label" style="color:var(--tc-600)">
+                      <span class="section-icon-wrap" style="background:var(--amber-bg)">🌟</span> Good News
+                    </div>
+                    <p class="section-text">Sold 3 units of TC-WH500 today. Staff are enthusiastic after last week's demo.</p>
+                  </div>
+                  <div class="section-card">
+                    <div class="section-card-label" style="color:var(--blue-fg)">
+                      <span class="section-icon-wrap" style="background:var(--blue-bg)">🔍</span> Competitors
+                    </div>
+                    <p class="section-text">Sony running a promo bundle — WH-1000XM5 + case at $399.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="visit-card">
+            <div class="visit-card-header" onclick="toggleCard('c2')">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <div class="card-store-block">
+                <a class="card-store-name" onclick="event.stopPropagation();openStoreDrawer()">Challenger Bugis Junction</a>
+                <div class="card-meta">
+                  <span class="meta-link" onclick="event.stopPropagation();openCmDrawer()">Ahmad</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">28 May</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">📌 2 follow-ups</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta" style="color:var(--ink-300);font-size:12px">edited</span>
+                </div>
+              </div>
+              <div style="position:relative" onclick="event.stopPropagation()">
+                <button class="more-btn" id="menu2-btn" onclick="toggleMenu('menu2')">⋮</button>
+                <div class="more-menu" id="menu2">
+                  <div class="more-menu-item" onclick="openEditModal();closeMenu('menu2')">✏️ &nbsp;Edit visit</div>
+                  <div class="more-menu-divider"></div>
+                  <div class="more-menu-item danger" onclick="openDeleteModal('Challenger Bugis Junction','28 May');closeMenu('menu2')">🗑 &nbsp;Delete visit</div>
+                </div>
+              </div>
+              <span class="card-chevron" id="c2-chev">›</span>
+            </div>
+            <div id="c2-body" style="display:none">
+              <div class="visit-detail">
+                <div class="sections-grid">
+                  <div class="section-card">
+                    <div class="section-card-label" style="color:var(--pink-fg)">
+                      <span class="section-icon-wrap" style="background:var(--pink-bg)">📌</span> Follow Ups
+                    </div>
+                    <p class="section-text">Restock TC-HB720 — shelf is low. Chase AM for display stand approval by Friday.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /cards-stack -->
+
+        <div class="day-divider" style="margin-top:4px">
+          <hr class="day-line">
+          <span class="day-label">Yesterday — 27 May 2026</span>
+          <hr class="day-line">
+        </div>
+
+        <div class="cards-stack">
+          <div class="visit-card">
+            <div class="visit-card-header" onclick="toggleCard('c3')">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <div class="card-store-block">
+                <a class="card-store-name" onclick="event.stopPropagation();openStoreDrawer()">Harvey Norman Parkway</a>
+                <div class="card-meta">
+                  <span class="meta-link" onclick="event.stopPropagation();openCmDrawer()">Wei Liang</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">27 May</span>
+                  <span class="meta-sep">·</span>
+                  <span class="meta">🌟 📦 📸 2</span>
+                </div>
+              </div>
+              <div style="position:relative" onclick="event.stopPropagation()">
+                <button class="more-btn" id="menu3-btn" onclick="toggleMenu('menu3')">⋮</button>
+                <div class="more-menu" id="menu3">
+                  <div class="more-menu-item" onclick="openEditModal();closeMenu('menu3')">✏️ &nbsp;Edit visit</div>
+                  <div class="more-menu-divider"></div>
+                  <div class="more-menu-item danger" onclick="openDeleteModal('Harvey Norman Parkway','27 May');closeMenu('menu3')">🗑 &nbsp;Delete visit</div>
+                </div>
+              </div>
+              <span class="card-chevron" id="c3-chev">›</span>
+            </div>
+            <div id="c3-body" style="display:none">
+              <div class="visit-detail">
+                <div class="sections-grid">
+                  <div class="section-card">
+                    <div class="section-card-label" style="color:var(--tc-600)">
+                      <span class="section-icon-wrap" style="background:var(--amber-bg)">🌟</span> Good News
+                    </div>
+                    <p class="section-text">Display stand upgraded — new TC-IEM300 now featured front and centre.</p>
+                  </div>
+                  <div class="section-card">
+                    <div class="section-card-label" style="color:var(--green-fg)">
+                      <span class="section-icon-wrap" style="background:var(--green-bg)">📦</span> Display &amp; Stock
+                    </div>
+                    <p class="section-text">TC-HB700 back in stock. Shelf full. Requested 2 additional demo units.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /#cardView -->
+
+      <!-- ── TABLE VIEW ── -->
+      <div id="tableView" style="display:none">
+        <div class="table-wrap">
+          <table class="visits-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th title="Not in DB yet — needs schema update">Time <span style="color:var(--ink-300)">?</span></th>
+                <th>Tier</th>
+                <th>Chain</th>
+                <th>Store</th>
+                <th>Channel Manager</th>
+                <!-- Dynamic section columns — shown based on chip selection -->
+                <th class="col-good_news" id="th-good_news">🌟 Good News</th>
+                <th class="col-engagements" id="th-engagements">🤝 Engagements</th>
+                <th class="col-competitors" id="th-competitors">🔍 Competitors</th>
+                <th class="col-display_stock" id="th-display_stock">📦 Display &amp; Stock</th>
+                <th class="col-follow_ups" id="th-follow_ups">📌 Follow Ups</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="date-col">28 May</td>
+                <td class="time-col" style="color:var(--ink-300)">—</td>
+                <td><span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></td>
+                <td>Best Denki</td>
+                <td><span class="tbl-store" onclick="openStoreDrawer()">VivoCity</span></td>
+                <td><span class="tbl-cm" onclick="openCmDrawer()">Wei Liang</span></td>
+                <td class="tbl-section-cell col-good_news"><span class="excerpt">Sold 3 units of TC-WH500…</span></td>
+                <td class="tbl-section-cell col-engagements"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-competitors"><span class="excerpt">Sony bundle at $399…</span></td>
+                <td class="tbl-section-cell col-display_stock"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-follow_ups"><span class="none">—</span></td>
+                <td>
+                  <div class="tbl-actions">
+                    <button class="tbl-action-btn" onclick="openEditModal()" title="Edit">✏️</button>
+                    <button class="tbl-action-btn danger" onclick="openDeleteModal('Best Denki VivoCity','28 May')" title="Delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="date-col">28 May</td>
+                <td class="time-col" style="color:var(--ink-300)">—</td>
+                <td><span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span></td>
+                <td>Challenger</td>
+                <td><span class="tbl-store" onclick="openStoreDrawer()">Bugis Junction</span></td>
+                <td><span class="tbl-cm" onclick="openCmDrawer()">Ahmad</span></td>
+                <td class="tbl-section-cell col-good_news"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-engagements"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-competitors"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-display_stock"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-follow_ups"><span class="excerpt">Restock TC-HB720…</span></td>
+                <td>
+                  <div class="tbl-actions">
+                    <button class="tbl-action-btn" onclick="openEditModal()" title="Edit">✏️</button>
+                    <button class="tbl-action-btn danger" title="Delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="date-col">27 May</td>
+                <td class="time-col" style="color:var(--ink-300)">—</td>
+                <td><span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></td>
+                <td>Harvey Norman</td>
+                <td><span class="tbl-store" onclick="openStoreDrawer()">Parkway Parade</span></td>
+                <td><span class="tbl-cm" onclick="openCmDrawer()">Wei Liang</span></td>
+                <td class="tbl-section-cell col-good_news"><span class="excerpt">Display stand upgraded…</span></td>
+                <td class="tbl-section-cell col-engagements"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-competitors"><span class="none">—</span></td>
+                <td class="tbl-section-cell col-display_stock"><span class="excerpt">TC-HB700 back in stock…</span></td>
+                <td class="tbl-section-cell col-follow_ups"><span class="none">—</span></td>
+                <td>
+                  <div class="tbl-actions">
+                    <button class="tbl-action-btn" onclick="openEditModal()" title="Edit">✏️</button>
+                    <button class="tbl-action-btn danger" title="Delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- /#tableView -->
+
+    </div><!-- /feed-scroll -->
+  </div><!-- /feed-panel -->
+
+</div><!-- /visits-layout -->
+
+
+<!-- ══ DRAWERS ══ -->
+
+<!-- CM Drawer -->
+<div class="drawer-overlay" id="cmOverlay" onclick="closeCmDrawer()">
+  <div class="drawer" id="cmDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div class="drawer-header-top">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex:1">
+          <div class="drawer-avatar">W</div>
+          <div>
+            <div class="drawer-title">Wei Liang</div>
+            <div class="drawer-subtitle">🇸🇬 Singapore · Channel Manager</div>
+          </div>
+        </div>
+        <button class="drawer-close" onclick="closeCmDrawer()">✕ Close</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <!-- Assigned stores -->
+      <div class="drawer-section-label">Assigned Stores <span style="color:var(--ink-400);font-weight:400;text-transform:none;letter-spacing:0">(11 stores)</span></div>
+      <div class="assigned-store-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div style="flex:1">
+          <div class="assigned-store-name">Best Denki VivoCity</div>
+          <div class="assigned-store-meta">Best Denki · Singapore</div>
+        </div>
+      </div>
+      <div class="assigned-store-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div style="flex:1">
+          <div class="assigned-store-name">Harvey Norman Parkway</div>
+          <div class="assigned-store-meta">Harvey Norman · Singapore</div>
+        </div>
+      </div>
+      <div class="assigned-store-item">
+        <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+        <div style="flex:1">
+          <div class="assigned-store-name">Best Denki Nex</div>
+          <div class="assigned-store-meta">Best Denki · Singapore</div>
+        </div>
+      </div>
+      <div style="margin:4px 0 18px;padding:7px 12px;border-radius:var(--radius-md);background:var(--ink-50);color:var(--ink-400);font-size:12px;text-align:center;cursor:pointer">
+        + 8 more stores →
+      </div>
+      <!-- Recent visits -->
+      <div class="drawer-section-label" style="margin-top:4px">Recent Visits</div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Best Denki VivoCity</div>
+          <div class="drawer-visit-meta">28 May · 🌟 🔍 · 📸 4</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Harvey Norman Parkway</div>
+          <div class="drawer-visit-meta">27 May · 🌟 📦 · 📸 2</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Best Denki Nex</div>
+          <div class="drawer-visit-meta">26 May · 📌 🎓</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Store Drawer -->
+<div class="drawer-overlay" id="storeOverlay" onclick="closeStoreDrawer()">
+  <div class="drawer" id="storeDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div class="drawer-header-top">
+        <div>
+          <div class="drawer-title">Best Denki VivoCity</div>
+          <div class="drawer-subtitle" style="display:flex;align-items:center;gap:6px;margin-top:5px">
+            <span>🇸🇬 Singapore</span>
+            <span style="color:var(--ink-300)">·</span>
+            <span>Best Denki</span>
+            <span style="color:var(--ink-300)">·</span>
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+          </div>
+        </div>
+        <button class="drawer-close" onclick="closeStoreDrawer()">✕ Close</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="store-info-grid">
+        <div class="store-info-item">
+          <div class="store-info-label">CM Assigned</div>
+          <div class="store-info-value" style="font-size:13px;color:var(--tc-600);cursor:pointer" onclick="closeStoreDrawer();openCmDrawer()">Wei Liang →</div>
+        </div>
+        <div class="store-info-item">
+          <div class="store-info-label">Market</div>
+          <div class="store-info-value" style="font-size:13px">🇸🇬 Singapore</div>
+        </div>
+      </div>
+      <div class="drawer-section-label">Recent Visits</div>
+      <div class="drawer-visit-item">
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Wei Liang</div>
+          <div class="drawer-visit-meta">28 May · 🌟 🔍 · 📸 4</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+      <div class="drawer-visit-item">
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Wei Liang</div>
+          <div class="drawer-visit-meta">24 May · 🌟 📦 · 📸 1</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+      <div class="drawer-visit-item">
+        <div class="drawer-visit-main">
+          <div class="drawer-visit-store">Wei Liang</div>
+          <div class="drawer-visit-meta">21 May · 🔍 📌</div>
+        </div>
+        <span style="color:var(--ink-300);font-size:12px">›</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Staff Drawer -->
+<div class="drawer-overlay" id="staffOverlay" onclick="closeStaffDrawer()">
+  <div class="drawer" id="staffDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div class="drawer-header-top">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex:1">
+          <div class="drawer-avatar" style="background:linear-gradient(135deg,#64A864,#3E7A3E)">J</div>
+          <div>
+            <div class="drawer-title">Jasmine Lim</div>
+            <div class="drawer-subtitle">Store Staff · Best Denki Bugis Junction</div>
+          </div>
+        </div>
+        <button class="drawer-close" onclick="closeStaffDrawer()">✕ Close</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-section-label">Training History</div>
+      <div class="training-item">
+        <div class="training-date-cm">28 May — <span class="meta-link" style="font-size:13px" onclick="closeStaffDrawer();openCmDrawer()">Ahmad</span></div>
+        <div class="training-products">TC-WH500 · TC-HB720 · TC-IEM300</div>
+        <div class="training-response">
+          💬 Response: "She asked great questions about the noise-cancelling differences between WH500 and Sony."
+        </div>
+      </div>
+      <div class="training-item">
+        <div class="training-date-cm">14 May — <span class="meta-link" style="font-size:13px" onclick="closeStaffDrawer();openCmDrawer()">Ahmad</span></div>
+        <div class="training-products">TC-WH500 · TC-HB720</div>
+        <div class="training-response">
+          💬 Response: "Good engagement. Was aware of the product but hadn't pushed it to customers before."
+        </div>
+      </div>
+      <div class="training-item">
+        <div class="training-date-cm">2 May — <span class="meta-link" style="font-size:13px" onclick="closeStaffDrawer();openCmDrawer()">Wei Liang</span></div>
+        <div class="training-products">TC-IEM300</div>
+        <div class="training-response" style="background:var(--ink-50);border-color:var(--border);color:var(--ink-400)">
+          💬 Response: No notes recorded.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editOverlay" onclick="closeEditModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Edit Visit</div>
+        <div class="modal-subtitle">Best Denki VivoCity · Wei Liang · 28 May 2026</div>
+      </div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="modal-field">
+          <label class="field-label">Store</label>
+          <input class="field-input" type="text" value="Best Denki VivoCity" readonly style="color:var(--ink-400)" />
+        </div>
+        <div class="modal-field">
+          <label class="field-label">Visit Date</label>
+          <input class="field-input" type="date" value="2026-05-28" />
+        </div>
+      </div>
+      <div class="modal-field">
+        <label class="field-label">🌟 Good News</label>
+        <textarea class="field-input">Sold 3 units of TC-WH500 today. Staff very enthusiastic after last week's demo.</textarea>
+      </div>
+      <div class="modal-field">
+        <label class="field-label">🤝 Engagements</label>
+        <textarea class="field-input" placeholder="People you talked to and their response…"></textarea>
+      </div>
+      <div class="modal-field">
+        <label class="field-label">🔍 Competitors</label>
+        <textarea class="field-input">Sony running a promo bundle — WH-1000XM5 + case for $399.</textarea>
+      </div>
+      <div class="modal-field">
+        <label class="field-label">📦 Display &amp; Stock</label>
+        <textarea class="field-input" placeholder="Nothing logged for this visit…"></textarea>
+      </div>
+      <div class="modal-field">
+        <label class="field-label">📌 Follow Up</label>
+        <textarea class="field-input" placeholder="Nothing logged for this visit…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal-overlay" id="deleteOverlay" onclick="closeDeleteModal()">
+  <div class="delete-modal" onclick="event.stopPropagation()">
+    <div class="delete-modal-body">
+      <div class="delete-modal-icon">🗑</div>
+      <div class="delete-modal-title">Delete this visit?</div>
+      <div class="delete-modal-desc">
+        <span class="delete-modal-store" id="deleteStoreName">Best Denki VivoCity</span> · <span id="deleteDate">28 May</span>
+        <br>This action can't be undone.
+      </div>
+    </div>
+    <div class="delete-modal-footer">
+      <button class="btn btn-ghost btn-ghost-full" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="closeDeleteModal()">Yes, delete</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ DECISIONS ══ -->
+<div class="decisions-wrap">
+  <div class="decisions-heading">
+    Confirmed so far
+    <span>Based on your feedback — reading this back to you</span>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">①</span> Edit/Delete → ⋮ overflow menu</div>
+    <p style="font-size:13px;color:var(--ink-500)">Single ⋮ button per card. Dropdown shows Edit / Delete. Cleaner header. ✓ Mocked above.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">②</span> Delete → popup modal (not inline)</div>
+    <p style="font-size:13px;color:var(--ink-500)">Centred confirmation dialog. Click 🗑 Delete in the ⋮ menu above to see it. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">③</span> Edit → everything editable (all fields + date)</div>
+    <p style="font-size:13px;color:var(--ink-500)">Store is shown as read-only (who else would you move a visit to?). Everything else is free to edit. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">④</span> Auto-refresh → 30s, pauses on edit/drawer open</div>
+    <p style="font-size:13px;color:var(--ink-500)">Live indicator top-left of feed. Pauses when any modal or drawer is open. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">⑤</span> CM drawer → assigned stores + visit list</div>
+    <p style="font-size:13px;color:var(--ink-500)">No stat numbers. Shows which stores they manage + recent visits. Click "Wei Liang" above. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">⑥</span> Store → drawer (not a separate page)</div>
+    <p style="font-size:13px;color:var(--ink-500)">Lean drawer: market / chain / tier info + CM assigned + recent visit list. Click any store name above. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">⑦</span> Staff drawer → training history + staff response + store context</div>
+    <p style="font-size:13px;color:var(--ink-500)">Training log + staff response notes. Click "Jasmine" in Card 1 above. ✓ Mocked.</p>
+  </div>
+
+  <div class="dec-group">
+    <div class="dec-group-title"><span class="num">⑧</span> Photos → display toggle (not a filter chip)</div>
+    <p style="font-size:13px;color:var(--ink-500)">Toggle sits at the right end of the chips bar. When ON: photo strips render in expanded cards. When OFF: hidden even if photos exist. Toggle it above then expand Card 1.</p>
+  </div>
+
+  <div class="alert-panel">
+    <div class="alert-panel-title">⑨ Engagements — needs a DB migration</div>
+    <div class="alert-item">New field: "people you talked to + their response." This doesn't exist in the schema yet. I'll add an <code>engagements</code> text column in a migration. Trainings stay as the structured list. Engagements = free-text context about conversations. Confirm and I'll write the migration.</div>
+    <div class="alert-item" style="margin-top:4px">The edit modal above already has an Engagements field mocked in — shows how it'll sit alongside the other sections.</div>
+  </div>
+
+  <div class="alert-panel" style="margin-top:12px">
+    <div class="alert-panel-title">⏱ Table — Time column</div>
+    <div class="alert-item">You added <strong>Time</strong> as a column. Currently visit_date is stored as a date only (no time). Do you want to add a visit_time field to the DB so CMs can optionally log what time they visited? Or should the Time column show "—" for now and be filled in later?</div>
+  </div>
+
+  <div class="alert-panel" style="margin-top:12px">
+    <div class="alert-panel-title">📌 Browse section name — tap the "SCOPE" label in the sidebar to cycle through options</div>
+    <div class="alert-item">Options: <strong>Scope</strong> · <strong>Explore</strong> · <strong>Stores</strong> · <strong>Navigate</strong>. Which do you want?</div>
+  </div>
+
+</div>
+
+<script>
+// ── View toggle ──
+function setView(v) {
+  const isCard = v === 'card';
+  document.getElementById('cardView').style.display = isCard ? 'block' : 'none';
+  document.getElementById('tableView').style.display = isCard ? 'none' : 'block';
+  document.getElementById('cardBtn').classList.toggle('active', isCard);
+  document.getElementById('tableBtn').classList.toggle('active', !isCard);
+}
+
+// ── Card expand ──
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const chev = document.getElementById(id + '-chev');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chev.classList.toggle('open', open);
+}
+
+// ── ⋮ Menu ──
+let openMenuId = null;
+function toggleMenu(id) {
+  if (openMenuId && openMenuId !== id) closeMenu(openMenuId);
+  const m = document.getElementById(id);
+  const isOpen = m.classList.contains('open');
+  m.classList.toggle('open', !isOpen);
+  openMenuId = !isOpen ? id : null;
+}
+function closeMenu(id) {
+  const m = document.getElementById(id);
+  if (m) m.classList.remove('open');
+  if (openMenuId === id) openMenuId = null;
+}
+document.addEventListener('click', () => { if (openMenuId) closeMenu(openMenuId); });
+
+// ── Section chips ──
+const sectionCols = ['good_news','engagements','competitors','display_stock','follow_ups'];
+const sectionIcons = { good_news:'🌟', engagements:'🤝', competitors:'🔍', display_stock:'📦', follow_ups:'📌' };
+function clickChip(btn) {
+  const chips = btn.closest('.chips');
+  const allBtn = chips.querySelector('[data-chip="all"]');
+  if (btn === allBtn) {
+    chips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    showTableCols(sectionCols);
+    updateFeedIcons(sectionCols);
+  } else {
+    allBtn.classList.remove('active');
+    btn.classList.toggle('active');
+    const active = [...chips.querySelectorAll('.chip:not([data-chip="all"]).active')].map(c => c.dataset.chip);
+    if (active.length === 0) { allBtn.classList.add('active'); showTableCols(sectionCols); updateFeedIcons(sectionCols); }
+    else { showTableCols(active); updateFeedIcons(active); }
+  }
+}
+function showTableCols(active) {
+  sectionCols.forEach(c => {
+    document.querySelectorAll('.col-' + c).forEach(el => el.style.display = active.includes(c) ? '' : 'none');
+  });
+}
+function updateFeedIcons(active) {
+  const wrap = document.getElementById('feedSectionIcons');
+  wrap.innerHTML = active.map(k => `<span class="feed-section-icon">${sectionIcons[k] || ''}</span>`).join('');
+}
+
+// ── Photos toggle ──
+function togglePhotos() {
+  const btn = document.getElementById('photosToggle');
+  const on = btn.classList.toggle('on');
+  // Show/hide photo strips in expanded cards
+  document.querySelectorAll('[id$="-photos"]').forEach(el => el.style.display = on ? '' : 'none');
+}
+
+// ── Browse name cycle ──
+const browseNames = ['SCOPE', 'EXPLORE', 'STORES', 'NAVIGATE'];
+let browseIdx = 0;
+function cycleBrowseName() {
+  browseIdx = (browseIdx + 1) % browseNames.length;
+  document.getElementById('browseLabel').textContent = browseNames[browseIdx] + ' ← tap to try options';
+}
+
+// ── CM Dropdown ──
+let cmDropOpen = false;
+function toggleCmDropdown() {
+  cmDropOpen = !cmDropOpen;
+  document.getElementById('cmDropdown').style.display = cmDropOpen ? 'block' : 'none';
+  document.getElementById('cmChevron').classList.toggle('open', cmDropOpen);
+  document.getElementById('cmTrigger').classList.toggle('open', cmDropOpen);
+}
+function selectAllCMs() {
+  document.querySelectorAll('.cm-person-check').forEach(c => { c.classList.add('checked'); c.textContent = '✓'; });
+  document.querySelectorAll('.cm-mkt-check').forEach(c => { c.classList.add('checked'); c.textContent = '✓'; });
+  document.getElementById('cmAllRow').classList.add('selected');
+  document.querySelectorAll('.cm-person-row').forEach(r => r.classList.add('selected'));
+  document.getElementById('cmTriggerMain').textContent = 'All Channel Managers';
+  document.getElementById('cmTriggerChips').style.display = 'none';
+}
+function toggleCm(id) {
+  const check = document.getElementById('check-' + id);
+  const row = check.closest('.cm-person-row');
+  const was = check.classList.contains('checked');
+  check.classList.toggle('checked', !was);
+  check.textContent = !was ? '✓' : '';
+  row.classList.toggle('selected', !was);
+  document.getElementById('cmAllRow').classList.remove('selected');
+  updateCmTrigger();
+}
+function toggleMarketCm(mkt) {
+  const check = document.getElementById('mkt-' + mkt + '-check');
+  const allChecked = check.classList.contains('checked');
+  check.classList.toggle('checked', !allChecked);
+  check.textContent = !allChecked ? '✓' : '';
+  // Defer individual per-market implementation for demo
+  updateCmTrigger();
+}
+function removeCmChip(e, id) { e.stopPropagation(); toggleCm(id); }
+function updateCmTrigger() {
+  const checked = document.querySelectorAll('.cm-person-check.checked');
+  const total = document.querySelectorAll('.cm-person-check').length;
+  if (checked.length === total || checked.length === 0) {
+    document.getElementById('cmTriggerMain').textContent = 'All Channel Managers';
+    document.getElementById('cmTriggerChips').style.display = 'none';
+  } else {
+    document.getElementById('cmTriggerMain').textContent = '';
+    document.getElementById('cmTriggerChips').style.display = 'flex';
+  }
+}
+
+// ── Tree expand ──
+function toggleTreeMarket(id, row) {
+  const el = document.getElementById(id);
+  const chevId = id.replace('-tree','-chevron');
+  const chev = document.getElementById(chevId);
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (chev) chev.classList.toggle('open', !open);
+}
+function toggleTreeChain(id, row) {
+  const el = document.getElementById(id);
+  const chevId = id.replace('sg-','sg-').replace('my-','my-') + '-chevron';
+  // Simple toggle
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  const chev = row.querySelector('.tree-chevron');
+  if (chev) chev.classList.toggle('open', !open);
+}
+function selectTree(type, row) {
+  document.querySelectorAll('.tree-all-row,.tree-market-row,.tree-chain-row,.tree-store-row').forEach(r => r.classList.remove('active'));
+  row.classList.add('active');
+}
+
+// ── Drawers ──
+function openCmDrawer() {
+  document.getElementById('cmOverlay').classList.add('open');
+  document.getElementById('cmDrawer').classList.add('open');
+  pauseRefresh();
+}
+function closeCmDrawer() {
+  document.getElementById('cmOverlay').classList.remove('open');
+  document.getElementById('cmDrawer').classList.remove('open');
+  resumeRefresh();
+}
+function openStoreDrawer() {
+  document.getElementById('storeOverlay').classList.add('open');
+  document.getElementById('storeDrawer').classList.add('open');
+  pauseRefresh();
+}
+function closeStoreDrawer() {
+  document.getElementById('storeOverlay').classList.remove('open');
+  document.getElementById('storeDrawer').classList.remove('open');
+  resumeRefresh();
+}
+function openStaffDrawer() {
+  document.getElementById('staffOverlay').classList.add('open');
+  document.getElementById('staffDrawer').classList.add('open');
+  pauseRefresh();
+}
+function closeStaffDrawer() {
+  document.getElementById('staffOverlay').classList.remove('open');
+  document.getElementById('staffDrawer').classList.remove('open');
+  resumeRefresh();
+}
+
+// ── Modals ──
+function openEditModal() {
+  document.getElementById('editOverlay').classList.add('open');
+  pauseRefresh();
+}
+function closeEditModal() {
+  document.getElementById('editOverlay').classList.remove('open');
+  resumeRefresh();
+}
+function openDeleteModal(store, date) {
+  document.getElementById('deleteStoreName').textContent = store;
+  document.getElementById('deleteDate').textContent = date;
+  document.getElementById('deleteOverlay').classList.add('open');
+  pauseRefresh();
+}
+function closeDeleteModal() {
+  document.getElementById('deleteOverlay').classList.remove('open');
+  resumeRefresh();
+}
+
+// ── Live refresh indicator ──
+let secs = 28, paused = false;
+function pauseRefresh() {
+  paused = true;
+  document.getElementById('liveDot').classList.add('paused');
+  document.getElementById('liveLabel').textContent = 'Paused';
+}
+function resumeRefresh() {
+  paused = false;
+  document.getElementById('liveDot').classList.remove('paused');
+  secs = 30;
+}
+setInterval(() => {
+  if (paused) return;
+  secs = secs <= 1 ? 30 : secs - 1;
+  document.getElementById('liveLabel').textContent = 'Live · ' + secs + 's';
+}, 1000);
+</script>
+</body>
+</html>

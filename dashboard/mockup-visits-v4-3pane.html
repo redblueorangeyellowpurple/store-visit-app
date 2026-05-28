@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SVA — 3-Pane Layout</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F5F4F1; --surface: #FFFFFF; --border: #E5E4E1; --border-strong: #CCCBC8;
+  --ink-900: #111110; --ink-700: #3A3936; --ink-500: #716F6A; --ink-400: #9A9893;
+  --ink-300: #A8A7A2; --ink-100: #EEEDEA; --ink-50: #F8F7F4;
+  --tc-600: #B86B00; --tc-500: #E89211; --tc-100: #FDDFA0; --tc-50: #FEF6E4;
+  --t1-bg: #DDE9FB; --t1-fg: #1A5DB5;
+  --t2-bg: #D6F0DC; --t2-fg: #1E7A3A;
+  --amber-bg: #FEF6E4; --blue-bg: #EAF1FD; --blue-fg: #1A5DB5;
+  --blue-border: #C4D9F8; --green-bg: #E7F5EA; --green-fg: #1E7A3A;
+  --green-border: #B8DEC0; --pink-bg: #FDE8F0; --pink-fg: #C0185A;
+  --font: "Inter", system-ui, sans-serif;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.07);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
+}
+body { background: var(--bg); color: var(--ink-700); font-family: var(--font); font-size: 14px; -webkit-font-smoothing: antialiased; overflow: hidden; height: 100vh; }
+
+/* ─── Top bar ─── */
+.topbar {
+  background: var(--ink-900); height: 48px;
+  padding: 0 24px; display: flex; align-items: center; gap: 0;
+  position: relative; z-index: 100;
+}
+.topbar-brand { color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 28px; }
+.topbar-brand span { color: #fff; }
+.nav-link {
+  padding: 0 15px; height: 48px; display: flex; align-items: center;
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.5);
+  border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s;
+}
+.nav-link:hover { color: rgba(255,255,255,0.8); }
+.nav-link.active { color: #fff; border-bottom-color: var(--tc-500); font-weight: 700; }
+
+/* ─── 3-pane layout ─── */
+.three-pane {
+  display: flex; height: calc(100vh - 48px); overflow: hidden;
+}
+
+/* ─── Resize handle ─── */
+.resize-handle {
+  width: 5px; flex-shrink: 0; background: var(--border);
+  cursor: col-resize; transition: background 0.15s; position: relative; z-index: 10;
+}
+.resize-handle:hover, .resize-handle.dragging { background: var(--tc-500); }
+.resize-handle::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px; height: 32px; background: rgba(0,0,0,0.15); border-radius: 2px;
+}
+
+/* ─── Column 1: Sidebar ─── */
+.col-sidebar {
+  background: var(--surface); display: flex; flex-direction: column;
+  overflow: hidden; min-width: 160px; max-width: 440px;
+  /* Default width set by JS */
+}
+.sidebar-section { border-bottom: 1px solid var(--border); }
+.sidebar-section-header { padding: 11px 14px 7px; display: flex; align-items: center; justify-content: space-between; }
+.section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); }
+.cm-multi-trigger {
+  margin: 0 14px 10px; background: var(--ink-50); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 8px 11px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; transition: all 0.15s;
+}
+.cm-multi-trigger:hover { border-color: var(--tc-500); }
+.cm-trigger-main { font-size: 13px; font-weight: 600; color: var(--ink-900); }
+.cm-chevron { color: var(--ink-400); font-size: 10px; }
+.sidebar-tree { flex: 1; overflow-y: auto; padding: 4px 0 8px; }
+.tree-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 14px; font-size: 13px; cursor: pointer;
+  border-left: 2px solid transparent; transition: all 0.12s;
+  color: var(--ink-700);
+}
+.tree-row:hover { background: var(--ink-50); }
+.tree-row.active { background: var(--tc-50); color: var(--tc-600); border-left-color: var(--tc-500); font-weight: 600; }
+.tree-row.market { font-weight: 600; font-size: 12.5px; }
+.tree-row.chain { padding-left: 26px; font-size: 12px; color: var(--ink-500); }
+.tree-row.store { padding-left: 40px; font-size: 12px; color: var(--ink-500); }
+.tree-chevron { font-size: 10px; color: var(--ink-300); transition: transform 0.18s; flex-shrink: 0; }
+.tree-chevron.open { transform: rotate(90deg); }
+.tree-count { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--ink-400); background: var(--ink-100); padding: 1px 6px; border-radius: 20px; flex-shrink: 0; }
+.tree-count.active { color: var(--tc-600); background: var(--tc-50); }
+.tier-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+
+/* ─── Column 2: Feed ─── */
+.col-feed {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 320px;
+}
+.feed-toolbar {
+  padding: 11px 18px 9px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.feed-title { font-size: 15px; font-weight: 800; color: var(--ink-900); }
+.feed-count { font-size: 12px; color: var(--ink-400); }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: #22C55E; animation: livepulse 2s ease-in-out infinite; flex-shrink: 0; }
+@keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.live-indicator { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-400); }
+.view-toggle {
+  margin-left: auto; display: flex; background: var(--ink-100); border-radius: var(--radius-md);
+  padding: 2px; gap: 2px;
+}
+.view-btn {
+  padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
+  border: none; background: transparent; color: var(--ink-500); font-family: var(--font);
+  display: flex; align-items: center; gap: 4px; transition: all 0.15s;
+}
+.view-btn.active { background: var(--surface); color: var(--ink-900); box-shadow: var(--shadow-sm); }
+.chips-bar {
+  padding: 7px 18px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none;
+}
+.chips-bar::-webkit-scrollbar { display: none; }
+.chip {
+  padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  background: transparent; border: 1.5px solid var(--border); color: var(--ink-500);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+}
+.chip:hover { border-color: var(--border-strong); background: var(--ink-50); }
+.chip.active { background: var(--tc-50); color: var(--tc-600); border-color: var(--tc-100); font-weight: 700; }
+.chip-div { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+.photos-toggle {
+  margin-left: auto; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  background: transparent; border: 1.5px solid var(--border); color: var(--ink-500);
+  cursor: pointer; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 5px;
+}
+.photos-toggle.on { background: var(--blue-bg); color: var(--blue-fg); border-color: var(--blue-border); }
+.toggle-dot { width: 24px; height: 14px; border-radius: 7px; background: var(--border); position: relative; }
+.toggle-dot::after { content:""; width:10px; height:10px; border-radius:50%; background:#fff; position:absolute; top:2px; left:2px; transition:left 0.18s; box-shadow:0 1px 2px rgba(0,0,0,0.2); }
+.photos-toggle.on .toggle-dot { background: var(--blue-fg); }
+.photos-toggle.on .toggle-dot::after { left: 12px; }
+.feed-scroll { flex: 1; overflow-y: auto; padding: 16px 18px 32px; }
+.day-divider { display: flex; align-items: center; gap: 8px; padding: 12px 0 8px; }
+.day-line { flex: 1; border: none; border-top: 1px solid var(--border); }
+.day-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-300); white-space: nowrap; }
+.cards-stack { display: flex; flex-direction: column; gap: 7px; }
+.visit-card { background: var(--surface); border-radius: var(--radius-md); border: 1px solid var(--border); transition: all 0.15s; }
+.visit-card:hover { box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.visit-card.selected { border-color: var(--tc-500); box-shadow: 0 0 0 3px var(--tc-50); }
+.card-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.card-store { font-size: 14px; font-weight: 700; color: var(--ink-900); flex: 1; cursor: pointer; }
+.card-store:hover { color: var(--tc-600); }
+.card-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.meta { font-size: 12px; color: var(--ink-500); }
+.meta-sep { font-size: 11px; color: var(--ink-300); }
+.meta-link { font-size: 12px; color: var(--tc-600); font-weight: 600; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.meta-link:hover { text-decoration: underline; }
+.more-wrap { position: relative; }
+.more-btn { width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid transparent; background: transparent; color: var(--ink-400); font-size: 15px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; }
+.more-btn:hover { background: var(--ink-50); border-color: var(--border); }
+.more-menu { position: absolute; top: calc(100% + 3px); right: 0; z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); min-width: 130px; overflow: hidden; opacity: 0; pointer-events: none; transform: translateY(-4px); transition: all 0.12s; }
+.more-menu.open { opacity: 1; pointer-events: all; transform: translateY(0); }
+.more-item { display: flex; align-items: center; gap: 8px; padding: 9px 13px; font-size: 12.5px; cursor: pointer; color: var(--ink-700); transition: background 0.1s; }
+.more-item:hover { background: var(--ink-50); }
+.more-item.danger { color: var(--pink-fg); }
+.more-item.danger:hover { background: #FFF0F0; }
+.more-div { height: 1px; background: var(--border); }
+.card-chev { font-size: 11px; color: var(--ink-300); transition: transform 0.18s; }
+.card-chev.open { transform: rotate(90deg); }
+.card-body { padding: 0 12px 12px; }
+.photo-strip-wrap { overflow-x: auto; scrollbar-width: none; }
+.photo-strip-wrap::-webkit-scrollbar { display: none; }
+.photo-strip { display: flex; gap: 7px; padding: 4px 0 8px; }
+.photo-ph { width: 140px; height: 140px; border-radius: var(--radius-md); background: var(--ink-50); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; font-size: 22px; color: var(--ink-300); flex-shrink: 0; cursor: pointer; }
+.photo-ph span { font-size: 10px; color: var(--ink-400); }
+.sections-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding-top: 4px; }
+.section-card { border-radius: var(--radius-md); border: 1px solid var(--border); padding: 9px 11px; }
+.section-label-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.section-icon { width: 18px; height: 18px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+.section-text { font-size: 12.5px; color: var(--ink-700); line-height: 1.45; }
+/* Table view */
+.table-wrap { overflow-x: auto; }
+.visits-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.visits-table th { padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); border-bottom: 1.5px solid var(--border); white-space: nowrap; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.visits-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.visits-table tr:hover td { background: var(--ink-50); }
+.tbl-store { font-weight: 700; color: var(--ink-900); cursor: pointer; }
+.tbl-store:hover { color: var(--tc-600); }
+.tbl-cm { color: var(--tc-600); font-weight: 600; cursor: pointer; text-decoration: underline dotted; }
+.tbl-cell-excerpt { font-size: 12px; color: var(--ink-700); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tbl-cell-none { font-size: 12px; color: var(--ink-300); }
+.tbl-actions { display: flex; gap: 3px; justify-content: flex-end; }
+.tbl-btn { width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; color: var(--ink-400); }
+.tbl-btn:hover { background: var(--ink-50); }
+.tbl-btn.danger:hover { background: #FFF0F0; color: var(--pink-fg); border-color: #FFC5C5; }
+
+/* ─── Column 3: Detail panel ─── */
+.col-detail {
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  overflow: hidden; min-width: 200px; max-width: 560px;
+  transition: min-width 0.15s;
+}
+.col-detail.collapsed { min-width: 0; max-width: 0; overflow: hidden; }
+.detail-header {
+  padding: 14px 18px 12px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.detail-header-top { display: flex; align-items: flex-start; gap: 10px; }
+.detail-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--tc-500), var(--tc-600));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800; color: #fff;
+}
+.detail-avatar.store { border-radius: var(--radius-md); background: linear-gradient(135deg, #3E7A3E, #64A864); }
+.detail-avatar.staff { border-radius: var(--radius-md); background: linear-gradient(135deg, var(--blue-fg), #2D7DD2); }
+.detail-title { font-size: 16px; font-weight: 800; color: var(--ink-900); line-height: 1.2; }
+.detail-subtitle { font-size: 12px; color: var(--ink-400); margin-top: 3px; }
+.detail-close-btn {
+  margin-left: auto; width: 26px; height: 26px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: transparent; font-size: 14px; color: var(--ink-400);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+  transition: all 0.15s;
+}
+.detail-close-btn:hover { background: var(--ink-50); color: var(--ink-700); }
+.detail-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  padding: 0 18px; flex-shrink: 0;
+}
+.detail-tab {
+  padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--ink-400); border-bottom: 2px solid transparent; transition: all 0.15s;
+  white-space: nowrap;
+}
+.detail-tab.active { color: var(--tc-600); border-bottom-color: var(--tc-500); }
+.detail-tab:hover:not(.active) { color: var(--ink-700); }
+.detail-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+.detail-section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); margin-bottom: 9px; }
+.assigned-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-bottom: 6px; cursor: pointer; transition: background 0.1s; }
+.assigned-item:hover { background: var(--ink-50); }
+.assigned-item-name { font-size: 13px; font-weight: 600; color: var(--ink-900); flex: 1; }
+.assigned-item-meta { font-size: 11px; color: var(--ink-400); }
+.visit-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-bottom: 6px; cursor: pointer; transition: background 0.1s; }
+.visit-item:hover { background: var(--ink-50); }
+.visit-item-store { font-size: 13px; font-weight: 600; color: var(--ink-900); }
+.visit-item-meta { font-size: 11.5px; color: var(--ink-400); margin-top: 2px; }
+.training-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 7px; }
+.training-header { font-size: 12.5px; font-weight: 700; color: var(--ink-900); }
+.training-products { font-size: 12px; color: var(--ink-500); margin-top: 3px; }
+.training-response { margin-top: 8px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--green-bg); border: 1px solid var(--green-border); font-size: 11.5px; color: var(--green-fg); }
+/* Empty state */
+.detail-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; text-align: center; gap: 10px; }
+.detail-empty-icon { font-size: 32px; opacity: 0.35; }
+.detail-empty-title { font-size: 13px; font-weight: 700; color: var(--ink-400); }
+.detail-empty-desc { font-size: 12px; color: var(--ink-300); line-height: 1.5; }
+/* Collapse toggle */
+.col-detail-toggle {
+  width: 20px; flex-shrink: 0; background: var(--bg); border-left: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 11px; color: var(--ink-300); transition: all 0.15s;
+  writing-mode: vertical-lr;
+}
+.col-detail-toggle:hover { background: var(--ink-50); color: var(--ink-700); }
+
+/* ─── Modals ─── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.22); z-index: 300; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s; backdrop-filter: blur(2px); }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); width: 500px; max-height: 88vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.14); transform: scale(0.96) translateY(6px); transition: transform 0.2s; }
+.modal-overlay.open .modal { transform: scale(1) translateY(0); }
+.modal-header { padding: 18px 20px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.modal-title { font-size: 15px; font-weight: 800; color: var(--ink-900); }
+.modal-subtitle { font-size: 12px; color: var(--ink-400); margin-top: 3px; }
+.modal-close { padding: 4px 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 12px; font-weight: 600; background: transparent; color: var(--ink-500); cursor: pointer; flex-shrink: 0; }
+.modal-close:hover { background: var(--ink-50); }
+.modal-body { padding: 16px 20px; }
+.field-label { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: 5px; }
+.field-input { width: 100%; padding: 8px 11px; border-radius: var(--radius-md); border: 1px solid var(--border); font-family: var(--font); font-size: 13px; color: var(--ink-700); background: var(--ink-50); outline: none; transition: all 0.15s; }
+.field-input:focus { border-color: var(--tc-500); background: #fff; box-shadow: 0 0 0 3px var(--tc-50); }
+textarea.field-input { resize: vertical; min-height: 60px; line-height: 1.5; }
+.field { margin-bottom: 12px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 7px; justify-content: flex-end; }
+.btn { padding: 8px 18px; border-radius: var(--radius-md); font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); border: none; transition: all 0.15s; }
+.btn-primary { background: var(--ink-900); color: #fff; }
+.btn-primary:hover { background: var(--tc-600); }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--ink-500); }
+.btn-ghost:hover { background: var(--ink-50); }
+.delete-modal { background: var(--surface); border-radius: var(--radius-lg); width: 360px; box-shadow: 0 8px 40px rgba(0,0,0,0.14); transform: scale(0.96) translateY(6px); transition: transform 0.2s; }
+.modal-overlay.open .delete-modal { transform: scale(1) translateY(0); }
+.delete-modal-body { padding: 28px 24px 16px; text-align: center; }
+.delete-icon { font-size: 30px; margin-bottom: 10px; }
+.delete-title { font-size: 16px; font-weight: 800; color: var(--ink-900); margin-bottom: 6px; }
+.delete-desc { font-size: 13px; color: var(--ink-500); line-height: 1.5; }
+.delete-modal-footer { padding: 14px 24px 20px; display: flex; gap: 8px; }
+.btn-danger { background: var(--pink-fg); color: #fff; flex: 1; }
+.btn-ghost-full { flex: 1; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-brand">TC Acoustic · <span>SVA</span></div>
+  <div class="nav-link">Home</div>
+  <div class="nav-link active">Store Updates</div>
+  <div class="nav-link">Staff</div>
+  <div class="nav-link">Channel Managers</div>
+  <div class="nav-link">Intelligence</div>
+</div>
+
+<div class="three-pane">
+
+  <!-- ══ COLUMN 1: Sidebar ══ -->
+  <div class="col-sidebar" id="colSidebar" style="width:268px">
+
+    <!-- CM filter -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-header">
+        <span class="section-label">Channel Manager</span>
+      </div>
+      <div class="cm-multi-trigger" onclick="void(0)">
+        <span class="cm-trigger-main">All Channel Managers</span>
+        <span class="cm-chevron">▼</span>
+      </div>
+    </div>
+
+    <!-- Scope tree -->
+    <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="sidebar-section-header">
+        <span class="section-label">Scope</span>
+      </div>
+      <div class="sidebar-tree">
+        <div class="tree-row active" onclick="selectScope(this)">
+          <span>🌐</span>
+          <span style="flex:1">All Markets</span>
+          <span class="tree-count active">24</span>
+        </div>
+        <div class="tree-row market" onclick="toggleTree('sg-sub',this,'sg-chev')">
+          <span class="tree-chevron open" id="sg-chev">›</span>
+          <span>🇸🇬</span>
+          <span style="flex:1">Singapore</span>
+          <span class="tree-count">12</span>
+        </div>
+        <div id="sg-sub">
+          <div class="tree-row chain" onclick="toggleTree('sg-bd-sub',this,'sg-bd-chev')">
+            <span class="tree-chevron open" id="sg-bd-chev">›</span>
+            <span style="flex:1">Best Denki</span>
+            <span class="tree-count">5</span>
+          </div>
+          <div id="sg-bd-sub">
+            <div class="tree-row store">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <span style="flex:1">VivoCity</span>
+              <span class="tree-count">3</span>
+            </div>
+            <div class="tree-row store">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <span style="flex:1">Jurong Point</span>
+              <span class="tree-count">2</span>
+            </div>
+          </div>
+          <div class="tree-row chain" onclick="toggleTree('sg-ch-sub',this,'sg-ch-chev')">
+            <span class="tree-chevron" id="sg-ch-chev">›</span>
+            <span style="flex:1">Challenger</span>
+            <span class="tree-count">4</span>
+          </div>
+          <div id="sg-ch-sub" style="display:none">
+            <div class="tree-row store">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Bugis Junction</span>
+              <span class="tree-count">2</span>
+            </div>
+          </div>
+          <div class="tree-row chain">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Harvey Norman</span>
+            <span class="tree-count">3</span>
+          </div>
+        </div>
+        <div class="tree-row market" onclick="toggleTree('my-sub',this,'my-chev')">
+          <span class="tree-chevron" id="my-chev">›</span>
+          <span>🇲🇾</span>
+          <span style="flex:1">Malaysia</span>
+          <span class="tree-count">8</span>
+        </div>
+        <div id="my-sub" style="display:none">
+          <div class="tree-row chain">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Harvey Norman</span>
+            <span class="tree-count">4</span>
+          </div>
+        </div>
+        <div class="tree-row market" onclick="toggleTree('th-sub',this,'th-chev')">
+          <span class="tree-chevron" id="th-chev">›</span>
+          <span>🇹🇭</span>
+          <span style="flex:1">Thailand</span>
+          <span class="tree-count">4</span>
+        </div>
+        <div id="th-sub" style="display:none">
+          <div class="tree-row chain">
+            <span class="tree-chevron">›</span>
+            <span style="flex:1">Power Buy</span>
+            <span class="tree-count">4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resize 1-2 -->
+  <div class="resize-handle" id="resize1" onmousedown="startResize(event,'resize1','colSidebar','colFeed')"></div>
+
+  <!-- ══ COLUMN 2: Feed ══ -->
+  <div class="col-feed" id="colFeed">
+
+    <!-- Toolbar -->
+    <div class="feed-toolbar">
+      <span class="feed-title">All Markets</span>
+      <span class="feed-count">24 visits</span>
+      <div class="live-indicator">
+        <div class="live-dot"></div>
+        <span id="liveLabel">Live · 28s</span>
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn active" onclick="setView('card')" id="cardBtn">▤ Cards</button>
+        <button class="view-btn" onclick="setView('table')" id="tableBtn">☰ Table</button>
+      </div>
+    </div>
+
+    <!-- Chips -->
+    <div class="chips-bar">
+      <div class="chip active" onclick="clickChip(this)" data-chip="all">All</div>
+      <div class="chip-div"></div>
+      <div class="chip" onclick="clickChip(this)" data-chip="good_news">🌟 Good News</div>
+      <div class="chip" onclick="clickChip(this)" data-chip="engagements">🤝 Engagements</div>
+      <div class="chip" onclick="clickChip(this)" data-chip="competitors">🔍 Competitors</div>
+      <div class="chip" onclick="clickChip(this)" data-chip="display_stock">📦 Display &amp; Stock</div>
+      <div class="chip" onclick="clickChip(this)" data-chip="follow_ups">📌 Follow Ups</div>
+      <button class="photos-toggle" id="photosToggle" onclick="togglePhotos()">
+        <div class="toggle-dot"></div> 📸 Photos
+      </button>
+    </div>
+
+    <!-- Feed scroll -->
+    <div class="feed-scroll" id="cardView">
+      <div class="day-divider">
+        <hr class="day-line"><span class="day-label">Today — 28 May 2026</span><hr class="day-line">
+      </div>
+      <div class="cards-stack">
+
+        <!-- Card 1 -->
+        <div class="visit-card" id="card-c1">
+          <div class="card-header" onclick="toggleCard('c1')">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div style="flex:1;min-width:0">
+              <div class="card-store" onclick="event.stopPropagation();openDetail('store','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">Best Denki VivoCity</div>
+              <div class="card-meta">
+                <span class="meta-link" onclick="event.stopPropagation();openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+                <span class="meta-sep">·</span><span class="meta">28 May</span>
+                <span class="meta-sep">·</span><span class="meta">🌟 🔍</span>
+                <span class="meta-sep">·</span><span class="meta">📸 4</span>
+                <span class="meta-sep">·</span>
+                <span class="meta">🎓 <span class="meta-link" onclick="event.stopPropagation();openDetail('staff','Jasmine Lim','Store Staff · Best Denki VivoCity')">Jasmine</span></span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('m1')">⋮</button>
+              <div class="more-menu" id="m1">
+                <div class="more-item" onclick="openEditModal();closeMenu('m1')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item danger" onclick="openDeleteModal('Best Denki VivoCity','28 May');closeMenu('m1')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="c1-chev">›</span>
+          </div>
+          <div id="c1-body" style="display:none">
+            <div class="card-body">
+              <div class="photo-strip-wrap" id="c1-photos" style="display:none">
+                <div class="photo-strip">
+                  <div class="photo-ph">🖼️<span>Photo 1</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 2</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 3</span></div>
+                </div>
+              </div>
+              <div class="sections-grid">
+                <div class="section-card">
+                  <div class="section-label-row" style="color:var(--tc-600)">
+                    <span class="section-icon" style="background:var(--amber-bg)">🌟</span> Good News
+                  </div>
+                  <p class="section-text">Sold 3 units of TC-WH500. Staff very enthusiastic.</p>
+                </div>
+                <div class="section-card">
+                  <div class="section-label-row" style="color:var(--blue-fg)">
+                    <span class="section-icon" style="background:var(--blue-bg)">🔍</span> Competitors
+                  </div>
+                  <p class="section-text">Sony promo: WH-1000XM5 + case at $399.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="visit-card" id="card-c2">
+          <div class="card-header" onclick="toggleCard('c2')">
+            <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+            <div style="flex:1;min-width:0">
+              <div class="card-store" onclick="event.stopPropagation();openDetail('store','Challenger Bugis Junction','🇸🇬 Singapore · Challenger · T2')">Challenger Bugis Junction</div>
+              <div class="card-meta">
+                <span class="meta-link" onclick="event.stopPropagation();openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')">Ahmad</span>
+                <span class="meta-sep">·</span><span class="meta">28 May</span>
+                <span class="meta-sep">·</span><span class="meta">📌 2</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('m2')">⋮</button>
+              <div class="more-menu" id="m2">
+                <div class="more-item" onclick="openEditModal();closeMenu('m2')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item danger" onclick="openDeleteModal('Challenger Bugis Junction','28 May');closeMenu('m2')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="c2-chev">›</span>
+          </div>
+          <div id="c2-body" style="display:none">
+            <div class="card-body">
+              <div class="sections-grid">
+                <div class="section-card">
+                  <div class="section-label-row" style="color:var(--pink-fg)">
+                    <span class="section-icon" style="background:var(--pink-bg)">📌</span> Follow Ups
+                  </div>
+                  <p class="section-text">Restock TC-HB720. Chase AM for display stand approval.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="day-divider" style="margin-top:6px">
+        <hr class="day-line"><span class="day-label">Yesterday — 27 May 2026</span><hr class="day-line">
+      </div>
+      <div class="cards-stack">
+        <div class="visit-card">
+          <div class="card-header" onclick="toggleCard('c3')">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div style="flex:1">
+              <div class="card-store" onclick="event.stopPropagation();openDetail('store','Harvey Norman Parkway','🇸🇬 Singapore · Harvey Norman · T1')">Harvey Norman Parkway</div>
+              <div class="card-meta">
+                <span class="meta-link" onclick="event.stopPropagation();openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+                <span class="meta-sep">·</span><span class="meta">27 May</span>
+                <span class="meta-sep">·</span><span class="meta">🌟 📦 📸 2</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('m3')">⋮</button>
+              <div class="more-menu" id="m3">
+                <div class="more-item" onclick="openEditModal();closeMenu('m3')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item danger" onclick="openDeleteModal('Harvey Norman Parkway','27 May');closeMenu('m3')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="c3-chev">›</span>
+          </div>
+          <div id="c3-body" style="display:none">
+            <div class="card-body">
+              <div class="sections-grid">
+                <div class="section-card">
+                  <div class="section-label-row" style="color:var(--tc-600)">
+                    <span class="section-icon" style="background:var(--amber-bg)">🌟</span> Good News
+                  </div>
+                  <p class="section-text">Display stand upgraded — TC-IEM300 now featured front and centre.</p>
+                </div>
+                <div class="section-card">
+                  <div class="section-label-row" style="color:var(--green-fg)">
+                    <span class="section-icon" style="background:var(--green-bg)">📦</span> Display &amp; Stock
+                  </div>
+                  <p class="section-text">TC-HB700 back in stock. Requested 2 additional demo units.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /feed-scroll cardView -->
+
+    <!-- TABLE VIEW (hidden) -->
+    <div id="tableView" style="display:none;flex:1;overflow-y:auto;">
+      <div class="table-wrap">
+        <table class="visits-table">
+          <thead><tr>
+            <th>Date</th><th>Time</th><th>Tier</th><th>Chain</th>
+            <th>Store</th><th>Channel Manager</th>
+            <th id="th-good_news" class="col-good_news">🌟 Good News</th>
+            <th id="th-engagements" class="col-engagements">🤝 Engagements</th>
+            <th id="th-competitors" class="col-competitors">🔍 Competitors</th>
+            <th id="th-display_stock" class="col-display_stock">📦 Disp &amp; Stock</th>
+            <th id="th-follow_ups" class="col-follow_ups">📌 Follow Ups</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td style="color:var(--ink-400);font-weight:600;font-size:12px">28 May</td>
+              <td style="color:var(--ink-300);font-size:12px">—</td>
+              <td><span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></td>
+              <td style="font-size:12.5px">Best Denki</td>
+              <td><span class="tbl-store" onclick="openDetail('store','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">VivoCity</span></td>
+              <td><span class="tbl-cm" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span></td>
+              <td class="col-good_news"><span class="tbl-cell-excerpt">Sold 3 units of TC-WH500…</span></td>
+              <td class="col-engagements"><span class="tbl-cell-none">—</span></td>
+              <td class="col-competitors"><span class="tbl-cell-excerpt">Sony bundle at $399…</span></td>
+              <td class="col-display_stock"><span class="tbl-cell-none">—</span></td>
+              <td class="col-follow_ups"><span class="tbl-cell-none">—</span></td>
+              <td><div class="tbl-actions"><button class="tbl-btn" onclick="openEditModal()">✏️</button><button class="tbl-btn danger" onclick="openDeleteModal('Best Denki VivoCity','28 May')">🗑</button></div></td>
+            </tr>
+            <tr>
+              <td style="color:var(--ink-400);font-weight:600;font-size:12px">28 May</td>
+              <td style="color:var(--ink-300);font-size:12px">—</td>
+              <td><span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span></td>
+              <td style="font-size:12.5px">Challenger</td>
+              <td><span class="tbl-store" onclick="openDetail('store','Challenger Bugis Junction','🇸🇬 Singapore · Challenger · T2')">Bugis Junction</span></td>
+              <td><span class="tbl-cm" onclick="openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')">Ahmad</span></td>
+              <td class="col-good_news"><span class="tbl-cell-none">—</span></td>
+              <td class="col-engagements"><span class="tbl-cell-none">—</span></td>
+              <td class="col-competitors"><span class="tbl-cell-none">—</span></td>
+              <td class="col-display_stock"><span class="tbl-cell-none">—</span></td>
+              <td class="col-follow_ups"><span class="tbl-cell-excerpt">Restock TC-HB720…</span></td>
+              <td><div class="tbl-actions"><button class="tbl-btn" onclick="openEditModal()">✏️</button><button class="tbl-btn danger">🗑</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /col-feed -->
+
+  <!-- Resize 2-3 -->
+  <div class="resize-handle" id="resize2" onmousedown="startResize(event,'resize2','colFeed','colDetail')" style="display:none" id="resize2Handle"></div>
+
+  <!-- ══ COLUMN 3: Detail panel ══ -->
+  <div class="col-detail" id="colDetail" style="width:320px;display:none">
+
+    <!-- Empty state (shown initially) -->
+    <div class="detail-empty" id="detailEmpty">
+      <div class="detail-empty-icon">👆</div>
+      <div class="detail-empty-title">Click a name to see details</div>
+      <div class="detail-empty-desc">Click any CM name, store name, or staff name in the feed to view their profile here.</div>
+    </div>
+
+    <!-- CM Panel -->
+    <div id="detailCm" style="display:none;height:100%;overflow:hidden;display:none;flex-direction:column">
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div style="display:flex;align-items:flex-start;gap:10px;flex:1">
+            <div class="detail-avatar">W</div>
+            <div>
+              <div class="detail-title" id="cmDetailName">Wei Liang</div>
+              <div class="detail-subtitle" id="cmDetailSub">🇸🇬 Singapore · Channel Manager</div>
+            </div>
+          </div>
+          <button class="detail-close-btn" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="detail-tabs">
+        <div class="detail-tab active" onclick="switchTab('cm','stores',this)">Stores</div>
+        <div class="detail-tab" onclick="switchTab('cm','visits',this)">Visits</div>
+      </div>
+      <div class="detail-body" id="cmDetailBody">
+        <!-- Stores tab -->
+        <div id="cmTab-stores">
+          <div class="detail-section-label">Assigned Stores (11)</div>
+          <div class="assigned-item" onclick="openDetail('store','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div><div class="assigned-item-name">Best Denki VivoCity</div><div class="assigned-item-meta">Best Denki · 🇸🇬 SG</div></div>
+          </div>
+          <div class="assigned-item" onclick="openDetail('store','Harvey Norman Parkway','🇸🇬 Singapore · Harvey Norman · T1')">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div><div class="assigned-item-name">Harvey Norman Parkway</div><div class="assigned-item-meta">Harvey Norman · 🇸🇬 SG</div></div>
+          </div>
+          <div class="assigned-item">
+            <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+            <div><div class="assigned-item-name">Best Denki Nex</div><div class="assigned-item-meta">Best Denki · 🇸🇬 SG</div></div>
+          </div>
+          <div style="padding:7px 10px;border-radius:var(--radius-md);background:var(--ink-50);color:var(--ink-400);font-size:12px;text-align:center;cursor:pointer;border:1px solid var(--border)">+ 8 more →</div>
+        </div>
+        <!-- Visits tab (hidden) -->
+        <div id="cmTab-visits" style="display:none">
+          <div class="detail-section-label">Recent Visits</div>
+          <div class="visit-item" onclick="openDetail('store','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div class="visit-item-main" style="flex:1">
+              <div class="visit-item-store">Best Denki VivoCity</div>
+              <div class="visit-item-meta">28 May · 🌟 🔍 · 📸 4</div>
+            </div>
+            <span style="color:var(--ink-300);font-size:11px">›</span>
+          </div>
+          <div class="visit-item">
+            <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div style="flex:1">
+              <div class="visit-item-store">Harvey Norman Parkway</div>
+              <div class="visit-item-meta">27 May · 🌟 📦 · 📸 2</div>
+            </div>
+            <span style="color:var(--ink-300);font-size:11px">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Store Panel -->
+    <div id="detailStore" style="display:none;height:100%;flex-direction:column;">
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div style="display:flex;align-items:flex-start;gap:10px;flex:1">
+            <div class="detail-avatar store">🏪</div>
+            <div>
+              <div class="detail-title" id="storeDetailName">Best Denki VivoCity</div>
+              <div class="detail-subtitle" id="storeDetailSub">🇸🇬 Singapore · Best Denki · T1</div>
+            </div>
+          </div>
+          <button class="detail-close-btn" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="detail-tabs">
+        <div class="detail-tab active" onclick="switchTab('store','info',this)">Info</div>
+        <div class="detail-tab" onclick="switchTab('store','visits',this)">Visits</div>
+      </div>
+      <div class="detail-body">
+        <div id="storeTab-info">
+          <div class="detail-section-label">Store Info</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px">
+            <div style="background:var(--ink-50);border:1px solid var(--border);border-radius:var(--radius-md);padding:9px 11px">
+              <div style="font-size:10px;font-weight:700;color:var(--ink-400);letter-spacing:0.06em;text-transform:uppercase">CM Assigned</div>
+              <div style="font-size:12.5px;font-weight:700;color:var(--tc-600);margin-top:3px;cursor:pointer" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang →</div>
+            </div>
+            <div style="background:var(--ink-50);border:1px solid var(--border);border-radius:var(--radius-md);padding:9px 11px">
+              <div style="font-size:10px;font-weight:700;color:var(--ink-400);letter-spacing:0.06em;text-transform:uppercase">Market</div>
+              <div style="font-size:12.5px;font-weight:600;margin-top:3px">🇸🇬 Singapore</div>
+            </div>
+          </div>
+        </div>
+        <div id="storeTab-visits" style="display:none">
+          <div class="detail-section-label">Recent Visits</div>
+          <div class="visit-item">
+            <div style="flex:1">
+              <div class="visit-item-store" style="display:flex;align-items:center;gap:6px">
+                <span class="meta-link" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+              </div>
+              <div class="visit-item-meta">28 May · 🌟 🔍 · 📸 4</div>
+            </div>
+          </div>
+          <div class="visit-item">
+            <div style="flex:1">
+              <div class="visit-item-store">
+                <span class="meta-link" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+              </div>
+              <div class="visit-item-meta">24 May · 🌟 📦 · 📸 1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff Panel -->
+    <div id="detailStaff" style="display:none;height:100%;flex-direction:column;">
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div style="display:flex;align-items:flex-start;gap:10px;flex:1">
+            <div class="detail-avatar staff">J</div>
+            <div>
+              <div class="detail-title" id="staffDetailName">Jasmine Lim</div>
+              <div class="detail-subtitle" id="staffDetailSub">Store Staff · Best Denki VivoCity</div>
+            </div>
+          </div>
+          <button class="detail-close-btn" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="detail-body">
+        <div class="detail-section-label">Training History</div>
+        <div class="training-card">
+          <div class="training-header">28 May — <span class="meta-link" onclick="openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')" style="font-size:13px">Ahmad</span></div>
+          <div class="training-products">TC-WH500 · TC-HB720 · TC-IEM300</div>
+          <div class="training-response">💬 "She asked great questions about the noise-cancelling differences."</div>
+        </div>
+        <div class="training-card">
+          <div class="training-header">14 May — <span class="meta-link" onclick="openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')" style="font-size:13px">Ahmad</span></div>
+          <div class="training-products">TC-WH500 · TC-HB720</div>
+          <div class="training-response">💬 "Good engagement. Was aware of the product but hadn't pushed it."</div>
+        </div>
+        <div class="training-card">
+          <div class="training-header">2 May — <span class="meta-link" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')" style="font-size:13px">Wei Liang</span></div>
+          <div class="training-products">TC-IEM300</div>
+          <div class="training-response" style="background:var(--ink-50);border-color:var(--border);color:var(--ink-400)">💬 No response notes recorded.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /col-detail -->
+
+</div><!-- /three-pane -->
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editOverlay" onclick="closeEditModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div><div class="modal-title">Edit Visit</div><div class="modal-subtitle">Best Denki VivoCity · Wei Liang · 28 May 2026</div></div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label class="field-label">Store</label><input class="field-input" value="Best Denki VivoCity" readonly style="color:var(--ink-400)"/></div>
+        <div class="field"><label class="field-label">Visit Date</label><input class="field-input" type="date" value="2026-05-28"/></div>
+      </div>
+      <div class="field"><label class="field-label">🌟 Good News</label><textarea class="field-input">Sold 3 units of TC-WH500. Staff very enthusiastic.</textarea></div>
+      <div class="field"><label class="field-label">🤝 Engagements</label><textarea class="field-input" placeholder="People you talked to + their response…"></textarea></div>
+      <div class="field"><label class="field-label">🔍 Competitors</label><textarea class="field-input">Sony promo bundle — WH-1000XM5 + case at $399.</textarea></div>
+      <div class="field"><label class="field-label">📦 Display &amp; Stock</label><textarea class="field-input" placeholder="Nothing logged…"></textarea></div>
+      <div class="field"><label class="field-label">📌 Follow Up</label><textarea class="field-input" placeholder="Nothing logged…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal-overlay" id="deleteOverlay" onclick="closeDeleteModal()">
+  <div class="delete-modal" onclick="event.stopPropagation()">
+    <div class="delete-modal-body">
+      <div class="delete-icon">🗑</div>
+      <div class="delete-title">Delete this visit?</div>
+      <div class="delete-desc"><strong id="dStoreName">Best Denki VivoCity</strong> · <span id="dDate">28 May</span><br>This can't be undone.</div>
+    </div>
+    <div class="delete-modal-footer">
+      <button class="btn btn-ghost btn-ghost-full" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="closeDeleteModal()">Yes, delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Resize ──
+function startResize(e, handleId, leftId, rightId) {
+  e.preventDefault();
+  const handle = document.getElementById(handleId);
+  const left = document.getElementById(leftId);
+  const right = document.getElementById(rightId);
+  const startX = e.clientX;
+  const startLeft = left.offsetWidth;
+  const startRight = right.offsetWidth;
+  handle.classList.add('dragging');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  function onMove(ev) {
+    const delta = ev.clientX - startX;
+    const newLeft = Math.max(160, Math.min(540, startLeft + delta));
+    left.style.width = newLeft + 'px';
+    left.style.flex = 'none';
+  }
+  function onUp() {
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── View toggle ──
+function setView(v) {
+  document.getElementById('cardView').style.display = v === 'card' ? 'block' : 'none';
+  document.getElementById('tableView').style.display = v === 'table' ? 'flex' : 'none';
+  document.getElementById('cardBtn').classList.toggle('active', v === 'card');
+  document.getElementById('tableBtn').classList.toggle('active', v === 'table');
+}
+
+// ── Card toggle ──
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const chev = document.getElementById(id + '-chev');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chev.classList.toggle('open', open);
+}
+
+// ── ⋮ Menu ──
+let openMenu = null;
+function toggleMenu(id) {
+  if (openMenu && openMenu !== id) closeMenu(openMenu);
+  const m = document.getElementById(id);
+  const o = !m.classList.contains('open');
+  m.classList.toggle('open', o);
+  openMenu = o ? id : null;
+}
+function closeMenu(id) { document.getElementById(id)?.classList.remove('open'); openMenu = null; }
+document.addEventListener('click', () => { if (openMenu) closeMenu(openMenu); });
+
+// ── Chips ──
+const cols = ['good_news','engagements','competitors','display_stock','follow_ups'];
+function clickChip(btn) {
+  const bar = btn.closest('.chips-bar');
+  const allBtn = bar.querySelector('[data-chip="all"]');
+  if (btn.dataset.chip === 'all') {
+    bar.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    cols.forEach(c => bar.closest('.col-feed').querySelectorAll('.col-' + c).forEach(el => el.style.display = ''));
+  } else {
+    allBtn.classList.remove('active');
+    btn.classList.toggle('active');
+    const active = [...bar.querySelectorAll('.chip:not([data-chip="all"]).active')].map(c => c.dataset.chip);
+    if (active.length === 0) { allBtn.classList.add('active'); cols.forEach(c => bar.closest('.col-feed').querySelectorAll('.col-' + c).forEach(el => el.style.display = '')); }
+    else { cols.forEach(c => bar.closest('.col-feed').querySelectorAll('.col-' + c).forEach(el => el.style.display = active.includes(c) ? '' : 'none')); }
+  }
+}
+
+// ── Photos toggle ──
+function togglePhotos() {
+  const btn = document.getElementById('photosToggle');
+  const on = btn.classList.toggle('on');
+  document.querySelectorAll('[id$="-photos"]').forEach(el => el.style.display = on ? '' : 'none');
+}
+
+// ── Tree ──
+function toggleTree(subId, row, chevId) {
+  const sub = document.getElementById(subId);
+  const chev = document.getElementById(chevId);
+  const open = sub.style.display !== 'none';
+  sub.style.display = open ? 'none' : 'block';
+  if (chev) chev.classList.toggle('open', !open);
+}
+function selectScope(row) {
+  document.querySelectorAll('.tree-row').forEach(r => r.classList.remove('active'));
+  row.classList.add('active');
+}
+
+// ── Detail panel ──
+let detailOpen = false;
+function openDetail(type, name, sub) {
+  // Show detail column + resize handle
+  const col = document.getElementById('colDetail');
+  const r2 = document.getElementById('resize2');
+  col.style.display = 'flex';
+  r2.style.display = 'block';
+  detailOpen = true;
+  // Hide all panels
+  document.getElementById('detailEmpty').style.display = 'none';
+  ['detailCm','detailStore','detailStaff'].forEach(id => { const el = document.getElementById(id); el.style.display = 'none'; el.style.flexDirection = ''; });
+  // Show correct
+  if (type === 'cm') {
+    const el = document.getElementById('detailCm');
+    el.style.display = 'flex'; el.style.flexDirection = 'column';
+    document.getElementById('cmDetailName').textContent = name;
+    document.getElementById('cmDetailSub').textContent = sub;
+    document.querySelector('#detailCm .detail-avatar').textContent = name[0];
+    // Reset to stores tab
+    document.getElementById('cmTab-stores').style.display = 'block';
+    document.getElementById('cmTab-visits').style.display = 'none';
+    document.querySelectorAll('#detailCm .detail-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+  } else if (type === 'store') {
+    const el = document.getElementById('detailStore');
+    el.style.display = 'flex'; el.style.flexDirection = 'column';
+    document.getElementById('storeDetailName').textContent = name;
+    document.getElementById('storeDetailSub').textContent = sub;
+    document.getElementById('storeTab-info').style.display = 'block';
+    document.getElementById('storeTab-visits').style.display = 'none';
+    document.querySelectorAll('#detailStore .detail-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+  } else if (type === 'staff') {
+    const el = document.getElementById('detailStaff');
+    el.style.display = 'flex'; el.style.flexDirection = 'column';
+    document.getElementById('staffDetailName').textContent = name;
+    document.getElementById('staffDetailSub').textContent = sub;
+  }
+}
+function closeDetail() {
+  const col = document.getElementById('colDetail');
+  const r2 = document.getElementById('resize2');
+  col.style.display = 'none';
+  r2.style.display = 'none';
+  detailOpen = false;
+}
+function switchTab(panel, tab, btn) {
+  if (panel === 'cm') {
+    document.getElementById('cmTab-stores').style.display = tab === 'stores' ? 'block' : 'none';
+    document.getElementById('cmTab-visits').style.display = tab === 'visits' ? 'block' : 'none';
+    document.querySelectorAll('#detailCm .detail-tab').forEach(t => t.classList.remove('active'));
+  } else if (panel === 'store') {
+    document.getElementById('storeTab-info').style.display = tab === 'info' ? 'block' : 'none';
+    document.getElementById('storeTab-visits').style.display = tab === 'visits' ? 'block' : 'none';
+    document.querySelectorAll('#detailStore .detail-tab').forEach(t => t.classList.remove('active'));
+  }
+  btn.classList.add('active');
+}
+
+// ── Modals ──
+function openEditModal() { document.getElementById('editOverlay').classList.add('open'); }
+function closeEditModal() { document.getElementById('editOverlay').classList.remove('open'); }
+function openDeleteModal(s,d) { document.getElementById('dStoreName').textContent=s; document.getElementById('dDate').textContent=d; document.getElementById('deleteOverlay').classList.add('open'); }
+function closeDeleteModal() { document.getElementById('deleteOverlay').classList.remove('open'); }
+
+// ── Live ticker ──
+let secs = 28;
+setInterval(() => { secs = secs<=1 ? 30 : secs-1; document.getElementById('liveLabel').textContent = 'Live · '+secs+'s'; }, 1000);
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 
 export interface TrainedStaffItem {
+  id: string;
   name: string;
   products: string | null;
 }
@@ -246,15 +247,15 @@ export async function getVisitsFeed(opts: {
     // Trained staff (rich — name + products)
     const { data: staffRows, error: staffErr } = await supabase
       .from("visit_staff")
-      .select("visit_id, was_trained, products_trained_on, staff(name)")
+      .select("visit_id, was_trained, products_trained_on, staff(id, name)")
       .in("visit_id", ids)
       .eq("was_trained", true);
     if (!staffErr && staffRows) {
-      type StaffLink = { visit_id: string; products_trained_on: string | null; staff: { name: string } | null };
+      type StaffLink = { visit_id: string; products_trained_on: string | null; staff: { id: string; name: string } | null };
       const byVisit = new Map<string, TrainedStaffItem[]>();
       for (const r of staffRows as unknown as StaffLink[]) {
         const list = byVisit.get(r.visit_id) ?? [];
-        list.push({ name: r.staff?.name ?? "Unknown", products: r.products_trained_on });
+        list.push({ id: r.staff?.id ?? "", name: r.staff?.name ?? "Unknown", products: r.products_trained_on });
         byVisit.set(r.visit_id, list);
       }
       for (const v of visits) {
@@ -597,6 +598,15 @@ export interface StoreMemoryNote {
   last_touched_at: string;
 }
 
+export interface StoreOpenTask {
+  id: string;
+  title: string;
+  due_date: string | null;
+  visit_id: string;
+  visit_date: string | null;
+  cm_name: string | null;
+}
+
 export async function signPhotoUrls(paths: string[], ttlSec = 300): Promise<string[]> {
   if (paths.length === 0) return [];
   const { data, error } = await supabase.storage.from('sva-photos').createSignedUrls(paths, ttlSec);
@@ -616,8 +626,8 @@ export async function getVisitPhotos(visitId: string): Promise<string[]> {
   return signPhotoUrls(paths);
 }
 
-export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[]; staff: StaffRow[] }> {
-  const [storeRes, visitsRes, notesRes, staff] = await Promise.all([
+export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[]; staff: StaffRow[]; open_tasks: StoreOpenTask[] }> {
+  const [storeRes, visitsRes, notesRes, staff, tasksRes] = await Promise.all([
     supabase.from('stores').select('id, name, chain, market, tier').eq('id', storeId).single(),
     supabase
       .from('visits')
@@ -632,6 +642,12 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
       .eq('scope_ref', storeId)
       .order('last_touched_at', { ascending: false }),
     getStoreStaff(storeId),
+    supabase
+      .from('visit_follow_ups')
+      .select('id, title, due_date, visit_id, visits!visit_id(visit_date, cm_telegram_id, cms!cm_telegram_id(full_name, nickname))')
+      .eq('store_id', storeId)
+      .eq('status', 'open')
+      .order('due_date', { ascending: true, nullsFirst: false }),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -641,7 +657,17 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const memory_notes = (notesRes.data ?? []) as StoreMemoryNote[];
 
-  if (visitRows.length === 0) return { store, visits: [], memory_notes, staff };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const open_tasks: StoreOpenTask[] = (tasksRes.data ?? []).map((t: any) => ({
+    id: t.id,
+    title: t.title,
+    due_date: t.due_date ?? null,
+    visit_id: t.visit_id,
+    visit_date: t.visits?.visit_date ?? null,
+    cm_name: t.visits?.cms?.nickname ?? t.visits?.cms?.full_name ?? null,
+  }));
+
+  if (visitRows.length === 0) return { store, visits: [], memory_notes, staff, open_tasks };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ids = visitRows.map((v: any) => v.id);
@@ -691,7 +717,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     photo_urls: (allPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
   }));
 
-  return { store, visits, memory_notes, staff };
+  return { store, visits, memory_notes, staff, open_tasks };
 }
 
 // ── CM Detail (for visits page right panel) ──────────────────────────────────

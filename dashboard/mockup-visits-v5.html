@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SVA — Store Updates v5</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #EDE9DF; --surface: #FDFAF5; --border: #D5D0C8; --border-strong: #B5B0A8;
+  --ink-900: #2C2A24; --ink-700: #4A4540; --ink-500: #7A7268; --ink-400: #9A9290;
+  --ink-300: #C0BAB3; --ink-100: #E8E3D8; --ink-50: #F2EDE5;
+  --tc-600: #B45309; --tc-500: #D97706; --tc-100: #FDE68A; --tc-50: #FFF8E6;
+  --t1-bg:#DBEAFE; --t1-fg:#1D4ED8; --t1-bd:#BFDBFE;
+  --t2-bg:#DCFCE7; --t2-fg:#15803D; --t2-bd:#BBF7D0;
+  --t3-bg:#FEF9C3; --t3-fg:#A16207;
+  --gn-fg:#92400E; --gn-bg:#FEF3C7; --gn-bd:#FDE68A;
+  --eg-fg:#1E40AF; --eg-bg:#DBEAFE; --eg-bd:#BFDBFE;
+  --cp-fg:#3730A3; --cp-bg:#EEF2FF; --cp-bd:#C7D2FE;
+  --ds-fg:#14532D; --ds-bg:#DCFCE7; --ds-bd:#BBF7D0;
+  --fu-fg:#9D174D; --fu-bg:#FCE7F3; --fu-bd:#FBCFE8;
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+  --r-sm:6px; --r-md:10px; --r-lg:14px;
+  --sh-sm:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --sh-md:0 4px 16px rgba(0,0,0,.10),0 1px 4px rgba(0,0,0,.06);
+  --sh-lg:0 8px 40px rgba(0,0,0,.13),0 2px 8px rgba(0,0,0,.07);
+}
+body { background:var(--bg); color:var(--ink-700); font-family:var(--font); font-size:14px; -webkit-font-smoothing:antialiased; overflow:hidden; height:100vh; }
+
+/* ── TOP BAR ── */
+.topbar { background:var(--bg); height:52px; padding:0 24px; display:flex; align-items:center; position:relative; z-index:100; border-bottom:1px solid var(--border); }
+.topbar-brand { color:var(--ink-400); font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin-right:32px; flex-shrink:0; }
+.topbar-brand span { color:var(--ink-900); }
+.nav-link { padding:0 16px; height:52px; display:flex; align-items:center; font-size:13px; font-weight:500; color:var(--ink-500); border-bottom:2px solid transparent; cursor:pointer; transition:all .15s; white-space:nowrap; }
+.nav-link:hover { color:var(--ink-900); }
+.nav-link.active { color:var(--ink-900); border-bottom-color:var(--tc-500); font-weight:700; }
+
+/* ── 3-PANE ── */
+.three-pane { display:flex; height:calc(100vh - 52px); overflow:hidden; }
+
+/* ── RESIZE HANDLE ── */
+.resize-handle { width:5px; flex-shrink:0; background:var(--border); cursor:col-resize; transition:background .15s; position:relative; z-index:10; }
+.resize-handle:hover,.resize-handle.dragging { background:var(--tc-500); }
+
+/* ── COLUMN 1: SIDEBAR ── */
+.col-sidebar { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; min-width:180px; max-width:460px; border-right:1px solid var(--border); }
+.sidebar-section { border-bottom:1px solid var(--border); }
+.sidebar-section.fill { flex:1; overflow:hidden; display:flex; flex-direction:column; }
+.sb-head { padding:12px 16px 8px; display:flex; align-items:center; justify-content:space-between; }
+.sb-label { font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-400); }
+
+/* Date range filter */
+.date-range-row { padding:0 14px 12px; display:flex; align-items:center; gap:7px; }
+.date-sep { font-size:12px; color:var(--ink-400); flex-shrink:0; }
+.date-inp { flex:1; padding:6px 9px; border-radius:var(--r-sm); border:1.5px solid var(--border); font-size:12.5px; font-family:var(--font); color:var(--ink-700); background:var(--surface); outline:none; min-width:0; }
+.date-inp:focus { border-color:var(--tc-500); }
+
+/* CM trigger */
+.cm-trigger { margin:0 14px 12px; background:var(--ink-50); border:1.5px solid var(--border); border-radius:var(--r-md); padding:9px 13px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all .15s; position:relative; }
+.cm-trigger:hover { border-color:var(--tc-500); background:var(--tc-50); }
+.cm-trigger-label { font-size:14px; font-weight:600; color:var(--ink-900); flex:1; }
+.cm-badge { background:var(--tc-500); color:#fff; font-size:10px; font-weight:800; padding:1px 7px; border-radius:20px; display:none; }
+.cm-chevron { color:var(--ink-400); font-size:10px; }
+.cm-dropdown { position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--surface); border:1.5px solid var(--border); border-radius:var(--r-md); box-shadow:var(--sh-md); z-index:50; max-height:280px; overflow-y:auto; display:none; }
+.cm-dropdown.open { display:block; }
+.cm-opt { display:flex; align-items:center; gap:9px; padding:10px 13px; cursor:pointer; transition:background .1s; }
+.cm-opt:hover { background:var(--ink-50); }
+.cm-opt.all-opt { border-bottom:1px solid var(--border); }
+.cm-opt.mkt { background:var(--ink-50); font-weight:700; font-size:12.5px; color:var(--ink-700); padding:7px 13px; }
+.cm-opt.cm { padding-left:28px; font-size:13.5px; }
+.ck { width:16px; height:16px; border-radius:4px; border:1.5px solid var(--border); background:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:10px; font-weight:700; transition:all .12s; }
+.ck.on { background:var(--ink-900); border-color:var(--ink-900); color:#fff; }
+.cm-opt-name { flex:1; }
+.cm-opt-count { font-size:11px; color:var(--ink-400); background:var(--ink-100); padding:1px 6px; border-radius:20px; }
+
+/* Scope tree */
+.sidebar-tree { flex:1; overflow-y:auto; padding:4px 0 12px; }
+.tree-row { display:flex; align-items:center; gap:7px; padding:7px 16px; font-size:13.5px; cursor:pointer; border-left:3px solid transparent; transition:all .12s; color:var(--ink-700); }
+.tree-row:hover { background:var(--ink-50); }
+.tree-row.active { background:var(--tc-50); color:var(--tc-600); border-left-color:var(--tc-500); font-weight:700; }
+.tree-row.mkt { font-weight:700; font-size:13px; color:var(--ink-900); }
+.tree-row.chain { padding-left:30px; font-size:13px; color:var(--ink-500); }
+.tree-row.store { padding-left:46px; font-size:12.5px; color:var(--ink-500); }
+.chev { font-size:10px; color:var(--ink-300); transition:transform .18s; flex-shrink:0; }
+.chev.open { transform:rotate(90deg); }
+.tree-cnt { margin-left:auto; font-size:11px; font-weight:700; color:var(--ink-400); background:var(--ink-100); padding:1px 7px; border-radius:20px; flex-shrink:0; }
+.tree-cnt.tc { color:var(--tc-600); background:var(--tc-50); }
+.tb { font-size:9px; font-weight:800; padding:2px 5px; border-radius:5px; flex-shrink:0; letter-spacing:.02em; }
+
+/* ── COLUMN 2: FEED ── */
+.col-feed { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:300px; background:var(--bg); }
+
+.feed-toolbar { padding:13px 20px 12px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.feed-title { font-size:18px; font-weight:900; color:var(--ink-900); letter-spacing:-.02em; }
+.feed-count { font-size:13px; color:var(--ink-400); font-weight:500; }
+.live-ind { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--ink-400); }
+.live-dot { width:7px; height:7px; border-radius:50%; background:#22C55E; animation:pulse 2s ease-in-out infinite; flex-shrink:0; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.85)} }
+
+.chips-bar { padding:9px 20px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:7px; overflow-x:auto; scrollbar-width:none; flex-shrink:0; }
+.chips-bar::-webkit-scrollbar { display:none; }
+.chip { padding:6px 14px; border-radius:20px; font-size:13px; font-weight:600; background:transparent; border:1.5px solid var(--border); color:var(--ink-500); cursor:pointer; white-space:nowrap; transition:all .15s; flex-shrink:0; }
+.chip:hover { border-color:var(--border-strong); background:var(--ink-50); color:var(--ink-700); }
+.chip.active { background:var(--tc-50); color:var(--tc-600); border-color:var(--tc-100); font-weight:700; }
+.chip[data-chip="good_news"].active    { background:var(--gn-bg); color:var(--gn-fg); border-color:var(--gn-bd); }
+.chip[data-chip="engagements"].active  { background:var(--eg-bg); color:var(--eg-fg); border-color:var(--eg-bd); }
+.chip[data-chip="competitors"].active  { background:var(--cp-bg); color:var(--cp-fg); border-color:var(--cp-bd); }
+.chip[data-chip="display_stock"].active{ background:var(--ds-bg); color:var(--ds-fg); border-color:var(--ds-bd); }
+.chip[data-chip="follow_ups"].active   { background:var(--fu-bg); color:var(--fu-fg); border-color:var(--fu-bd); }
+.chip[data-chip="photos"].active       { background:#1E1B16; color:#fff; border-color:#1E1B16; }
+.chip[data-chip="photos"] .toggle-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--ink-300); margin-left:4px; vertical-align:middle; transition:background .15s; }
+.chip[data-chip="photos"].active .toggle-dot { background:#A8F0C8; }
+.chip-div { width:1px; height:20px; background:var(--border); flex-shrink:0; }
+
+/* Feed scroll */
+.feed-scroll { flex:1; overflow-y:auto; padding:12px 16px 32px; }
+.day-divider { display:flex; align-items:center; gap:10px; padding:16px 0 10px; }
+.day-line { flex:1; border:none; border-top:1px solid var(--border); }
+.day-label { font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-400); white-space:nowrap; }
+.cards-stack { display:flex; flex-direction:column; gap:9px; }
+
+/* Cards */
+.visit-card { background:var(--surface); border-radius:var(--r-md); border:1px solid var(--border); transition:box-shadow .15s,border-color .15s; overflow:hidden; }
+.visit-card:hover { box-shadow:var(--sh-sm); }
+.visit-card.sel { border-color:var(--tc-500); box-shadow:0 0 0 3px var(--tc-50); }
+
+.card-header { display:flex; align-items:center; gap:10px; padding:14px 16px; cursor:pointer; transition:background .12s; }
+.card-header:hover { background:var(--ink-50); }
+.card-left { flex:1; min-width:0; }
+.card-store { font-size:15.5px; font-weight:800; color:var(--ink-900); cursor:pointer; transition:color .12s; letter-spacing:-.01em; }
+.card-store:hover { color:var(--tc-600); }
+.card-meta { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:5px; }
+.meta { font-size:13px; color:var(--ink-500); }
+.meta-sep { font-size:11px; color:var(--ink-300); }
+.meta-a { font-size:13px; color:var(--tc-600); font-weight:600; cursor:pointer; text-decoration:underline dotted var(--tc-100); text-underline-offset:2px; }
+.meta-a:hover { text-decoration:underline solid; color:var(--tc-500); }
+
+/* Section icon pills in meta */
+.sec-pill { font-size:11px; font-weight:600; padding:2px 7px; border-radius:20px; }
+.sec-pill.gn { background:var(--gn-bg); color:var(--gn-fg); }
+.sec-pill.eg { background:var(--eg-bg); color:var(--eg-fg); }
+.sec-pill.cp { background:var(--cp-bg); color:var(--cp-fg); }
+.sec-pill.ds { background:var(--ds-bg); color:var(--ds-fg); }
+.sec-pill.fu { background:var(--fu-bg); color:var(--fu-fg); }
+
+/* ⋮ menu */
+.more-wrap { position:relative; }
+.more-btn { width:30px; height:30px; border-radius:var(--r-sm); border:1px solid transparent; background:transparent; color:var(--ink-400); font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; }
+.more-btn:hover { background:var(--ink-100); border-color:var(--border); }
+.more-menu { position:absolute; top:calc(100% + 4px); right:0; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); box-shadow:var(--sh-md); min-width:145px; overflow:hidden; opacity:0; pointer-events:none; transform:translateY(-4px); transition:all .12s; }
+.more-menu.open { opacity:1; pointer-events:all; transform:translateY(0); }
+.more-item { display:flex; align-items:center; gap:9px; padding:10px 14px; font-size:13px; cursor:pointer; color:var(--ink-700); transition:background .1s; }
+.more-item:hover { background:var(--ink-50); }
+.more-item.del { color:var(--fu-fg); }
+.more-item.del:hover { background:#FFF0F5; }
+.more-div { height:1px; background:var(--border); }
+.card-chev { font-size:12px; color:var(--ink-300); transition:transform .18s; flex-shrink:0; }
+.card-chev.open { transform:rotate(90deg); }
+
+/* Card body */
+.card-body { padding:0 16px 16px; }
+.photo-strip-wrap { overflow-x:auto; scrollbar-width:none; margin-bottom:12px; }
+.photo-strip-wrap::-webkit-scrollbar { display:none; }
+.photo-strip { display:flex; gap:8px; padding:4px 0; }
+.photo-ph { width:160px; height:120px; border-radius:var(--r-md); background:var(--ink-50); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:4px; font-size:28px; color:var(--ink-300); flex-shrink:0; cursor:pointer; transition:all .15s; }
+.photo-ph:hover { border-color:var(--border-strong); }
+.photo-ph span { font-size:11px; color:var(--ink-400); }
+
+/* Section blocks — clean, no colored backgrounds */
+.sections-stack { display:flex; flex-direction:column; }
+.sec-block { padding:12px 0; }
+.sec-block + .sec-block { border-top:1px solid var(--border); }
+.sec-block-head { display:flex; align-items:center; gap:5px; margin-bottom:5px; font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.sec-block.gn .sec-block-head { color:var(--gn-fg); }
+.sec-block.eg .sec-block-head { color:var(--eg-fg); }
+.sec-block.cp .sec-block-head { color:var(--cp-fg); }
+.sec-block.ds .sec-block-head { color:var(--ds-fg); }
+.sec-block.fu .sec-block-head { color:var(--fu-fg); }
+.sec-block-text { font-size:14px; color:var(--ink-700); line-height:1.65; }
+
+
+/* ── COLUMN 3: DETAIL ── */
+.col-detail { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; min-width:240px; max-width:560px; border-left:1px solid var(--border); }
+
+/* Empty state */
+.detail-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; text-align:center; gap:10px; }
+.det-empty-icon { font-size:40px; opacity:.25; margin-bottom:4px; }
+.det-empty-title { font-size:14px; font-weight:800; color:var(--ink-500); }
+.det-empty-desc { font-size:13px; color:var(--ink-400); line-height:1.65; max-width:210px; }
+.det-hints { margin-top:12px; display:flex; flex-direction:column; gap:6px; width:100%; }
+.det-hint { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-500); background:var(--ink-50); padding:8px 12px; border-radius:var(--r-md); border:1px solid var(--border); }
+
+/* Panel */
+.det-panel { display:none; height:100%; flex-direction:column; overflow:hidden; }
+.det-panel.show { display:flex; }
+.det-header { padding:16px 18px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.det-top { display:flex; align-items:flex-start; gap:12px; }
+.det-avatar { width:44px; height:44px; border-radius:50%; flex-shrink:0; background:linear-gradient(135deg,var(--tc-500),var(--tc-600)); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; color:#fff; }
+.det-avatar.store { border-radius:var(--r-md); background:linear-gradient(135deg,#2E6B2E,#4A9A4A); }
+.det-avatar.staff { border-radius:var(--r-md); background:linear-gradient(135deg,#1A4DB5,#2D7DD2); }
+.det-name { font-size:16px; font-weight:900; color:var(--ink-900); line-height:1.2; letter-spacing:-.01em; flex:1; }
+.det-sub { font-size:12.5px; color:var(--ink-400); margin-top:4px; }
+.det-close { margin-left:auto; width:28px; height:28px; border-radius:var(--r-sm); border:1px solid var(--border); background:transparent; font-size:14px; color:var(--ink-400); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all .15s; }
+.det-close:hover { background:var(--ink-50); color:var(--ink-700); }
+.det-tabs { display:flex; border-bottom:1px solid var(--border); padding:0 18px; flex-shrink:0; }
+.det-tab { padding:10px 14px; font-size:13px; font-weight:600; cursor:pointer; color:var(--ink-400); border-bottom:2px solid transparent; transition:all .15s; white-space:nowrap; }
+.det-tab.active { color:var(--tc-600); border-bottom-color:var(--tc-500); }
+.det-tab:hover:not(.active) { color:var(--ink-700); }
+.det-body { padding:18px; overflow-y:auto; flex:1; }
+.det-sec-label { font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-400); margin-bottom:10px; }
+.det-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:var(--r-md); border:1px solid var(--border); margin-bottom:7px; cursor:pointer; transition:all .12s; }
+.det-item:hover { background:var(--ink-50); border-color:var(--border-strong); }
+.det-item-name { font-size:14px; font-weight:700; color:var(--ink-900); flex:1; }
+.det-item-meta { font-size:12px; color:var(--ink-400); margin-top:2px; }
+.det-more-btn { padding:9px 12px; border-radius:var(--r-md); background:var(--ink-50); color:var(--ink-400); font-size:13px; text-align:center; cursor:pointer; border:1px solid var(--border); transition:background .12s; }
+.det-more-btn:hover { background:var(--ink-100); }
+.info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:18px; }
+.info-cell { background:var(--ink-50); border:1px solid var(--border); border-radius:var(--r-md); padding:10px 12px; }
+.info-cell-label { font-size:10px; font-weight:800; color:var(--ink-400); letter-spacing:.07em; text-transform:uppercase; margin-bottom:4px; }
+.info-cell-val { font-size:13.5px; font-weight:700; color:var(--ink-900); }
+.info-cell-val.link { color:var(--tc-600); cursor:pointer; text-decoration:underline dotted var(--tc-100); text-underline-offset:2px; }
+.info-cell-val.link:hover { text-decoration:underline; }
+.train-card { border:1px solid var(--border); border-radius:var(--r-md); padding:13px 14px; margin-bottom:8px; }
+.train-date { font-size:12px; color:var(--ink-400); font-weight:600; margin-bottom:3px; }
+.train-prods { font-size:13.5px; color:var(--ink-700); font-weight:600; margin-bottom:8px; }
+.train-resp { padding:9px 12px; border-radius:var(--r-sm); background:var(--ds-bg); border:1px solid var(--ds-bd); font-size:13px; color:var(--ds-fg); line-height:1.55; }
+.train-resp.empty { background:var(--ink-50); border-color:var(--border); color:var(--ink-400); }
+
+/* ── Store info: kv rows ── */
+.kv-list { display:flex; flex-direction:column; gap:1px; margin-bottom:18px; }
+.kv-row { display:flex; align-items:baseline; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
+.kv-row:last-child { border-bottom:none; }
+.kv-label { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-400); min-width:72px; flex-shrink:0; }
+.kv-val { font-size:13.5px; color:var(--ink-900); font-weight:600; flex:1; }
+.kv-val.link { color:var(--tc-600); cursor:pointer; text-decoration:underline dotted var(--tc-100); text-underline-offset:2px; }
+.kv-val.link:hover { text-decoration:underline; }
+
+/* ── Store stats strip ── */
+.store-stats { display:flex; align-items:center; background:var(--ink-50); border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; margin-bottom:4px; gap:0; }
+.stat-item { flex:1; text-align:center; }
+.stat-num { font-size:20px; font-weight:900; color:var(--ink-900); letter-spacing:-.02em; }
+.stat-label { font-size:11px; color:var(--ink-400); font-weight:600; margin-top:1px; }
+.stat-div { width:1px; height:32px; background:var(--border); flex-shrink:0; }
+
+/* ── Open follow-up items ── */
+.fu-list { display:flex; flex-direction:column; gap:6px; }
+.fu-item { display:flex; gap:8px; padding:8px 10px; background:var(--fu-bg); border:1px solid var(--fu-bd); border-radius:var(--r-sm); }
+.fu-dot { color:var(--fu-fg); font-size:14px; flex-shrink:0; line-height:1.4; }
+.fu-text { flex:1; }
+.fu-text > div:first-child { font-size:13px; color:var(--ink-700); line-height:1.5; }
+.fu-from { font-size:11px; color:var(--ink-400); margin-top:2px; }
+
+/* ── Store visits section chips ── */
+.vs-chips { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px; }
+.vs-chip { padding:4px 10px; border-radius:20px; font-size:12.5px; font-weight:600; border:1.5px solid var(--border); color:var(--ink-500); cursor:pointer; white-space:nowrap; transition:all .13s; }
+.vs-chip:hover { border-color:var(--border-strong); color:var(--ink-700); }
+.vs-chip.active { background:var(--tc-50); color:var(--tc-600); border-color:var(--tc-100); }
+
+/* ── Section content rows ── */
+.vs-sec-item { padding:10px 0; border-bottom:1px solid var(--border); }
+.vs-sec-item:last-child { border-bottom:none; }
+.vs-sec-date { font-size:11.5px; font-weight:700; color:var(--ink-400); margin-bottom:4px; }
+.vs-sec-text { font-size:13.5px; color:var(--ink-700); line-height:1.6; }
+
+/* ── MODALS ── */
+.overlay { position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:300; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity .2s; backdrop-filter:blur(3px); }
+.overlay.open { opacity:1; pointer-events:all; }
+.modal { background:var(--surface); border-radius:var(--r-lg); width:520px; max-height:90vh; overflow-y:auto; box-shadow:var(--sh-lg); transform:scale(.96) translateY(8px); transition:transform .2s; }
+.overlay.open .modal { transform:scale(1) translateY(0); }
+.m-head { padding:20px 22px 14px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.m-title { font-size:16px; font-weight:900; color:var(--ink-900); letter-spacing:-.01em; }
+.m-sub { font-size:13px; color:var(--ink-400); margin-top:3px; }
+.m-close { padding:5px 10px; border-radius:var(--r-sm); border:1px solid var(--border); font-size:12px; font-weight:600; background:transparent; color:var(--ink-500); cursor:pointer; flex-shrink:0; }
+.m-close:hover { background:var(--ink-50); }
+.m-body { padding:18px 22px; }
+.f-label { display:block; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-400); margin-bottom:6px; }
+.f-input { width:100%; padding:9px 13px; border-radius:var(--r-md); border:1.5px solid var(--border); font-family:var(--font); font-size:14px; color:var(--ink-700); background:var(--ink-50); outline:none; transition:all .15s; }
+.f-input:focus { border-color:var(--tc-500); background:#fff; box-shadow:0 0 0 3px var(--tc-50); }
+textarea.f-input { resize:vertical; min-height:72px; line-height:1.55; }
+.field { margin-bottom:14px; }
+.field-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.m-foot { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
+.btn { padding:9px 20px; border-radius:var(--r-md); font-size:14px; font-weight:700; cursor:pointer; font-family:var(--font); border:none; transition:all .15s; }
+.btn-primary { background:var(--ink-900); color:#fff; }
+.btn-primary:hover { background:#2A2926; }
+.btn-ghost { background:transparent; border:1.5px solid var(--border); color:var(--ink-500); }
+.btn-ghost:hover { background:var(--ink-50); }
+.btn-danger { background:var(--fu-fg); color:#fff; }
+.btn-danger:hover { background:#A01250; }
+.del-modal { background:var(--surface); border-radius:var(--r-lg); width:380px; box-shadow:var(--sh-lg); transform:scale(.96) translateY(8px); transition:transform .2s; }
+.overlay.open .del-modal { transform:scale(1) translateY(0); }
+.del-body { padding:32px 28px 16px; text-align:center; }
+.del-icon { font-size:36px; margin-bottom:12px; }
+.del-title { font-size:18px; font-weight:900; color:var(--ink-900); margin-bottom:8px; }
+.del-desc { font-size:14px; color:var(--ink-500); line-height:1.6; }
+.del-foot { padding:16px 28px 24px; display:flex; gap:10px; }
+.btn-full { flex:1; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-brand">TC Acoustic · <span>SVA</span></div>
+  <div class="nav-link">Home</div>
+  <div class="nav-link active">Store Updates</div>
+  <div class="nav-link">Staff</div>
+  <div class="nav-link">Channel Managers</div>
+  <div class="nav-link">Intelligence</div>
+</div>
+
+<div class="three-pane">
+
+  <!-- ══ COLUMN 1: Sidebar ══ -->
+  <div class="col-sidebar" id="colSidebar" style="width:272px">
+
+    <!-- Date range filter -->
+    <div class="sidebar-section">
+      <div class="sb-head"><span class="sb-label">Date Range</span></div>
+      <div class="date-range-row">
+        <input type="date" class="date-inp" id="dateFrom" value="2026-05-01">
+        <span class="date-sep">→</span>
+        <input type="date" class="date-inp" id="dateTo" value="2026-05-28">
+      </div>
+    </div>
+
+    <!-- CM filter -->
+    <div class="sidebar-section" style="position:relative">
+      <div class="sb-head"><span class="sb-label">Channel Manager</span></div>
+      <div class="cm-trigger" id="cmTrigger" onclick="toggleCmDrop(event)">
+        <span class="cm-trigger-label" id="cmTriggerLabel">All Channel Managers</span>
+        <span class="cm-badge" id="cmBadge">3</span>
+        <span class="cm-chevron" id="cmChev">▼</span>
+      </div>
+      <div class="cm-dropdown" id="cmDropdown">
+        <div class="cm-opt all-opt" onclick="selectAllCms()">
+          <div class="ck on" id="ck-all">✓</div>
+          <span class="cm-opt-name" style="font-weight:700">All Channel Managers</span>
+          <span class="cm-opt-count">24</span>
+        </div>
+        <div class="cm-opt mkt">🇸🇬 Singapore</div>
+        <div class="cm-opt cm" onclick="toggleCm(this,'wei')">
+          <div class="ck" id="ck-wei"></div>
+          <span class="cm-opt-name">Wei Liang</span>
+          <span class="cm-opt-count">8</span>
+        </div>
+        <div class="cm-opt cm" onclick="toggleCm(this,'sarah')">
+          <div class="ck" id="ck-sarah"></div>
+          <span class="cm-opt-name">Sarah Tan</span>
+          <span class="cm-opt-count">4</span>
+        </div>
+        <div class="cm-opt mkt">🇲🇾 Malaysia</div>
+        <div class="cm-opt cm" onclick="toggleCm(this,'ahmad')">
+          <div class="ck" id="ck-ahmad"></div>
+          <span class="cm-opt-name">Ahmad</span>
+          <span class="cm-opt-count">5</span>
+        </div>
+        <div class="cm-opt cm" onclick="toggleCm(this,'diana')">
+          <div class="ck" id="ck-diana"></div>
+          <span class="cm-opt-name">Diana Lim</span>
+          <span class="cm-opt-count">3</span>
+        </div>
+        <div class="cm-opt mkt">🇹🇭 Thailand</div>
+        <div class="cm-opt cm" onclick="toggleCm(this,'kit')">
+          <div class="ck" id="ck-kit"></div>
+          <span class="cm-opt-name">Kit Nattaya</span>
+          <span class="cm-opt-count">4</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scope tree -->
+    <div class="sidebar-section fill">
+      <div class="sb-head"><span class="sb-label">Scope</span></div>
+      <div class="sidebar-tree">
+        <div class="tree-row active" onclick="selectScope(this)">
+          <span>🌐</span><span style="flex:1">All Markets</span>
+          <span class="tree-cnt tc">24</span>
+        </div>
+        <div class="tree-row mkt" onclick="toggleSub('sg-sub',this,'sg-cv')">
+          <span class="chev open" id="sg-cv">›</span><span>🇸🇬</span><span style="flex:1">Singapore</span>
+          <span class="tree-cnt">12</span>
+        </div>
+        <div id="sg-sub">
+          <div class="tree-row chain" onclick="toggleSub('sg-bd',this,'sg-bd-cv')">
+            <span class="chev open" id="sg-bd-cv">›</span><span style="flex:1">Best Denki</span><span class="tree-cnt">5</span>
+          </div>
+          <div id="sg-bd">
+            <div class="tree-row store" onclick="selectScope(this)">
+              <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <span style="flex:1">VivoCity</span><span class="tree-cnt">3</span>
+            </div>
+            <div class="tree-row store" onclick="selectScope(this)">
+              <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <span style="flex:1">Jurong Point</span><span class="tree-cnt">2</span>
+            </div>
+          </div>
+          <div class="tree-row chain" onclick="toggleSub('sg-ch',this,'sg-ch-cv')">
+            <span class="chev" id="sg-ch-cv">›</span><span style="flex:1">Challenger</span><span class="tree-cnt">4</span>
+          </div>
+          <div id="sg-ch" style="display:none">
+            <div class="tree-row store" onclick="selectScope(this)">
+              <span class="tb" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Bugis Junction</span><span class="tree-cnt">2</span>
+            </div>
+            <div class="tree-row store" onclick="selectScope(this)">
+              <span class="tb" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <span style="flex:1">Funan</span><span class="tree-cnt">2</span>
+            </div>
+          </div>
+          <div class="tree-row chain">
+            <span class="chev">›</span><span style="flex:1">Harvey Norman</span><span class="tree-cnt">3</span>
+          </div>
+        </div>
+        <div class="tree-row mkt" onclick="toggleSub('my-sub',this,'my-cv')">
+          <span class="chev" id="my-cv">›</span><span>🇲🇾</span><span style="flex:1">Malaysia</span><span class="tree-cnt">8</span>
+        </div>
+        <div id="my-sub" style="display:none">
+          <div class="tree-row chain"><span class="chev">›</span><span style="flex:1">Harvey Norman</span><span class="tree-cnt">4</span></div>
+          <div class="tree-row chain"><span class="chev">›</span><span style="flex:1">Best Denki</span><span class="tree-cnt">4</span></div>
+        </div>
+        <div class="tree-row mkt" onclick="toggleSub('th-sub',this,'th-cv')">
+          <span class="chev" id="th-cv">›</span><span>🇹🇭</span><span style="flex:1">Thailand</span><span class="tree-cnt">4</span>
+        </div>
+        <div id="th-sub" style="display:none">
+          <div class="tree-row chain"><span class="chev">›</span><span style="flex:1">Power Buy</span><span class="tree-cnt">4</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resize 1→2 -->
+  <div class="resize-handle" onmousedown="startResize(event,'colSidebar')"></div>
+
+  <!-- ══ COLUMN 2: Feed ══ -->
+  <div class="col-feed" id="colFeed">
+
+    <!-- Toolbar -->
+    <div class="feed-toolbar">
+      <div>
+        <div class="feed-title" id="feedTitle">Store Updates</div>
+      </div>
+      <span class="feed-count" id="feedCount">24 visits</span>
+      <div class="live-ind">
+        <div class="live-dot"></div>
+        <span id="liveLabel">Live · 30s</span>
+      </div>
+    </div>
+
+    <!-- Chips bar -->
+    <div class="chips-bar">
+      <div class="chip active" data-chip="all" onclick="clickChip(this)">All</div>
+      <div class="chip" data-chip="photos" onclick="clickChip(this)">📸 Photos<span class="toggle-dot"></span></div>
+      <div class="chip-div"></div>
+      <div class="chip" data-chip="good_news" onclick="clickChip(this)">🌟 Good News</div>
+      <div class="chip" data-chip="engagements" onclick="clickChip(this)">🤝 Engagements</div>
+      <div class="chip" data-chip="competitors" onclick="clickChip(this)">🔍 Competitors</div>
+      <div class="chip" data-chip="display_stock" onclick="clickChip(this)">📦 Display &amp; Stock</div>
+      <div class="chip" data-chip="follow_ups" onclick="clickChip(this)">📌 Follow Ups</div>
+    </div>
+
+    <!-- CARD VIEW -->
+    <div class="feed-scroll" id="cardView">
+
+      <div class="day-divider">
+        <hr class="day-line"><span class="day-label">Today — 28 May 2026</span><hr class="day-line">
+      </div>
+      <div class="cards-stack">
+
+        <!-- Card 1 -->
+        <div class="visit-card" data-tier="T1" id="card-v1">
+          <div class="card-header" onclick="toggleCard('v1')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div class="card-left" onclick="event.stopPropagation();expandAndOpenStore('v1','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+              <div class="card-store">Best Denki VivoCity</div>
+              <div class="card-meta">
+                <span class="meta-a" onclick="event.stopPropagation();openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+                <span class="meta-sep">·</span><span class="meta">28 May · 14:32</span>
+                <span class="meta-sep">·</span>
+                <span class="sec-pill gn">🌟 Good News</span>
+                <span class="sec-pill cp">🔍 Competitors</span>
+                <span class="meta-sep">·</span><span class="meta">📸 4 photos</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('mm1')">⋮</button>
+              <div class="more-menu" id="mm1">
+                <div class="more-item" onclick="openEditModal();closeMenu('mm1')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item del" onclick="openDelModal('Best Denki VivoCity','28 May');closeMenu('mm1')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="cv1">›</span>
+          </div>
+          <div id="v1-body" style="display:none">
+            <div class="card-body">
+              <div class="photo-strip-wrap photos-area" style="display:none">
+                <div class="photo-strip">
+                  <div class="photo-ph">🖼️<span>Photo 1</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 2</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 3</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 4</span></div>
+                </div>
+              </div>
+              <div class="sections-stack">
+                <div class="sec-block gn">
+                  <div class="sec-block-head">🌟 Good News</div>
+                  <div class="sec-block-text">Sold 3 units of TC-WH500 over the weekend. Staff very enthusiastic about the new product lineup and asked for more demo stock.</div>
+                </div>
+                <div class="sec-block cp">
+                  <div class="sec-block-head">🔍 Competitors</div>
+                  <div class="sec-block-text">Sony promo ongoing — WH-1000XM5 bundled with carry case at $399. Positioned as a limited bundle. Sales assistant pushing this hard.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="visit-card" data-tier="T2" id="card-v2">
+          <div class="card-header" onclick="toggleCard('v2')">
+            <span class="tb" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+            <div class="card-left" onclick="event.stopPropagation();expandAndOpenStore('v2','Challenger Bugis Junction','🇸🇬 Singapore · Challenger · T2')">
+              <div class="card-store">Challenger Bugis Junction</div>
+              <div class="card-meta">
+                <span class="meta-a" onclick="event.stopPropagation();openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')">Ahmad</span>
+                <span class="meta-sep">·</span><span class="meta">28 May · 10:15</span>
+                <span class="meta-sep">·</span>
+                <span class="sec-pill fu">📌 Follow Ups</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('mm2')">⋮</button>
+              <div class="more-menu" id="mm2">
+                <div class="more-item" onclick="openEditModal();closeMenu('mm2')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item del" onclick="openDelModal('Challenger Bugis Junction','28 May');closeMenu('mm2')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="cv2">›</span>
+          </div>
+          <div id="v2-body" style="display:none">
+            <div class="card-body">
+              <div class="sections-stack">
+                <div class="sec-block fu">
+                  <div class="sec-block-head">📌 Follow Ups</div>
+                  <div class="sec-block-text">Restock TC-HB720 — shelves empty since last week. Chase AM for display stand approval by Friday.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="visit-card" data-tier="T1" id="card-v3">
+          <div class="card-header" onclick="toggleCard('v3')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div class="card-left" onclick="event.stopPropagation();expandAndOpenStore('v3','Harvey Norman Tampines','🇸🇬 Singapore · Harvey Norman · T1')">
+              <div class="card-store">Harvey Norman Tampines</div>
+              <div class="card-meta">
+                <span class="meta-a" onclick="event.stopPropagation();openDetail('cm','Sarah Tan','🇸🇬 Singapore · Channel Manager')">Sarah Tan</span>
+                <span class="meta-sep">·</span><span class="meta">28 May · 09:00</span>
+                <span class="meta-sep">·</span>
+                <span class="sec-pill gn">🌟 Good News</span>
+                <span class="sec-pill eg">🤝 Engagements</span>
+                <span class="sec-pill ds">📦 Display & Stock</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('mm3')">⋮</button>
+              <div class="more-menu" id="mm3">
+                <div class="more-item" onclick="openEditModal();closeMenu('mm3')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item del" onclick="openDelModal('Harvey Norman Tampines','28 May');closeMenu('mm3')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="cv3">›</span>
+          </div>
+          <div id="v3-body" style="display:none">
+            <div class="card-body">
+              <div class="sections-stack">
+                <div class="sec-block gn">
+                  <div class="sec-block-head">🌟 Good News</div>
+                  <div class="sec-block-text">TC-IEM300 hit sales target for the month — 15 units moved in 2 weeks. Store manager impressed.</div>
+                </div>
+                <div class="sec-block eg">
+                  <div class="sec-block-head">🤝 Engagements</div>
+                  <div class="sec-block-text">Trained Jasmine (floor staff) on TC-WH500 vs TC-HB720 comparison. She was engaged and asked good questions about the noise-cancelling.</div>
+                </div>
+                <div class="sec-block ds">
+                  <div class="sec-block-head">📦 Display & Stock</div>
+                  <div class="sec-block-text">TC-HB700 back in stock. Requested 2 additional demo units for the weekend. Display shelf reorganised.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /cards-stack today -->
+
+      <div class="day-divider">
+        <hr class="day-line"><span class="day-label">Yesterday — 27 May 2026</span><hr class="day-line">
+      </div>
+      <div class="cards-stack">
+        <div class="visit-card" data-tier="T1" id="card-v4">
+          <div class="card-header" onclick="toggleCard('v4')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div class="card-left" onclick="event.stopPropagation();expandAndOpenStore('v4','Harvey Norman Parkway','🇸🇬 Singapore · Harvey Norman · T1')">
+              <div class="card-store">Harvey Norman Parkway</div>
+              <div class="card-meta">
+                <span class="meta-a" onclick="event.stopPropagation();openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span>
+                <span class="meta-sep">·</span><span class="meta">27 May · 15:47</span>
+                <span class="meta-sep">·</span>
+                <span class="sec-pill gn">🌟 Good News</span>
+                <span class="sec-pill ds">📦 Display & Stock</span>
+                <span class="meta-sep">·</span><span class="meta">📸 2 photos</span>
+              </div>
+            </div>
+            <div class="more-wrap" onclick="event.stopPropagation()">
+              <button class="more-btn" onclick="toggleMenu('mm4')">⋮</button>
+              <div class="more-menu" id="mm4">
+                <div class="more-item" onclick="openEditModal();closeMenu('mm4')">✏️ Edit visit</div>
+                <div class="more-div"></div>
+                <div class="more-item del" onclick="openDelModal('Harvey Norman Parkway','27 May');closeMenu('mm4')">🗑 Delete</div>
+              </div>
+            </div>
+            <span class="card-chev" id="cv4">›</span>
+          </div>
+          <div id="v4-body" style="display:none">
+            <div class="card-body">
+              <div class="photo-strip-wrap photos-area" style="display:none">
+                <div class="photo-strip">
+                  <div class="photo-ph">🖼️<span>Photo 1</span></div>
+                  <div class="photo-ph">🖼️<span>Photo 2</span></div>
+                </div>
+              </div>
+              <div class="sections-stack">
+                <div class="sec-block gn">
+                  <div class="sec-block-head">🌟 Good News</div>
+                  <div class="sec-block-text">Display stand upgraded — TC-IEM300 now featured front and centre at eye level. Expect better sell-through this week.</div>
+                </div>
+                <div class="sec-block ds">
+                  <div class="sec-block-head">📦 Display & Stock</div>
+                  <div class="sec-block-text">TC-HB700 back in stock. Requested 2 additional demo units for the weekend rush.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /cardView -->
+
+  </div><!-- /col-feed -->
+
+  <!-- Resize 2→3 -->
+  <div class="resize-handle" onmousedown="startResize(event,'colDetail')"></div>
+
+  <!-- ══ COLUMN 3: Detail panel (always persistent) ══ -->
+  <div class="col-detail" id="colDetail" style="width:300px">
+
+    <!-- Empty state (default) -->
+    <div class="detail-empty" id="detEmpty">
+      <div class="det-empty-icon">🗂</div>
+      <div class="det-empty-title">Nothing selected</div>
+      <div class="det-empty-desc">Click a store, CM, or staff name to view their details here.</div>
+      <div class="det-hints">
+        <div class="det-hint">🏪 Click any store name</div>
+        <div class="det-hint">👤 Click a CM name</div>
+        <div class="det-hint">🎓 Click a staff member</div>
+      </div>
+    </div>
+
+    <!-- CM Panel -->
+    <div class="det-panel" id="panelCm">
+      <div class="det-header">
+        <div class="det-top">
+          <div class="det-avatar" id="cmAv">W</div>
+          <div style="flex:1;min-width:0">
+            <div class="det-name" id="cmName">Wei Liang</div>
+            <div class="det-sub" id="cmSub">🇸🇬 Singapore · Channel Manager</div>
+          </div>
+          <button class="det-close" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="det-tabs">
+        <div class="det-tab active" data-tab="stores" onclick="switchTab('cm','stores')">Stores</div>
+        <div class="det-tab" data-tab="visits" onclick="switchTab('cm','visits')">Visits</div>
+      </div>
+      <div class="det-body">
+        <div id="cm-tab-stores">
+          <div class="det-sec-label">Assigned Stores — 11</div>
+          <div class="det-item" onclick="openDetail('store','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div><div class="det-item-name">Best Denki VivoCity</div><div class="det-item-meta">Best Denki · Singapore</div></div>
+          </div>
+          <div class="det-item" onclick="openDetail('store','Harvey Norman Parkway','🇸🇬 Singapore · Harvey Norman · T1')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div><div class="det-item-name">Harvey Norman Parkway</div><div class="det-item-meta">Harvey Norman · Singapore</div></div>
+          </div>
+          <div class="det-item">
+            <span class="tb" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+            <div><div class="det-item-name">Best Denki Nex</div><div class="det-item-meta">Best Denki · Singapore</div></div>
+          </div>
+          <div class="det-more-btn">+ 8 more stores →</div>
+        </div>
+        <div id="cm-tab-visits" style="display:none">
+          <div class="det-sec-label">Recent Visits</div>
+          <div class="det-item" onclick="expandAndOpenStore('v1','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div style="flex:1"><div class="det-item-name">Best Denki VivoCity</div><div class="det-item-meta">28 May · 14:32 · 🌟 🔍</div></div>
+            <span style="color:var(--ink-300);font-size:11px">›</span>
+          </div>
+          <div class="det-item" onclick="expandAndOpenStore('v4','Harvey Norman Parkway','🇸🇬 Singapore · Harvey Norman · T1')">
+            <span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+            <div style="flex:1"><div class="det-item-name">Harvey Norman Parkway</div><div class="det-item-meta">27 May · 15:47 · 🌟 📦</div></div>
+            <span style="color:var(--ink-300);font-size:11px">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Store Panel -->
+    <div class="det-panel" id="panelStore">
+      <div class="det-header">
+        <div class="det-top">
+          <div class="det-avatar store">🏪</div>
+          <div style="flex:1;min-width:0">
+            <div class="det-name" id="storeName">Best Denki VivoCity</div>
+            <div class="det-sub" id="storeSub">🇸🇬 Singapore · Best Denki · T1</div>
+          </div>
+          <button class="det-close" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="det-tabs">
+        <div class="det-tab active" data-tab="info" onclick="switchTab('store','info')">Info</div>
+        <div class="det-tab" data-tab="visits" onclick="switchTab('store','visits')">Visits</div>
+      </div>
+      <div class="det-body">
+        <div id="store-tab-info">
+          <!-- Key-value metadata -->
+          <div class="kv-list">
+            <div class="kv-row">
+              <span class="kv-label">CM</span>
+              <span class="kv-val link" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang →</span>
+            </div>
+            <div class="kv-row"><span class="kv-label">Market</span><span class="kv-val">🇸🇬 Singapore</span></div>
+            <div class="kv-row"><span class="kv-label">Chain</span><span class="kv-val">Best Denki</span></div>
+            <div class="kv-row"><span class="kv-label">Tier</span><span class="kv-val"><span class="tb" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></span></div>
+            <div class="kv-row"><span class="kv-label">Last visit</span><span class="kv-val">28 May 2026</span></div>
+          </div>
+          <!-- Stats strip -->
+          <div class="store-stats">
+            <div class="stat-item"><div class="stat-num">14</div><div class="stat-label">Total visits</div></div>
+            <div class="stat-div"></div>
+            <div class="stat-item"><div class="stat-num">3</div><div class="stat-label">This month</div></div>
+            <div class="stat-div"></div>
+            <div class="stat-item"><div class="stat-num">2d</div><div class="stat-label">Since last</div></div>
+          </div>
+          <!-- Open follow-ups -->
+          <div class="det-sec-label" style="margin-top:18px;margin-bottom:8px">Open Follow-ups</div>
+          <div class="fu-list">
+            <div class="fu-item">
+              <span class="fu-dot">📌</span>
+              <div class="fu-text">
+                <div>Restock TC-HB720 — shelves empty since last week</div>
+                <div class="fu-from">from 28 May visit</div>
+              </div>
+            </div>
+            <div class="fu-item">
+              <span class="fu-dot">📌</span>
+              <div class="fu-text">
+                <div>Display stand approval pending AM</div>
+                <div class="fu-from">from 24 May visit</div>
+              </div>
+            </div>
+          </div>
+          <!-- Store staff -->
+          <div class="det-sec-label" style="margin-top:18px;margin-bottom:8px">Store Staff</div>
+          <div class="det-item" onclick="openDetail('staff','Jasmine Lim','Store Staff · Best Denki VivoCity')">
+            <div class="det-avatar staff" style="width:32px;height:32px;font-size:13px">J</div>
+            <div style="flex:1"><div class="det-item-name">Jasmine Lim</div><div class="det-item-meta">3 trainings · Last: 28 May</div></div>
+          </div>
+          <div class="det-item" onclick="openDetail('staff','Kenneth Ng','Store Staff · Best Denki VivoCity')">
+            <div class="det-avatar staff" style="width:32px;height:32px;font-size:13px">K</div>
+            <div style="flex:1"><div class="det-item-name">Kenneth Ng</div><div class="det-item-meta">1 training · Last: 14 May</div></div>
+          </div>
+        </div>
+        <div id="store-tab-visits" style="display:none">
+          <!-- Section filter chips -->
+          <div class="vs-chips" id="vsChips">
+            <div class="vs-chip active" data-vsec="all" onclick="setVisitSection(this,'all')">All</div>
+            <div class="vs-chip" data-vsec="gn" onclick="setVisitSection(this,'gn')">🌟 Good News</div>
+            <div class="vs-chip" data-vsec="eg" onclick="setVisitSection(this,'eg')">🤝</div>
+            <div class="vs-chip" data-vsec="cp" onclick="setVisitSection(this,'cp')">🔍</div>
+            <div class="vs-chip" data-vsec="ds" onclick="setVisitSection(this,'ds')">📦</div>
+            <div class="vs-chip" data-vsec="fu" onclick="setVisitSection(this,'fu')">📌</div>
+          </div>
+          <!-- All visits list -->
+          <div id="vs-all-view">
+            <div class="det-item" onclick="expandAndOpenStore('v1','Best Denki VivoCity','🇸🇬 Singapore · Best Denki · T1')">
+              <div style="flex:1">
+                <div class="det-item-name"><span class="meta-a" onclick="event.stopPropagation();openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span></div>
+                <div class="det-item-meta">28 May · 14:32 · 🌟 🔍 · 📸 4</div>
+              </div>
+              <span style="color:var(--ink-300);font-size:11px">›</span>
+            </div>
+            <div class="det-item">
+              <div style="flex:1">
+                <div class="det-item-name"><span class="meta-a">Wei Liang</span></div>
+                <div class="det-item-meta">24 May · 11:20 · 🌟 📦 · 📸 1</div>
+              </div>
+              <span style="color:var(--ink-300);font-size:11px">›</span>
+            </div>
+            <div class="det-item">
+              <div style="flex:1">
+                <div class="det-item-name"><span class="meta-a">Wei Liang</span></div>
+                <div class="det-item-meta">22 May · 09:40 · 🤝 🔍</div>
+              </div>
+              <span style="color:var(--ink-300);font-size:11px">›</span>
+            </div>
+          </div>
+          <!-- Section content view (flat list of selected section text) -->
+          <div id="vs-sec-view" style="display:none">
+            <!-- Good News entries -->
+            <div class="vs-sec-item" data-vsec="gn">
+              <div class="vs-sec-date">28 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">Sold 3 units of TC-WH500 over the weekend. Staff very enthusiastic about the new product lineup and asked for more demo stock.</div>
+            </div>
+            <div class="vs-sec-item" data-vsec="gn">
+              <div class="vs-sec-date">24 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">Display stand upgraded — TC-IEM300 now featured front and centre at eye level. Expect better sell-through this week.</div>
+            </div>
+            <!-- Engagements entries -->
+            <div class="vs-sec-item" data-vsec="eg" style="display:none">
+              <div class="vs-sec-date">22 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">Trained Jasmine on TC-WH500 vs TC-HB720 comparison. Engaged, asked good questions about the noise-cancelling difference.</div>
+            </div>
+            <!-- Competitors entries -->
+            <div class="vs-sec-item" data-vsec="cp" style="display:none">
+              <div class="vs-sec-date">28 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">Sony promo ongoing — WH-1000XM5 bundled with carry case at $399. Staff pushing this hard over our range.</div>
+            </div>
+            <div class="vs-sec-item" data-vsec="cp" style="display:none">
+              <div class="vs-sec-date">22 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">JBL Tune 770NC on promotion — price cut to $149. Competing directly with TC-HB720.</div>
+            </div>
+            <!-- Display & Stock entries -->
+            <div class="vs-sec-item" data-vsec="ds" style="display:none">
+              <div class="vs-sec-date">24 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">TC-HB700 back in stock. Requested 2 additional demo units for the weekend. Display shelf reorganised.</div>
+            </div>
+            <!-- Follow-ups entries -->
+            <div class="vs-sec-item" data-vsec="fu" style="display:none">
+              <div class="vs-sec-date">28 May · <span class="meta-a">Wei Liang</span></div>
+              <div class="vs-sec-text">Restock TC-HB720 — shelves empty since last week. Chase AM for display stand approval by Friday.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff Panel -->
+    <div class="det-panel" id="panelStaff">
+      <div class="det-header">
+        <div class="det-top">
+          <div class="det-avatar staff" id="staffAv">J</div>
+          <div style="flex:1;min-width:0">
+            <div class="det-name" id="staffName">Jasmine Lim</div>
+            <div class="det-sub" id="staffSub">Store Staff · Best Denki VivoCity</div>
+          </div>
+          <button class="det-close" onclick="closeDetail()">✕</button>
+        </div>
+      </div>
+      <div class="det-body">
+        <div class="det-sec-label">Training History</div>
+        <div class="train-card">
+          <div class="train-date">28 May · <span class="meta-a" onclick="openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')">Ahmad</span></div>
+          <div class="train-prods">TC-WH500 · TC-HB720 · TC-IEM300</div>
+          <div class="train-resp">💬 "She asked great questions about the noise-cancelling differences between the WH500 and HB720."</div>
+        </div>
+        <div class="train-card">
+          <div class="train-date">14 May · <span class="meta-a" onclick="openDetail('cm','Ahmad','🇲🇾 Malaysia · Channel Manager')">Ahmad</span></div>
+          <div class="train-prods">TC-WH500 · TC-HB720</div>
+          <div class="train-resp">💬 "Good engagement. Was aware of the product range but hadn't pushed it to customers yet."</div>
+        </div>
+        <div class="train-card">
+          <div class="train-date">2 May · <span class="meta-a" onclick="openDetail('cm','Wei Liang','🇸🇬 Singapore · Channel Manager')">Wei Liang</span></div>
+          <div class="train-prods">TC-IEM300</div>
+          <div class="train-resp empty">💬 No response notes recorded.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /col-detail -->
+
+</div><!-- /three-pane -->
+
+<!-- Edit Modal -->
+<div class="overlay" id="editOverlay" onclick="closeEditModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="m-head">
+      <div><div class="m-title">Edit Visit</div><div class="m-sub">Best Denki VivoCity · Wei Liang · 28 May 2026</div></div>
+      <button class="m-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="m-body">
+      <div class="field-2" style="margin-bottom:14px">
+        <div class="field"><label class="f-label">Store</label><input class="f-input" value="Best Denki VivoCity" readonly style="color:var(--ink-400);cursor:not-allowed"/></div>
+        <div class="field"><label class="f-label">Visit Date</label><input class="f-input" type="date" value="2026-05-28"/></div>
+      </div>
+      <div class="field"><label class="f-label">🌟 Good News</label><textarea class="f-input">Sold 3 units of TC-WH500. Staff very enthusiastic about the new product lineup.</textarea></div>
+      <div class="field"><label class="f-label">🤝 Engagements</label><textarea class="f-input" placeholder="People you talked to + their response…"></textarea></div>
+      <div class="field"><label class="f-label">🔍 Competitors</label><textarea class="f-input">Sony promo bundle — WH-1000XM5 + case at $399. Limited bundle.</textarea></div>
+      <div class="field"><label class="f-label">📦 Display &amp; Stock</label><textarea class="f-input" placeholder="Nothing logged…"></textarea></div>
+      <div class="field"><label class="f-label">📌 Follow Up</label><textarea class="f-input" placeholder="Nothing logged…"></textarea></div>
+    </div>
+    <div class="m-foot">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="overlay" id="delOverlay" onclick="closeDelModal()">
+  <div class="del-modal" onclick="event.stopPropagation()">
+    <div class="del-body">
+      <div class="del-icon">🗑</div>
+      <div class="del-title">Delete this visit?</div>
+      <div class="del-desc"><strong id="dStore">Best Denki VivoCity</strong> · <span id="dDate">28 May</span><br><br>This can't be undone.</div>
+    </div>
+    <div class="del-foot">
+      <button class="btn btn-ghost btn-full" onclick="closeDelModal()">Cancel</button>
+      <button class="btn btn-danger btn-full" onclick="closeDelModal()">Yes, delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Resize ──
+function startResize(e, targetId) {
+  e.preventDefault();
+  const el = document.getElementById(targetId);
+  const startX = e.clientX;
+  const startW = el.offsetWidth;
+  const isLeft = (targetId === 'colSidebar');
+  const min = 180, max = 480;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  function onMove(ev) {
+    const delta = ev.clientX - startX;
+    const newW = Math.max(min, Math.min(max, startW + (isLeft ? delta : -delta)));
+    el.style.width = newW + 'px';
+    el.style.flex = 'none';
+  }
+  function onUp() {
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── Expand / collapse all cards ──
+let photosOn = false;
+function expandAllCards() {
+  document.querySelectorAll('[id$="-body"]').forEach(body => {
+    body.style.display = 'block';
+    const vId = body.id.replace('-body','');
+    const chev = document.getElementById('c' + vId);
+    if (chev) chev.classList.add('open');
+  });
+}
+function collapseAllCards() {
+  document.querySelectorAll('[id$="-body"]').forEach(body => {
+    body.style.display = 'none';
+    const vId = body.id.replace('-body','');
+    const chev = document.getElementById('c' + vId);
+    if (chev) chev.classList.remove('open');
+  });
+}
+
+// ── Card toggle ──
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const chev = document.getElementById('c' + id);
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  if (chev) chev.classList.toggle('open', open);
+}
+
+// ── Expand card + open store detail ──
+function expandAndOpenStore(cardId, storeName, storeSub) {
+  const body = document.getElementById(cardId + '-body');
+  const chev = document.getElementById('c' + cardId);
+  // Always expand
+  body.style.display = 'block';
+  if (chev) chev.classList.add('open');
+  // Open store in detail panel
+  openDetail('store', storeName, storeSub);
+}
+
+// ── ⋮ Menu ──
+let openMenu = null;
+function toggleMenu(id) {
+  if (openMenu && openMenu !== id) closeMenu(openMenu);
+  const m = document.getElementById(id);
+  const o = !m.classList.contains('open');
+  m.classList.toggle('open', o);
+  openMenu = o ? id : null;
+}
+function closeMenu(id) { document.getElementById(id)?.classList.remove('open'); openMenu = null; }
+document.addEventListener('click', () => { if (openMenu) closeMenu(openMenu); });
+
+// ── Chips ──
+const chipToSec = { good_news:'gn', engagements:'eg', competitors:'cp', display_stock:'ds', follow_ups:'fu' };
+function clickChip(btn) {
+  const chip = btn.dataset.chip;
+  // Photos: independent toggle, doesn't affect section filters
+  if (chip === 'photos') {
+    photosOn = btn.classList.toggle('active');
+    document.querySelectorAll('.photos-area').forEach(el => el.style.display = photosOn ? '' : 'none');
+    return;
+  }
+  const bar = btn.closest('.chips-bar');
+  const allBtn = bar.querySelector('[data-chip="all"]');
+  if (chip === 'all') {
+    bar.querySelectorAll('.chip:not([data-chip="all"]):not([data-chip="photos"])').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    // Restore all sections, update title, collapse cards
+    document.querySelectorAll('.sec-block').forEach(el => el.style.display = '');
+    document.getElementById('feedTitle').textContent = 'Store Updates';
+    collapseAllCards();
+  } else {
+    allBtn.classList.remove('active');
+    btn.classList.toggle('active');
+    const active = [...bar.querySelectorAll('.chip:not([data-chip="all"]):not([data-chip="photos"]).active')]
+      .map(c => chipToSec[c.dataset.chip]);
+    if (active.length === 0) {
+      // Nothing selected → back to All
+      allBtn.classList.add('active');
+      document.querySelectorAll('.sec-block').forEach(el => el.style.display = '');
+      document.getElementById('feedTitle').textContent = 'Store Updates';
+      collapseAllCards();
+    } else {
+      // Show only matching section blocks
+      document.querySelectorAll('.sec-block').forEach(el => {
+        const match = active.some(sec => el.classList.contains(sec));
+        el.style.display = match ? '' : 'none';
+      });
+      // Update title
+      if (active.length === 1) {
+        document.getElementById('feedTitle').textContent =
+          bar.querySelector('.chip.active:not([data-chip="all"]):not([data-chip="photos"])').textContent.trim();
+      } else {
+        document.getElementById('feedTitle').textContent = 'Store Updates';
+      }
+      // Smart UX: auto-expand all cards so content is immediately visible
+      expandAllCards();
+    }
+  }
+}
+
+// ── Scope tree ──
+function toggleSub(subId, row, chevId) {
+  const sub = document.getElementById(subId);
+  const cv = document.getElementById(chevId);
+  const open = sub.style.display !== 'none';
+  sub.style.display = open ? 'none' : 'block';
+  if (cv) cv.classList.toggle('open', !open);
+}
+function selectScope(row) {
+  document.querySelectorAll('.tree-row').forEach(r => r.classList.remove('active'));
+  row.classList.add('active');
+}
+
+// ── CM dropdown ──
+let selectedCms = new Set();
+function toggleCmDrop(e) {
+  e.stopPropagation();
+  document.getElementById('cmDropdown').classList.toggle('open');
+}
+function toggleCm(row, id) {
+  const ck = document.getElementById('ck-' + id);
+  if (selectedCms.has(id)) {
+    selectedCms.delete(id);
+    ck.classList.remove('on');
+    ck.textContent = '';
+  } else {
+    selectedCms.add(id);
+    ck.classList.add('on');
+    ck.textContent = '✓';
+    // Deselect "all"
+    document.getElementById('ck-all').classList.remove('on');
+    document.getElementById('ck-all').textContent = '';
+  }
+  updateCmTrigger();
+}
+function selectAllCms() {
+  selectedCms.clear();
+  document.querySelectorAll('.ck[id^="ck-"]:not(#ck-all)').forEach(el => { el.classList.remove('on'); el.textContent = ''; });
+  document.getElementById('ck-all').classList.add('on');
+  document.getElementById('ck-all').textContent = '✓';
+  updateCmTrigger();
+}
+function updateCmTrigger() {
+  const badge = document.getElementById('cmBadge');
+  const label = document.getElementById('cmTriggerLabel');
+  if (selectedCms.size === 0) {
+    label.textContent = 'All Channel Managers';
+    badge.style.display = 'none';
+  } else {
+    const names = { wei:'Wei Liang', sarah:'Sarah Tan', ahmad:'Ahmad', diana:'Diana Lim', kit:'Kit Nattaya' };
+    label.textContent = selectedCms.size === 1 ? names[[...selectedCms][0]] : selectedCms.size + ' CMs selected';
+    badge.style.display = '';
+    badge.textContent = selectedCms.size;
+  }
+}
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('cmTrigger')?.contains(e.target)) {
+    document.getElementById('cmDropdown')?.classList.remove('open');
+  }
+});
+
+// ── Detail panel — tab persistence ──
+const detActiveTabs = { store: 'info', cm: 'stores' };
+
+function showStoreTab(tab) {
+  detActiveTabs.store = tab;
+  document.getElementById('store-tab-info').style.display = tab === 'info' ? 'block' : 'none';
+  document.getElementById('store-tab-visits').style.display = tab === 'visits' ? 'block' : 'none';
+  document.querySelectorAll('#panelStore .det-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+}
+function showCmTab(tab) {
+  detActiveTabs.cm = tab;
+  document.getElementById('cm-tab-stores').style.display = tab === 'stores' ? 'block' : 'none';
+  document.getElementById('cm-tab-visits').style.display = tab === 'visits' ? 'block' : 'none';
+  document.querySelectorAll('#panelCm .det-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+}
+
+function openDetail(type, name, sub) {
+  document.getElementById('detEmpty').style.display = 'none';
+  ['panelCm','panelStore','panelStaff'].forEach(id => document.getElementById(id).classList.remove('show'));
+  if (type === 'cm') {
+    document.getElementById('panelCm').classList.add('show');
+    document.getElementById('cmName').textContent = name;
+    document.getElementById('cmSub').textContent = sub;
+    document.getElementById('cmAv').textContent = name[0];
+    showCmTab(detActiveTabs.cm);
+  } else if (type === 'store') {
+    document.getElementById('panelStore').classList.add('show');
+    document.getElementById('storeName').textContent = name;
+    document.getElementById('storeSub').textContent = sub;
+    showStoreTab(detActiveTabs.store);
+  } else if (type === 'staff') {
+    document.getElementById('panelStaff').classList.add('show');
+    document.getElementById('staffName').textContent = name;
+    document.getElementById('staffSub').textContent = sub;
+    document.getElementById('staffAv').textContent = name[0];
+  }
+}
+function closeDetail() {
+  ['panelCm','panelStore','panelStaff'].forEach(id => document.getElementById(id).classList.remove('show'));
+  document.getElementById('detEmpty').style.display = 'flex';
+}
+function switchTab(panel, tab) {
+  if (panel === 'cm') showCmTab(tab);
+  else if (panel === 'store') showStoreTab(tab);
+}
+
+// ── Store visits section filter ──
+function setVisitSection(btn, sec) {
+  document.querySelectorAll('#vsChips .vs-chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  if (sec === 'all') {
+    document.getElementById('vs-all-view').style.display = 'block';
+    document.getElementById('vs-sec-view').style.display = 'none';
+  } else {
+    document.getElementById('vs-all-view').style.display = 'none';
+    document.getElementById('vs-sec-view').style.display = 'block';
+    document.querySelectorAll('.vs-sec-item').forEach(item => {
+      item.style.display = item.dataset.vsec === sec ? 'block' : 'none';
+    });
+  }
+}
+
+// ── Modals ──
+function openEditModal() { document.getElementById('editOverlay').classList.add('open'); }
+function closeEditModal() { document.getElementById('editOverlay').classList.remove('open'); }
+function openDelModal(s, d) {
+  document.getElementById('dStore').textContent = s;
+  document.getElementById('dDate').textContent = d;
+  document.getElementById('delOverlay').classList.add('open');
+}
+function closeDelModal() { document.getElementById('delOverlay').classList.remove('open'); }
+
+// ── Live ticker ──
+let secs = 30;
+setInterval(() => { secs = secs <= 1 ? 30 : secs - 1; document.getElementById('liveLabel').textContent = 'Live · ' + secs + 's'; }, 1000);
+</script>
+</body>
+</html>

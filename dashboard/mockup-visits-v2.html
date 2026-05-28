@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SVA Visits — Mockup v2</title>
+<style>
+/* ─── Base ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F5F4F1; --surface: #FFFFFF; --border: #E5E4E1; --border-strong: #CCCBC8;
+  --ink-900: #111110; --ink-700: #3A3936; --ink-500: #716F6A; --ink-400: #9A9893; --ink-300: #A8A7A2; --ink-100: #EEEDEA; --ink-50: #F8F7F4;
+  --tc-600: #B86B00; --tc-500: #E89211; --tc-100: #FDDFA0; --tc-50: #FEF6E4;
+  --t1-bg: #DDE9FB; --t1-fg: #1A5DB5;
+  --t2-bg: #D6F0DC; --t2-fg: #1E7A3A;
+  --t3-bg: #FEF3DC; --t3-fg: #B86B00;
+  --amber-bg: #FEF6E4; --blue-bg: #EAF1FD; --green-bg: #E7F5EA; --pink-bg: #FDE8F0;
+  --font: "Inter", system-ui, sans-serif;
+}
+body { background: var(--bg); color: var(--ink-700); font-family: var(--font); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+/* ─── Top bar ─── */
+.topbar {
+  background: linear-gradient(135deg, var(--tc-600) 0%, var(--tc-500) 100%);
+  padding: 13px 24px; display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.topbar-title { color: #fff; font-weight: 700; font-size: 16px; }
+.topbar-nav { display: flex; gap: 6px; }
+.nav-pill {
+  padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer;
+  background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.85); border: none;
+  transition: background 0.15s;
+}
+.nav-pill.active { background: rgba(255,255,255,0.28); color: #fff; font-weight: 700; }
+.nav-pill:hover { background: rgba(255,255,255,0.22); }
+
+/* ─── Layout ─── */
+.visits-layout {
+  display: flex; height: calc(100vh - 46px);
+}
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: 280px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-filter { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-filter-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: 7px; }
+.cm-select {
+  width: 100%; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border);
+  font-family: var(--font); font-size: 13px; color: var(--ink-700); background: var(--ink-50);
+  cursor: pointer;
+}
+.sidebar-tree { padding: 12px 0; overflow-y: auto; flex: 1; }
+.tree-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); padding: 0 16px; margin-bottom: 4px; }
+.tree-node {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 16px; cursor: pointer; font-size: 13.5px; color: var(--ink-700);
+  border-left: 2px solid transparent; transition: all 0.1s;
+}
+.tree-node:hover { background: var(--ink-50); }
+.tree-node.active { background: var(--tc-50); color: var(--tc-600); border-left-color: var(--tc-500); font-weight: 600; }
+.tree-chevron { color: var(--ink-300); transition: transform 0.2s; font-size: 12px; }
+.tree-chevron.open { transform: rotate(90deg); }
+.tree-indent-1 { padding-left: 32px; }
+.tree-indent-2 { padding-left: 48px; }
+.tier-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+
+/* ─── Feed panel ─── */
+.feed-panel {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;
+  min-width: 0;
+}
+
+/* ─── Feed header ─── */
+.feed-header {
+  padding: 14px 24px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap;
+}
+.feed-header-left { display: flex; align-items: center; gap: 10px; }
+.feed-title { font-size: 17px; font-weight: 700; color: var(--ink-900); }
+.feed-count { font-size: 13px; color: var(--ink-400); }
+.feed-header-right { display: flex; align-items: center; gap: 8px; }
+
+/* ─── Auto-refresh indicator ─── */
+.refresh-status {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-400);
+}
+.refresh-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #22C55E; animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.35; }
+}
+.refresh-dot.paused { background: var(--ink-300); animation: none; }
+
+/* ─── View toggle ─── */
+.view-toggle {
+  display: flex; background: var(--ink-50); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.view-btn {
+  padding: 5px 13px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: none; background: transparent; color: var(--ink-500); font-family: var(--font);
+  display: flex; align-items: center; gap: 5px; transition: all 0.15s;
+}
+.view-btn.active { background: var(--surface); color: var(--ink-900); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.view-btn:hover:not(.active) { color: var(--ink-700); }
+
+/* ─── Section chips bar ─── */
+.chips-bar {
+  padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+  overflow-x: auto; scrollbar-width: none;
+}
+.chips-bar::-webkit-scrollbar { display: none; }
+.chips { display: flex; align-items: center; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  background: var(--ink-50); color: var(--ink-500); border: 1px solid var(--border);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; font-family: var(--font); flex-shrink: 0;
+}
+.chip:hover { color: var(--ink-700); border-color: var(--border-strong); }
+.chip.active { background: var(--tc-50); color: var(--tc-600); border-color: var(--tc-100); font-weight: 700; }
+.chip.photo-chip.active { background: #EAF1FD; color: #1A5DB5; border-color: #C4D9F8; }
+.chip-divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+/* ─── Feed scroll ─── */
+.feed-scroll { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+/* ─── Day divider ─── */
+.day-divider {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 0 8px;
+}
+.day-divider-line { flex: 1; border: none; border-top: 1px solid var(--border); }
+.day-divider-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-400); white-space: nowrap; }
+
+/* ─── Visit Card (card view) ─── */
+.visit-card {
+  background: var(--surface); border-radius: 10px; border: 1px solid var(--border);
+  overflow: visible; margin-bottom: 0; transition: box-shadow 0.15s;
+}
+.visit-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.visit-cards-stack { display: flex; flex-direction: column; gap: 8px; }
+
+.visit-card-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; cursor: pointer;
+}
+.visit-store-name { font-size: 15px; font-weight: 700; color: var(--ink-900); flex: 1; text-decoration: none; }
+.visit-store-name:hover { color: var(--tc-600); text-decoration: underline; }
+.visit-meta-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+.visit-meta-item { font-size: 12.5px; color: var(--ink-500); }
+.visit-meta-item.clickable-cm { color: var(--tc-600); cursor: pointer; font-weight: 600; text-decoration: underline dotted; }
+.visit-meta-item.clickable-cm:hover { color: var(--tc-600); }
+.visit-chevron { font-size: 13px; color: var(--ink-300); flex-shrink: 0; transition: transform 0.2s; }
+.visit-chevron.open { transform: rotate(90deg); }
+.visit-card-store { flex: 1; }
+.visit-card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.action-btn {
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--ink-500);
+  transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px;
+}
+.action-btn:hover { border-color: var(--border-strong); color: var(--ink-700); background: var(--ink-50); }
+.action-btn.delete:hover { background: #FFF0F0; border-color: #FFC5C5; color: #C0185A; }
+.action-btn.edit:hover { background: var(--tc-50); border-color: var(--tc-100); color: var(--tc-600); }
+
+/* ─── Visit Card body ─── */
+.visit-detail { padding: 0 14px 14px; }
+.photo-strip-wrap { overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.photo-strip-wrap::-webkit-scrollbar { display: none; }
+.photo-strip { display: flex; gap: 8px; padding: 8px 0; }
+.photo-thumb {
+  width: 160px; height: 160px; border-radius: 8px; flex-shrink: 0;
+  overflow: hidden; cursor: pointer; border: 1px solid var(--border);
+  background: var(--ink-50);
+}
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.photo-placeholder {
+  width: 160px; height: 160px; border-radius: 8px; flex-shrink: 0;
+  background: var(--ink-50); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px;
+  font-size: 24px; color: var(--ink-300);
+}
+.photo-placeholder span { font-size: 11px; color: var(--ink-400); }
+.visit-sections-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; }
+.visit-section-card {
+  border-radius: 8px; border: 1px solid var(--border); padding: 10px 12px;
+  background: var(--surface);
+}
+.visit-section-label { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 11px; font-weight: 700; }
+.section-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; font-size: 11px; }
+.visit-section-text { font-size: 13.5px; color: var(--ink-700); line-height: 1.45; }
+
+/* ─── Table view ─── */
+.visits-table-wrap { overflow-x: auto; }
+.visits-table {
+  width: 100%; border-collapse: collapse; min-width: 700px;
+}
+.visits-table th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--ink-400); border-bottom: 2px solid var(--border);
+  background: var(--surface); white-space: nowrap;
+}
+.visits-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle;
+  font-size: 13.5px; color: var(--ink-700);
+}
+.visits-table tr:last-child td { border-bottom: none; }
+.visits-table tr:hover td { background: var(--ink-50); }
+.visits-table tr td:first-child { color: var(--ink-400); font-size: 12px; white-space: nowrap; }
+.table-store-link { font-weight: 600; color: var(--ink-900); text-decoration: none; }
+.table-store-link:hover { color: var(--tc-600); text-decoration: underline; }
+.table-cm-link { color: var(--tc-600); cursor: pointer; font-weight: 600; text-decoration: underline dotted; }
+.table-cm-link:hover { text-decoration: underline; }
+.table-sections { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.section-icon-sm { font-size: 14px; }
+.table-actions { display: flex; gap: 5px; }
+
+/* ─── Drawers ─── */
+.drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.drawer-overlay.open { opacity: 1; pointer-events: all; }
+.drawer {
+  position: fixed; top: 0; right: -480px; width: 460px; height: 100vh;
+  background: var(--surface); box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+  z-index: 201; overflow-y: auto;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer.open { right: 0; }
+.drawer-header {
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.drawer-close {
+  margin-left: auto; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; cursor: pointer; background: transparent;
+  color: var(--ink-500); font-family: var(--font); flex-shrink: 0;
+}
+.drawer-close:hover { background: var(--ink-50); }
+.drawer-title { font-size: 18px; font-weight: 800; color: var(--ink-900); }
+.drawer-subtitle { font-size: 13px; color: var(--ink-400); margin-top: 3px; }
+.drawer-body { padding: 20px 24px; }
+.drawer-stat-row { display: flex; gap: 10px; margin-bottom: 18px; }
+.drawer-stat {
+  flex: 1; background: var(--ink-50); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px;
+}
+.drawer-stat-num { font-size: 22px; font-weight: 800; color: var(--ink-900); }
+.drawer-stat-label { font-size: 11px; color: var(--ink-400); font-weight: 600; margin-top: 2px; }
+.drawer-section-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-400); margin-bottom: 10px;
+}
+.drawer-visit-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); margin-bottom: 7px; cursor: pointer;
+}
+.drawer-visit-item:hover { background: var(--ink-50); }
+.drawer-visit-store { font-weight: 600; font-size: 13.5px; color: var(--ink-900); flex: 1; }
+.drawer-visit-meta { font-size: 12px; color: var(--ink-400); margin-top: 2px; }
+.drawer-section-breakdown { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 16px; }
+.breakdown-pill {
+  display: flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 20px;
+  font-size: 12px; font-weight: 600; background: var(--ink-50); border: 1px solid var(--border);
+  color: var(--ink-500);
+}
+.breakdown-pill .pill-count { font-weight: 800; color: var(--ink-700); }
+
+/* ─── Decision callouts ─── */
+.decision-section {
+  margin: 32px 0 12px; padding: 0 24px;
+}
+.decision-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tc-600); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.decision-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+.decision-card {
+  flex: 1; min-width: 200px; background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s;
+}
+.decision-card:hover { border-color: var(--tc-100); box-shadow: 0 2px 8px rgba(184,107,0,0.08); }
+.decision-card.selected { border-color: var(--tc-500); background: var(--tc-50); }
+.decision-card-title { font-size: 13.5px; font-weight: 700; color: var(--ink-900); margin-bottom: 4px; }
+.decision-card-desc { font-size: 12px; color: var(--ink-500); line-height: 1.4; }
+.decision-card .tag { display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--tc-50); color: var(--tc-600); }
+
+/* ─── Question panels ─── */
+.question-panel {
+  background: #FFFBF3; border: 1.5px solid var(--tc-100); border-radius: 10px;
+  padding: 14px 16px; margin: 0 24px 12px;
+}
+.question-panel-title { font-size: 12px; font-weight: 700; color: var(--tc-600); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.question-item { font-size: 13px; color: var(--ink-700); padding: 4px 0; display: flex; gap: 8px; }
+.question-item::before { content: "→"; color: var(--tc-500); font-weight: 700; flex-shrink: 0; }
+
+/* ─── Edit modal ─── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface); border-radius: 14px; width: 480px; max-height: 85vh;
+  overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  transform: scale(0.95); transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: scale(1); }
+.modal-header {
+  padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-title { font-size: 16px; font-weight: 800; color: var(--ink-900); }
+.modal-close {
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; cursor: pointer; background: transparent;
+  color: var(--ink-500); font-family: var(--font);
+}
+.modal-body { padding: 18px 20px; }
+.modal-field { margin-bottom: 14px; }
+.modal-field label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-400); margin-bottom: 6px; }
+.modal-field textarea {
+  width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
+  font-family: var(--font); font-size: 13.5px; color: var(--ink-700); resize: vertical;
+  background: var(--ink-50); min-height: 64px; outline: none;
+  transition: border-color 0.15s;
+}
+.modal-field textarea:focus { border-color: var(--tc-500); background: #fff; }
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.btn { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); border: none; transition: all 0.15s; }
+.btn-primary { background: var(--tc-600); color: #fff; }
+.btn-primary:hover { background: var(--ink-900); }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--ink-500); }
+.btn-ghost:hover { background: var(--ink-50); color: var(--ink-700); }
+
+/* ─── Annotation badges ─── */
+.new-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #DDE9FB; color: #1A5DB5; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 20px; text-transform: uppercase; flex-shrink: 0;
+}
+.changed-badge {
+  background: var(--tc-50); color: var(--tc-600); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 20px; text-transform: uppercase;
+}
+
+/* Delete confirm dialog */
+.delete-confirm {
+  background: #FFF5F5; border: 1.5px solid #FFC5C5; border-radius: 10px;
+  padding: 16px; margin-top: 14px; display: none;
+}
+.delete-confirm.show { display: block; }
+.delete-confirm p { font-size: 13px; color: #C0185A; margin-bottom: 12px; font-weight: 600; }
+.delete-confirm-btns { display: flex; gap: 8px; }
+.btn-danger { background: #C0185A; color: #fff; }
+.btn-danger:hover { background: #98103F; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-title">TC Acoustic · SVA Dashboard</div>
+  <div class="topbar-nav">
+    <button class="nav-pill">Home</button>
+    <button class="nav-pill active">Store Updates</button>
+    <button class="nav-pill">Staff</button>
+    <button class="nav-pill">Channel Managers</button>
+    <button class="nav-pill">Intelligence</button>
+  </div>
+</div>
+
+<div class="visits-layout">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+    <div class="sidebar-filter">
+      <div class="sidebar-filter-label">Channel Manager</div>
+      <select class="cm-select">
+        <option>All CMs</option>
+        <option>Wei Liang (SG)</option>
+        <option>Ahmad (MY)</option>
+        <option>Supanat (TH)</option>
+      </select>
+    </div>
+    <div class="sidebar-tree">
+      <div class="tree-label">Browse</div>
+      <div class="tree-node active">
+        <span class="tree-chevron">›</span>
+        🌐 All Markets
+      </div>
+      <div class="tree-node">
+        <span class="tree-chevron open">›</span>
+        🇸🇬 Singapore
+      </div>
+      <div class="tree-node tree-indent-1">
+        <span class="tree-chevron">›</span>
+        Best Denki
+      </div>
+      <div class="tree-node tree-indent-2">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        Best Denki VivoCity
+      </div>
+      <div class="tree-node tree-indent-2">
+        <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+        Best Denki Nex
+      </div>
+      <div class="tree-node tree-indent-1">
+        <span class="tree-chevron">›</span>
+        Challenger
+      </div>
+      <div class="tree-node">
+        <span class="tree-chevron">›</span>
+        🇲🇾 Malaysia
+      </div>
+      <div class="tree-node">
+        <span class="tree-chevron">›</span>
+        🇹🇭 Thailand
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Feed panel ── -->
+  <div class="feed-panel">
+
+    <!-- Feed header -->
+    <div class="feed-header">
+      <div class="feed-header-left">
+        <span class="feed-title">All Markets</span>
+        <span class="feed-count">24 visits</span>
+        <!-- Auto-refresh: subtle live indicator -->
+        <div class="refresh-status">
+          <div class="refresh-dot" id="refreshDot"></div>
+          <span id="refreshLabel">Live · 28s</span>
+        </div>
+        <span class="new-badge">New</span>
+      </div>
+      <div class="feed-header-right">
+        <!-- View toggle -->
+        <div class="view-toggle">
+          <button class="view-btn active" id="cardViewBtn" onclick="setView('card')">
+            ▤ Cards
+          </button>
+          <button class="view-btn" id="tableViewBtn" onclick="setView('table')">
+            ≡ Table
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section chip bar + Photos chip -->
+    <div class="chips-bar">
+      <div class="chips">
+        <button class="chip active" onclick="toggleChip(this)">All</button>
+        <div class="chip-divider"></div>
+        <!-- Photos is a different type of filter — "has photos" -->
+        <button class="chip photo-chip" onclick="toggleChip(this)">📸 Photos</button>
+        <div class="chip-divider"></div>
+        <button class="chip" onclick="toggleChip(this)">🌟 Good News</button>
+        <button class="chip" onclick="toggleChip(this)">🤝 Engagements</button>
+        <button class="chip" onclick="toggleChip(this)">🔍 Competitors</button>
+        <button class="chip" onclick="toggleChip(this)">📦 Display &amp; Stock</button>
+        <button class="chip" onclick="toggleChip(this)">📌 Follow Ups</button>
+      </div>
+    </div>
+
+    <!-- Feed scroll -->
+    <div class="feed-scroll">
+
+      <!-- ── CARD VIEW ── -->
+      <div id="cardView">
+        <!-- Day divider -->
+        <div class="day-divider">
+          <hr class="day-divider-line">
+          <span class="day-divider-label">Today — 28 May 2026</span>
+          <hr class="day-divider-line">
+        </div>
+
+        <div class="visit-cards-stack">
+
+          <!-- Card 1: collapsed -->
+          <div class="visit-card">
+            <div class="visit-card-header" onclick="toggleCard('card1')">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <div class="visit-card-store">
+                <a class="visit-store-name" onclick="event.stopPropagation(); openStoreDrawer()">Best Denki VivoCity</a>
+                <div class="visit-meta-row">
+                  <span class="visit-meta-item clickable-cm" onclick="event.stopPropagation(); openCmDrawer()">Wei Liang</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">28 May</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">📸 4</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">🎓 2 trained</span>
+                </div>
+              </div>
+              <!-- ✏️ Edit + Delete buttons (shown on hover, or always visible?) -->
+              <div class="visit-card-actions" onclick="event.stopPropagation()">
+                <button class="action-btn edit" onclick="openEditModal()">✏️ Edit</button>
+                <button class="action-btn delete" onclick="openDeleteConfirm('card1-delete')">🗑 Delete</button>
+              </div>
+              <span class="visit-chevron" id="card1-chevron">›</span>
+            </div>
+            <!-- Delete confirm inline (inside card) -->
+            <div class="delete-confirm" id="card1-delete" style="margin:0 14px 14px">
+              <p>Delete this visit? This can't be undone.</p>
+              <div class="delete-confirm-btns">
+                <button class="btn btn-danger">Yes, delete</button>
+                <button class="btn btn-ghost" onclick="closeDeleteConfirm('card1-delete')">Cancel</button>
+              </div>
+            </div>
+            <!-- Expanded body -->
+            <div id="card1-body" style="display:none">
+              <div class="visit-detail">
+                <div class="photo-strip-wrap">
+                  <div class="photo-strip">
+                    <div class="photo-placeholder">🖼️<span>Photo 1</span></div>
+                    <div class="photo-placeholder">🖼️<span>Photo 2</span></div>
+                    <div class="photo-placeholder">🖼️<span>Photo 3</span></div>
+                  </div>
+                </div>
+                <div class="visit-sections-grid">
+                  <div class="visit-section-card">
+                    <div class="visit-section-label" style="color:#B86B00">
+                      <span class="section-icon" style="background:var(--amber-bg)">🌟</span>
+                      Good News
+                    </div>
+                    <p class="visit-section-text">Sold 3 units of TC-WH500 today! Staff very enthusiastic after last week's demo.</p>
+                  </div>
+                  <div class="visit-section-card">
+                    <div class="visit-section-label" style="color:#1A5DB5">
+                      <span class="section-icon" style="background:var(--blue-bg)">🔍</span>
+                      Competitors
+                    </div>
+                    <p class="visit-section-text">Sony running a promo bundle — WH-1000XM5 + case for $399.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: collapsed (staff clickable demo) -->
+          <div class="visit-card">
+            <div class="visit-card-header" onclick="toggleCard('card2')">
+              <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+              <div class="visit-card-store">
+                <a class="visit-store-name" onclick="event.stopPropagation(); openStoreDrawer()">Challenger Bugis Junction</a>
+                <div class="visit-meta-row">
+                  <span class="visit-meta-item clickable-cm" onclick="event.stopPropagation(); openCmDrawer()">Ahmad</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">28 May</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">📌 2 follow-ups</span>
+                  <span class="visit-meta-item">·</span>
+                  <!-- Staff clickable example -->
+                  <span class="visit-meta-item">🎓 <span class="clickable-cm" onclick="event.stopPropagation(); openStaffDrawer()" style="font-size:12.5px">Jasmine</span></span>
+                </div>
+              </div>
+              <div class="visit-card-actions" onclick="event.stopPropagation()">
+                <button class="action-btn edit" onclick="openEditModal()">✏️ Edit</button>
+                <button class="action-btn delete" onclick="openDeleteConfirm('card2-delete')">🗑 Delete</button>
+              </div>
+              <span class="visit-chevron" id="card2-chevron">›</span>
+            </div>
+            <div class="delete-confirm" id="card2-delete" style="margin:0 14px 14px">
+              <p>Delete this visit? This can't be undone.</p>
+              <div class="delete-confirm-btns">
+                <button class="btn btn-danger">Yes, delete</button>
+                <button class="btn btn-ghost" onclick="closeDeleteConfirm('card2-delete')">Cancel</button>
+              </div>
+            </div>
+            <div id="card2-body" style="display:none">
+              <div class="visit-detail">
+                <div class="visit-sections-grid">
+                  <div class="visit-section-card">
+                    <div class="visit-section-label" style="color:#C0185A">
+                      <span class="section-icon" style="background:var(--pink-bg)">📌</span>
+                      Follow Ups
+                    </div>
+                    <p class="visit-section-text">Restock TC-HB720 — low on shelf. Chase AM for display stand approval.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /visit-cards-stack -->
+
+        <!-- Day divider 2 -->
+        <div class="day-divider" style="margin-top:12px">
+          <hr class="day-divider-line">
+          <span class="day-divider-label">Yesterday — 27 May 2026</span>
+          <hr class="day-divider-line">
+        </div>
+        <div class="visit-cards-stack">
+          <div class="visit-card">
+            <div class="visit-card-header">
+              <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+              <div class="visit-card-store">
+                <a class="visit-store-name" onclick="openStoreDrawer()">Harvey Norman Parkway</a>
+                <div class="visit-meta-row">
+                  <span class="visit-meta-item clickable-cm" onclick="openCmDrawer()">Wei Liang</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">27 May</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item">📸 2</span>
+                  <span class="visit-meta-item">·</span>
+                  <span class="visit-meta-item" style="color:var(--ink-300);font-size:12px">edited</span>
+                </div>
+              </div>
+              <div class="visit-card-actions">
+                <button class="action-btn edit" onclick="openEditModal()">✏️ Edit</button>
+                <button class="action-btn delete">🗑 Delete</button>
+              </div>
+              <span class="visit-chevron">›</span>
+            </div>
+          </div>
+        </div>
+      </div><!-- /#cardView -->
+
+      <!-- ── TABLE VIEW ── -->
+      <div id="tableView" style="display:none">
+        <div class="visits-table-wrap">
+          <table class="visits-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Store</th>
+                <th>Chain</th>
+                <th>Tier</th>
+                <th>CM</th>
+                <th>Sections</th>
+                <th>Photos</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>28 May</td>
+                <td><a class="table-store-link" onclick="openStoreDrawer()">Best Denki VivoCity</a></td>
+                <td>Best Denki</td>
+                <td><span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></td>
+                <td><span class="table-cm-link" onclick="openCmDrawer()">Wei Liang</span></td>
+                <td>
+                  <div class="table-sections">
+                    <span class="section-icon-sm" title="Good News">🌟</span>
+                    <span class="section-icon-sm" title="Competitors">🔍</span>
+                    <span class="section-icon-sm" title="Trainings">🎓</span>
+                  </div>
+                </td>
+                <td>📸 4</td>
+                <td>
+                  <div class="table-actions">
+                    <button class="action-btn edit" onclick="openEditModal()">✏️</button>
+                    <button class="action-btn delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>28 May</td>
+                <td><a class="table-store-link" onclick="openStoreDrawer()">Challenger Bugis Junction</a></td>
+                <td>Challenger</td>
+                <td><span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span></td>
+                <td><span class="table-cm-link" onclick="openCmDrawer()">Ahmad</span></td>
+                <td>
+                  <div class="table-sections">
+                    <span class="section-icon-sm" title="Follow Ups">📌</span>
+                    <span class="section-icon-sm" title="Trainings">🎓</span>
+                  </div>
+                </td>
+                <td>—</td>
+                <td>
+                  <div class="table-actions">
+                    <button class="action-btn edit" onclick="openEditModal()">✏️</button>
+                    <button class="action-btn delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>27 May</td>
+                <td><a class="table-store-link" onclick="openStoreDrawer()">Harvey Norman Parkway</a></td>
+                <td>Harvey Norman</td>
+                <td><span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></td>
+                <td><span class="table-cm-link" onclick="openCmDrawer()">Wei Liang</span></td>
+                <td>
+                  <div class="table-sections">
+                    <span class="section-icon-sm" title="Good News">🌟</span>
+                    <span class="section-icon-sm" title="Display & Stock">📦</span>
+                  </div>
+                </td>
+                <td>📸 2</td>
+                <td>
+                  <div class="table-actions">
+                    <button class="action-btn edit" onclick="openEditModal()">✏️</button>
+                    <button class="action-btn delete">🗑</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- /#tableView -->
+
+    </div><!-- /feed-scroll -->
+  </div><!-- /feed-panel -->
+</div><!-- /visits-layout -->
+
+
+<!-- ══════════════════════════════════════════════════
+     DECISIONS SECTION (below the mockup)
+═════════════════════════════════════════════════════ -->
+<div style="background: #F0EDE8; border-top: 2px solid var(--border); padding: 28px 0 40px;">
+
+  <div style="padding: 0 24px 4px; display:flex; align-items:center; gap:10px;">
+    <span style="font-size:18px; font-weight:800; color:var(--ink-900)">🧭 Your Decisions Needed</span>
+    <span style="font-size:12px; color:var(--ink-400)">Click cards to select your preference — then tell me which ones</span>
+  </div>
+
+  <!-- Q1: Edit & Delete placement -->
+  <div class="decision-section">
+    <div class="decision-title">① Edit &amp; Delete — where should the buttons live?</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Always visible on card header</div>
+        <div class="decision-card-desc">✏️ Edit + 🗑 Delete buttons always show on the right of every card, like above. Clean, no hover needed.</div>
+        <span class="tag">What's mocked above</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Hover-only (appear on card hover)</div>
+        <div class="decision-card-desc">Buttons are hidden until you hover the card. Less cluttered but requires hover — won't work on touch screens.</div>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">⋮ Overflow menu</div>
+        <div class="decision-card-desc">One small ⋮ button on each card. Click it → dropdown shows Edit / Delete. Cleanest header, one extra click.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q2: Delete confirmation -->
+  <div class="decision-section">
+    <div class="decision-title">② Delete confirmation — how?</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Inline confirm (inside card)</div>
+        <div class="decision-card-desc">A small red warning expands below the card header asking "Are you sure?" — no modal, stays in context. Click the 🗑 button above to see it.</div>
+        <span class="tag">What's mocked above</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Modal confirmation</div>
+        <div class="decision-card-desc">A centred popup modal with the visit details + "Yes, delete" button. Harder to accidentally dismiss.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q3: Edit modal — what fields? -->
+  <div class="decision-section">
+    <div class="decision-title">③ Edit visit — which fields can you change?</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">All 5 note sections + date</div>
+        <div class="decision-card-desc">Good News · Engagements · Competitors · Display &amp; Stock · Follow Up · Visit Date. Standard edit scope. (Click ✏️ Edit above to preview)</div>
+        <span class="tag">Recommended</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Note sections only (no date)</div>
+        <div class="decision-card-desc">Only the 5 text sections. Date, store, CM are locked — can't be changed after submission.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q4: Auto-refresh -->
+  <div class="decision-section">
+    <div class="decision-title">④ Auto-refresh — interval?</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">30 seconds</div>
+        <div class="decision-card-desc">Refresh silently every 30s. Pauses when an edit modal or drawer is open. New visits get an animated "new" banner at the top of the feed.</div>
+        <span class="tag">Recommended · field team moves fast</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">60 seconds</div>
+        <div class="decision-card-desc">Less frequent, less server load. Fine for review / end-of-day catch-up use.</div>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Manual only</div>
+        <div class="decision-card-desc">No auto-refresh. Just a 🔄 button in the header. No risk of disrupting scroll position.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q5: CM Drawer content -->
+  <div class="decision-section">
+    <div class="decision-title">⑤ CM Drawer — what to show? (click "Wei Liang" above to preview)</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Stats + recent visits list</div>
+        <div class="decision-card-desc">3 stat cards (visits this month, stores covered, photos taken) + section breakdown pills + scrollable list of their recent visits. Each visit clickable.</div>
+        <span class="tag">What's mocked in the drawer</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Stats only (no visit list)</div>
+        <div class="decision-card-desc">Quick at-a-glance cards. Keeps drawer lean. Navigate to their visits via the sidebar CM filter.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q6: Store drawer vs Store page -->
+  <div class="decision-section">
+    <div class="decision-title">⑥ Store — drawer or full page?</div>
+    <div class="decision-cards">
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Drawer (same as CM)</div>
+        <div class="decision-card-desc">Side panel slides in with store overview + recent visits. You stay on the current page.</div>
+      </div>
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Existing /visits/store/[id] page</div>
+        <div class="decision-card-desc">Store name already links to a dedicated store page. Keep it as-is — no need for a drawer.</div>
+        <span class="tag">Already built</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q7: Staff drawer content -->
+  <div class="decision-section">
+    <div class="decision-title">⑦ Staff drawer — what to show? (click "Jasmine" in Card 2 above)</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Training history</div>
+        <div class="decision-card-desc">All training sessions logged for this staff member: date, products trained on, which CM trained them.</div>
+        <span class="tag">Recommended</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Training + store context</div>
+        <div class="decision-card-desc">Training history + their store + ally flag + any follow-ups that mention them.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q8: Photos chip behaviour -->
+  <div class="decision-section">
+    <div class="decision-title">⑧ 📸 Photos chip — what does it do?</div>
+    <div class="decision-cards">
+      <div class="decision-card selected" onclick="selectDecision(this)">
+        <div class="decision-card-title">Filter to "visits that have photos"</div>
+        <div class="decision-card-desc">Shows only visits where photo_count &gt; 0. Combines with section chips (OR logic). Same pattern as other chips.</div>
+        <span class="tag">Recommended · what's mocked</span>
+      </div>
+      <div class="decision-card" onclick="selectDecision(this)">
+        <div class="decision-card-title">Separate toggle (not a chip)</div>
+        <div class="decision-card-desc">A standalone "Has photos" checkbox/toggle outside the chips row — keeps the chips purely about content sections.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q9: Engagements section -->
+  <div class="decision-section">
+    <div class="decision-title">⑨ "Engagements" chip — does that field exist in the DB?</div>
+    <div class="question-panel">
+      <div class="question-panel-title">⚠️ One thing to confirm</div>
+      <div class="question-item">The current DB has: good_news · competitors · display_stock · follow_up · buzz_plan. There's no "engagements" field. The closest match to what you listed would be renaming or repurposing one — OR is "Engagements" a new field I should add to the schema?</div>
+    </div>
+  </div>
+
+</div><!-- /decisions section -->
+
+
+<!-- ══ DRAWERS ══ -->
+
+<!-- CM Drawer -->
+<div class="drawer-overlay" id="cmDrawerOverlay" onclick="closeCmDrawer()">
+  <div class="drawer" id="cmDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title">Wei Liang</div>
+        <div class="drawer-subtitle">🇸🇬 Singapore · Channel Manager</div>
+      </div>
+      <button class="drawer-close" onclick="closeCmDrawer()">✕ Close</button>
+    </div>
+    <div class="drawer-body">
+      <!-- Stats -->
+      <div class="drawer-stat-row">
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">18</div>
+          <div class="drawer-stat-label">Visits this month</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">11</div>
+          <div class="drawer-stat-label">Stores covered</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">42</div>
+          <div class="drawer-stat-label">Photos uploaded</div>
+        </div>
+      </div>
+      <!-- Section breakdown -->
+      <div class="drawer-section-label">Section Breakdown (this month)</div>
+      <div class="drawer-section-breakdown">
+        <div class="breakdown-pill">🌟 Good News <span class="pill-count">14</span></div>
+        <div class="breakdown-pill">🔍 Competitors <span class="pill-count">9</span></div>
+        <div class="breakdown-pill">📦 Disp &amp; Stock <span class="pill-count">12</span></div>
+        <div class="breakdown-pill">📌 Follow Ups <span class="pill-count">6</span></div>
+        <div class="breakdown-pill">🎓 Trainings <span class="pill-count">7</span></div>
+      </div>
+      <!-- Recent visits -->
+      <div class="drawer-section-label" style="margin-top:4px">Recent Visits</div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div>
+          <div class="drawer-visit-store">Best Denki VivoCity</div>
+          <div class="drawer-visit-meta">28 May · 🌟 🔍 📸 4</div>
+        </div>
+      </div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span>
+        <div>
+          <div class="drawer-visit-store">Harvey Norman Parkway</div>
+          <div class="drawer-visit-meta">27 May · 🌟 📦 📸 2</div>
+        </div>
+      </div>
+      <div class="drawer-visit-item">
+        <span class="tier-badge" style="background:var(--t2-bg);color:var(--t2-fg)">T2</span>
+        <div>
+          <div class="drawer-visit-store">Best Denki Nex</div>
+          <div class="drawer-visit-meta">26 May · 📌 🎓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Store Drawer -->
+<div class="drawer-overlay" id="storeDrawerOverlay" onclick="closeStoreDrawer()">
+  <div class="drawer" id="storeDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title">Best Denki VivoCity</div>
+        <div class="drawer-subtitle">🇸🇬 Singapore · Best Denki · <span class="tier-badge" style="background:var(--t1-bg);color:var(--t1-fg)">T1</span></div>
+      </div>
+      <button class="drawer-close" onclick="closeStoreDrawer()">✕ Close</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-stat-row">
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">8</div>
+          <div class="drawer-stat-label">Visits this month</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">3</div>
+          <div class="drawer-stat-label">Staff trained</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">2</div>
+          <div class="drawer-stat-label">Open follow-ups</div>
+        </div>
+      </div>
+      <div class="drawer-section-label">Recent Visits</div>
+      <div class="drawer-visit-item">
+        <div>
+          <div class="drawer-visit-store">Wei Liang</div>
+          <div class="drawer-visit-meta">28 May · 🌟 🔍 · 📸 4</div>
+        </div>
+      </div>
+      <div class="drawer-visit-item">
+        <div>
+          <div class="drawer-visit-store">Wei Liang</div>
+          <div class="drawer-visit-meta">24 May · 🌟 📦</div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--ink-400);margin-top:12px">Decision ⑥ — you may prefer keeping this as the existing /visits/store/[id] page instead of a drawer. See below.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Staff Drawer -->
+<div class="drawer-overlay" id="staffDrawerOverlay" onclick="closeStaffDrawer()">
+  <div class="drawer" id="staffDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title">Jasmine Lim</div>
+        <div class="drawer-subtitle">Store Staff · Best Denki Bugis Junction</div>
+      </div>
+      <button class="drawer-close" onclick="closeStaffDrawer()">✕ Close</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-stat-row">
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">4</div>
+          <div class="drawer-stat-label">Times trained</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="drawer-stat-num">3</div>
+          <div class="drawer-stat-label">Products covered</div>
+        </div>
+      </div>
+      <div class="drawer-section-label">Training History</div>
+      <div class="drawer-visit-item">
+        <div>
+          <div class="drawer-visit-store">28 May — Ahmad</div>
+          <div class="drawer-visit-meta">TC-WH500 · TC-HB720 · TC-IEM300</div>
+        </div>
+      </div>
+      <div class="drawer-visit-item">
+        <div>
+          <div class="drawer-visit-store">14 May — Ahmad</div>
+          <div class="drawer-visit-meta">TC-WH500 · TC-HB720</div>
+        </div>
+      </div>
+      <div class="drawer-visit-item">
+        <div>
+          <div class="drawer-visit-store">2 May — Wei Liang</div>
+          <div class="drawer-visit-meta">TC-IEM300</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModalOverlay" onclick="closeEditModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Edit Visit</div>
+        <div style="font-size:12px;color:var(--ink-400);margin-top:3px">Best Denki VivoCity · Wei Liang · 28 May 2026</div>
+      </div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Visit Date</label>
+        <input type="date" value="2026-05-28" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13.5px;color:var(--ink-700);background:var(--ink-50)"/>
+      </div>
+      <div class="modal-field">
+        <label>🌟 Good News</label>
+        <textarea>Sold 3 units of TC-WH500 today! Staff very enthusiastic after last week's demo.</textarea>
+      </div>
+      <div class="modal-field">
+        <label>🔍 Competitors</label>
+        <textarea>Sony running a promo bundle — WH-1000XM5 + case for $399.</textarea>
+      </div>
+      <div class="modal-field">
+        <label>📦 Display &amp; Stock</label>
+        <textarea placeholder="Nothing logged for this visit…"></textarea>
+      </div>
+      <div class="modal-field">
+        <label>📌 Follow Up</label>
+        <textarea placeholder="Nothing logged for this visit…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// View toggle
+function setView(v) {
+  document.getElementById('cardView').style.display = v === 'card' ? 'block' : 'none';
+  document.getElementById('tableView').style.display = v === 'table' ? 'block' : 'none';
+  document.getElementById('cardViewBtn').classList.toggle('active', v === 'card');
+  document.getElementById('tableViewBtn').classList.toggle('active', v === 'table');
+}
+
+// Card expand/collapse
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const chevron = document.getElementById(id + '-chevron');
+  if (!body) return;
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  if (chevron) chevron.classList.toggle('open', open);
+}
+
+// Chip toggle
+function toggleChip(btn) {
+  const chips = btn.closest('.chips');
+  const allBtn = chips.querySelector('.chip:first-child');
+  if (btn === allBtn) {
+    chips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+  } else {
+    allBtn.classList.remove('active');
+    btn.classList.toggle('active');
+    const anyActive = [...chips.querySelectorAll('.chip:not(:first-child)')].some(c => c.classList.contains('active'));
+    if (!anyActive) allBtn.classList.add('active');
+  }
+}
+
+// Drawers
+function openCmDrawer() {
+  document.getElementById('cmDrawerOverlay').classList.add('open');
+  document.getElementById('cmDrawer').classList.add('open');
+}
+function closeCmDrawer() {
+  document.getElementById('cmDrawerOverlay').classList.remove('open');
+  document.getElementById('cmDrawer').classList.remove('open');
+}
+function openStoreDrawer() {
+  document.getElementById('storeDrawerOverlay').classList.add('open');
+  document.getElementById('storeDrawer').classList.add('open');
+}
+function closeStoreDrawer() {
+  document.getElementById('storeDrawerOverlay').classList.remove('open');
+  document.getElementById('storeDrawer').classList.remove('open');
+}
+function openStaffDrawer() {
+  document.getElementById('staffDrawerOverlay').classList.add('open');
+  document.getElementById('staffDrawer').classList.add('open');
+}
+function closeStaffDrawer() {
+  document.getElementById('staffDrawerOverlay').classList.remove('open');
+  document.getElementById('staffDrawer').classList.remove('open');
+}
+
+// Edit modal
+function openEditModal() {
+  document.getElementById('editModalOverlay').classList.add('open');
+  document.getElementById('refreshDot').classList.add('paused');
+  document.getElementById('refreshLabel').textContent = 'Paused';
+}
+function closeEditModal() {
+  document.getElementById('editModalOverlay').classList.remove('open');
+  document.getElementById('refreshDot').classList.remove('paused');
+  document.getElementById('refreshLabel').textContent = 'Live · 28s';
+}
+
+// Delete confirm
+function openDeleteConfirm(id) {
+  document.getElementById(id).classList.add('show');
+}
+function closeDeleteConfirm(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// Decision card selection
+function selectDecision(card) {
+  const group = card.closest('.decision-cards');
+  group.querySelectorAll('.decision-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+}
+
+// Refresh timer (fake counter)
+let secs = 28;
+setInterval(() => {
+  secs = secs <= 1 ? 30 : secs - 1;
+  const label = document.getElementById('refreshLabel');
+  if (label && !document.getElementById('refreshDot').classList.contains('paused')) {
+    label.textContent = `Live · ${secs}s`;
+  }
+}, 1000);
+</script>
+</body>
+</html>
