@@ -216,8 +216,6 @@ export default function HomePage() {
       .finally(() => setReportLoading(false));
   }, [activeDate]);
 
-  if (!user) return null;
-
   const uniqueStoresVisited = new Set(visits.map(v => v.store_id)).size;
   const activeStores = stores.filter(s => s); // all stores in /api/overview are active
 
@@ -298,6 +296,8 @@ export default function HomePage() {
     if (ratio >= 0.9) return { cls: "mid",  txt: "at avg" };
     return { cls: "low", txt: "below avg" };
   }
+
+  if (!user) return null;
 
   return (
     <div>
