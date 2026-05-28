@@ -133,6 +133,13 @@ export function discardPhotoCollection(telegramId: number): void {
   collections.delete(telegramId);
 }
 
+export function hasPendingUploads(visitId: string): boolean {
+  for (const c of collections.values()) {
+    if (c.visitId === visitId) return c.pendingUploads.size > 0;
+  }
+  return false;
+}
+
 // Called at the end of the visit flow. Drains all in-flight uploads (up to
 // 10s) then returns the final count and tears down the collection.
 export async function awaitPhotoUpload(visitId: string): Promise<number> {

@@ -44,6 +44,7 @@ import {
   handleIncomingPhoto,
   setActiveSection,
   awaitPhotoUpload,
+  hasPendingUploads,
   adjustSavedCount,
   discardPhotoCollection,
 } from '../photo-collection.js';
@@ -864,21 +865,18 @@ export async function visitFlow(
 
   await conversation.external(() => setActiveSection(telegramId, null));
 
-  // ── Finalize: lock, broadcast, drain photo queue, send Done message ──────
-  const savedPhotos = await conversation.external(async () => {
+  // ── Finalize: lock + broadcast first so the CM gets a response immediately,
+  //    then drain the photo queue separately.
+  const [trainedCount, photosPending] = await conversation.external(async () => {
     await lockVisit(createdVisitId);
     if (plan) await consumePlan(plan.id);
     await broadcastVisitLocked(createdVisitId, ctx.api).catch(() => {});
-    return await awaitPhotoUpload(createdVisitId);
+    return [
+      await countTrainedStaff(createdVisitId),
+      hasPendingUploads(createdVisitId),
+    ] as const;
   });
 
-  const trainedCount = await conversation.external(() =>
-    countTrainedStaff(createdVisitId),
-  );
-
-  const photoLine = savedPhotos > 0
-    ? `\n📸 ${savedPhotos} ${savedPhotos === 1 ? 'photo' : 'photos'} logged`
-    : '';
   const trainingLine = trainedCount > 0
     ? `\n🎓 ${trainedCount} training${trainedCount === 1 ? '' : 's'} logged`
     : '';
@@ -889,13 +887,34 @@ export async function visitFlow(
     ? `\n✓ ${followUpsClosed} closed`
     : '';
 
-  await ctx.reply(
-    `🎉 *${storeName}* logged ✓` + photoLine + trainingLine + followUpLine + closedLine,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: buildDoneKeyboard(createdVisitId),
-    },
-  );
+  if (!photosPending) {
+    // All uploads already done — include count in the initial message.
+    const savedPhotos = await conversation.external(() => awaitPhotoUpload(createdVisitId));
+    const photoLine = savedPhotos > 0
+      ? `\n📸 ${savedPhotos} ${savedPhotos === 1 ? 'photo' : 'photos'} logged`
+      : '';
+    await ctx.reply(
+      `🎉 *${storeName}* logged ✓` + photoLine + trainingLine + followUpLine + closedLine,
+      { parse_mode: 'Markdown', reply_markup: buildDoneKeyboard(createdVisitId) },
+    );
+  } else {
+    // Photos still uploading — send the done message immediately with a saving
+    // indicator, then edit in the final count once the uploads drain (≤10s).
+    const doneMsg = await ctx.reply(
+      `🎉 *${storeName}* logged ✓\n📸 Saving photos...` + trainingLine + followUpLine + closedLine,
+      { parse_mode: 'Markdown', reply_markup: buildDoneKeyboard(createdVisitId) },
+    );
+    const savedPhotos = await conversation.external(() => awaitPhotoUpload(createdVisitId));
+    const photoLine = savedPhotos > 0
+      ? `\n📸 ${savedPhotos} ${savedPhotos === 1 ? 'photo' : 'photos'} logged`
+      : '';
+    await ctx.api.editMessageText(
+      chatId,
+      doneMsg.message_id,
+      `🎉 *${storeName}* logged ✓` + photoLine + trainingLine + followUpLine + closedLine,
+      { parse_mode: 'Markdown', reply_markup: buildDoneKeyboard(createdVisitId) },
+    ).catch(() => {});
+  }
 
   // Restore the quick-access reply keyboard hidden at the start of the flow.
   await ctx.reply('_Ready for your next visit 👇_', {
