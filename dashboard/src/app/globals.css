@@ -1201,9 +1201,9 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 64px 0 10px;
+  margin: 48px 0 48px;
 }
-.day-divider:first-child { margin-top: 0; }
+.vfp-scroll > div > div:first-child > .day-divider { margin-top: 0; }
 .day-divider-line { flex: 1; border: none; border-top: 1px solid var(--color-border); }
 .day-divider-label {
   font-size: 12px;
