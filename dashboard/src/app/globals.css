@@ -226,24 +226,24 @@ body {
 .visit-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .visit-card-header {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px;
+  padding: 16px 20px;
   cursor: pointer;
 }
 .visit-card-header:hover { background: var(--color-ink-50); }
 .visit-card-store { flex: 1; min-width: 0; }
 .visit-store-name { font-size: 16px; font-weight: 700; color: var(--color-ink-900); }
 .visit-meta-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
-.visit-meta-item { font-size: 13px; color: var(--color-ink-400); font-weight: 500; }
+.visit-meta-item { font-size: 14px; color: var(--color-ink-400); font-weight: 500; }
 .visit-cm-link {
   background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
-  font-size: 13px; font-weight: 600; color: var(--color-tc-600);
+  font-size: 14px; font-weight: 600; color: var(--color-tc-600);
   text-decoration: underline dotted var(--color-tc-100); text-underline-offset: 2px;
   transition: color 0.12s;
 }
 .visit-cm-link:hover { color: var(--color-tc-500); text-decoration: underline solid; }
 .visit-store-link {
   background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
-  font-size: 16px; font-weight: 700; color: var(--color-ink-900);
+  font-size: 19px; font-weight: 700; color: var(--color-ink-900);
   text-align: left;
   transition: color 0.12s;
 }
@@ -265,7 +265,7 @@ body {
   font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
   margin-bottom: 5px;
 }
-.visit-section-text { font-size: 14px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
+.visit-section-text { font-size: 15px; line-height: 1.65; color: var(--color-ink-700); white-space: pre-wrap; }
 
 /* Section pills (collapsed card header) */
 .sec-pill {
@@ -1060,10 +1060,17 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 .admin-table tbody tr.inactive { opacity: 0.55; }
 
 /* ── Visits inbox — two-column layout ──────────────────────── */
+.visits-page-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .visits-inbox {
   display: flex;
   gap: 0;
-  height: calc(100vh - 57px); /* subtract navbar height */
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1107,9 +1114,9 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 .tree-node {
   display: flex; align-items: center;
   gap: 6px;
-  padding: 6px 10px 6px 6px;
+  padding: 7px 10px 7px 6px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--color-ink-700);
   cursor: pointer;
@@ -1155,13 +1162,13 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   gap: 10px;
 }
 .vfp-title {
-  font-size: 17px;
+  font-size: 21px;
   font-weight: 800;
   color: var(--color-ink-900);
   letter-spacing: -0.2px;
 }
 .vfp-count {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-ink-300);
   font-weight: 500;
 }
@@ -1255,9 +1262,9 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 .section-chips { display: flex; align-items: center; gap: 6px; }
 .section-chip {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   background: var(--color-ink-50);
   color: var(--color-ink-500);
@@ -1439,7 +1446,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   display: flex; align-items: flex-start;
   justify-content: space-between; gap: 10px;
 }
-.vdp-title { font-size: 15px; font-weight: 800; color: var(--color-ink-900); letter-spacing: -0.01em; line-height: 1.2; }
+.vdp-title { font-size: 18px; font-weight: 800; color: var(--color-ink-900); letter-spacing: -0.01em; line-height: 1.2; }
 .vdp-sub { font-size: 12px; color: var(--color-ink-400); margin-top: 3px; }
 .vdp-close {
   padding: 3px 8px; border-radius: 7px; border: 1px solid var(--color-border);
@@ -1486,7 +1493,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 }
 .vdp-kv-row:last-child { border-bottom: none; }
 .vdp-kv-label { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-400); min-width: 64px; flex-shrink: 0; }
-.vdp-kv-val { font-size: 13px; color: var(--color-ink-900); font-weight: 600; }
+.vdp-kv-val { font-size: 15px; color: var(--color-ink-900); font-weight: 600; }
 .vdp-stats {
   display: flex; align-items: center;
   background: var(--color-ink-50); border: 1px solid var(--color-border);
@@ -1503,8 +1510,8 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 }
 .vdp-item:last-child { border-bottom: none; }
 .vdp-item:hover { background: var(--color-ink-50); padding-left: 6px; padding-right: 6px; margin: 0 -6px; border-radius: 6px; }
-.vdp-item-name { font-size: 13px; font-weight: 700; color: var(--color-ink-900); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vdp-item-meta { font-size: 11.5px; color: var(--color-ink-400); margin-top: 1px; }
+.vdp-item-name { font-size: 15px; font-weight: 700; color: var(--color-ink-900); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vdp-item-meta { font-size: 13px; color: var(--color-ink-400); margin-top: 1px; }
 .vdp-item-chev { font-size: 11px; color: var(--color-ink-300); flex-shrink: 0; }
 .vdp-empty {
   display: flex; flex-direction: column; align-items: center;
@@ -1585,6 +1592,57 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 /* ── Ally badge (inline, small) ─────────────────────────── */
 .ally-badge-small {
   font-size: 11px; margin-left: 4px;
+}
+
+/* ── Photo toggle button ─────────────────────────────────── */
+.photo-toggle-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--color-ink-50);
+  color: var(--color-ink-500);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  font-family: inherit;
+  flex-shrink: 0;
+  position: relative;
+}
+.photo-toggle-btn:hover { border-color: var(--color-border-strong); }
+.photo-toggle-btn.on {
+  background: var(--color-tc-50);
+  border-color: var(--color-tc-100);
+}
+.photo-toggle-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--color-ink-300);
+  transition: background 0.15s;
+}
+.photo-toggle-btn.on .photo-toggle-dot { background: var(--color-tc-500); }
+
+/* ── Section bar divider ─────────────────────────────────── */
+.section-bar-divider {
+  width: 1px; height: 22px; flex-shrink: 0;
+  background: var(--color-border);
+  margin: 0 2px;
+  align-self: center;
+}
+
+/* ── Memory notes in detail panels ──────────────────────── */
+.vdp-memory-note {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.vdp-memory-note:last-child { border-bottom: none; }
+.vdp-memory-note-title {
+  font-size: 13px; font-weight: 700; color: var(--color-ink-900);
+  margin-bottom: 3px;
+}
+.vdp-memory-note-summary {
+  font-size: 12px; color: var(--color-ink-500); line-height: 1.5;
 }
 
 /* Hide detail panel in mobile/tablet */

@@ -704,14 +704,14 @@ export interface CMDetailInfo {
   assigned_stores: Array<{ id: string; name: string; chain: string; tier: 'T1'|'T2'|'T3'|'T4'|null; market: string }>;
 }
 
-export async function getCMDetail(telegramId: number): Promise<{ cm: CMDetailInfo | null; visits: VisitRow[] }> {
+export async function getCMDetail(telegramId: number): Promise<{ cm: CMDetailInfo | null; visits: VisitRow[]; memory_notes: StoreMemoryNote[] }> {
   const { data: cmData } = await supabase
     .from('cms')
     .select('telegram_id, full_name, market, am_telegram_id')
     .eq('telegram_id', telegramId)
     .single();
 
-  if (!cmData) return { cm: null, visits: [] };
+  if (!cmData) return { cm: null, visits: [], memory_notes: [] };
 
   // Resolve AM name
   let amName: string | null = null;
@@ -741,7 +741,18 @@ export async function getCMDetail(telegramId: number): Promise<{ cm: CMDetailInf
       return ta !== tb ? ta - tb : a.name.localeCompare(b.name);
     });
 
-  const { visits } = await getVisitsFeed({ cm: telegramId, limit: 15 });
+  const [{ visits }, notesRes] = await Promise.all([
+    getVisitsFeed({ cm: telegramId, limit: 15 }),
+    supabase
+      .from('v_memory_notes_current')
+      .select('slug, scope, title, summary, version, last_touched_at')
+      .eq('scope', 'person')
+      .eq('scope_ref', String(telegramId))
+      .order('last_touched_at', { ascending: false }),
+  ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const memory_notes = (notesRes.data ?? []) as StoreMemoryNote[];
 
   return {
     cm: {
@@ -752,6 +763,7 @@ export async function getCMDetail(telegramId: number): Promise<{ cm: CMDetailInf
       assigned_stores: stores,
     },
     visits,
+    memory_notes,
   };
 }
 

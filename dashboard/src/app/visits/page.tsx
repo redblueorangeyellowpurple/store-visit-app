@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo } from "@/lib/queries";
+import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo, StoreMemoryNote } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -224,8 +224,8 @@ export default function VisitsPage() {
 
   if (!user) return null;
 
-  // Client-side: photo filter
-  const photoFiltered = filterPhotos ? visits.filter(v => v.photo_count > 0) : visits;
+  // filterPhotos = toggle to show/hide photo strips (not a visit filter)
+  const photoFiltered = visits;
 
   // Client-side: section focus filter (OR — show if any selected section matches)
   const filtered = focusSections.size === 0
@@ -346,7 +346,7 @@ export default function VisitsPage() {
   const ALL_SECTION_EMOJIS = SECTIONS.map(s => s.icon).join(" ");
 
   return (
-    <div>
+    <div className="visits-page-root">
       <NavBar user={user} />
 
       <div className="visits-inbox">
@@ -506,13 +506,18 @@ export default function VisitsPage() {
           <div className="vfp-section-bar">
             <div className="section-chips">
               <button
-                className={`section-chip${focusSections.size === 0 && !filterPhotos ? " active" : ""}`}
-                onClick={() => { setFocusSections(new Set()); setFilterPhotos(false); }}
+                className={`section-chip${focusSections.size === 0 ? " active" : ""}`}
+                onClick={() => setFocusSections(new Set())}
               >All</button>
               <button
-                className={`section-chip${filterPhotos ? " active" : ""}`}
+                className={`photo-toggle-btn${filterPhotos ? " on" : ""}`}
                 onClick={() => setFilterPhotos(p => !p)}
-              >📸 Photo</button>
+                title={filterPhotos ? "Hide photos" : "Show photos"}
+              >
+                📸
+                <span className="photo-toggle-dot" />
+              </button>
+              <span className="section-bar-divider" />
               {SECTIONS.map(s => (
                 <button
                   key={s.key}
@@ -549,6 +554,7 @@ export default function VisitsPage() {
                           key={v.id}
                           v={v}
                           focusSections={focusSections}
+                          showPhotos={filterPhotos}
                           isExpanded={expandedVisits.has(v.id)}
                           onToggle={() => {
                             const isCurrentlyExpanded = expandedVisits.has(v.id);
@@ -586,7 +592,7 @@ export default function VisitsPage() {
             <div className="vdp-empty-state">
               <div className="vdp-empty-icon" style={{ fontSize: 32, opacity: 0.2 }}>🏪</div>
               <div className="vdp-empty-title">Nothing selected</div>
-              <div className="vdp-empty-hint">Click a store name or CM to see details here</div>
+              <div className="vdp-empty-hint">Click a store name, CM, or staff member to see details here</div>
             </div>
           ) : detail.type === "store" ? (
             <StoreDetailPanel
@@ -638,10 +644,11 @@ export default function VisitsPage() {
 // ─── Visit Card ───────────────────────────────────────────────────────────────
 
 function VisitCard({
-  v, focusSections, isExpanded, onToggle, onPhoto, onOpenStore, onOpenCM,
+  v, focusSections, showPhotos, isExpanded, onToggle, onPhoto, onOpenStore, onOpenCM,
 }: {
   v: VisitRow;
   focusSections: Set<SectionKey>;
+  showPhotos: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onPhoto: (url: string) => void;
@@ -712,7 +719,7 @@ function VisitCard({
       {/* Card body */}
       {isExpanded && (
         <div className="visit-detail">
-          {v.photo_urls.length > 0 && (
+          {showPhotos && v.photo_urls.length > 0 && (
             <div className="photo-strip-wrap">
               <div className="photo-strip">
                 {v.photo_urls.map((url, i) => (
@@ -794,6 +801,7 @@ function StoreDetailPanel({
     store: { id: string; name: string; chain: string; market: string; tier: string | null } | null;
     visits: StoreVisitSummary[];
     staff: StaffRow[];
+    memory_notes: StoreMemoryNote[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -804,9 +812,10 @@ function StoreDetailPanel({
       .then(d => { if (d) setData(d); setLoading(false); });
   }, [storeId]);
 
-  const visits = data?.visits ?? [];
-  const store  = data?.store;
-  const staff  = data?.staff ?? [];
+  const visits       = data?.visits ?? [];
+  const store        = data?.store;
+  const staff        = data?.staff ?? [];
+  const memoryNotes  = data?.memory_notes ?? [];
 
   const lastVisitDate = visits[0]?.visit_date;
 
@@ -936,6 +945,23 @@ function StoreDetailPanel({
                 </div>
               </>
             )}
+
+            {/* Memory Notes */}
+            {memoryNotes.length > 0 && (
+              <>
+                <div className="vdp-section-header">
+                  📝 Notes<span className="vdp-section-count">{memoryNotes.length}</span>
+                </div>
+                <div>
+                  {memoryNotes.map(n => (
+                    <div key={n.slug} className="vdp-memory-note">
+                      <div className="vdp-memory-note-title">{n.title}</div>
+                      {n.summary && <div className="vdp-memory-note-summary">{n.summary}</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -956,7 +982,7 @@ function CMDetailPanel({
   onClose: () => void;
   onOpenStore: (storeId: string, storeName: string) => void;
 }) {
-  const [data, setData] = useState<{ cm: CMDetailInfo | null; visits: VisitRow[] } | null>(null);
+  const [data, setData] = useState<{ cm: CMDetailInfo | null; visits: VisitRow[]; memory_notes: StoreMemoryNote[] } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -966,9 +992,10 @@ function CMDetailPanel({
       .then(d => { if (d) setData(d); setLoading(false); });
   }, [telegramId]);
 
-  const cm     = data?.cm;
-  const stores = cm?.assigned_stores ?? [];
-  const visits = data?.visits ?? [];
+  const cm          = data?.cm;
+  const stores      = cm?.assigned_stores ?? [];
+  const visits      = data?.visits ?? [];
+  const memoryNotes = data?.memory_notes ?? [];
 
   function visitSectionIcons(v: VisitRow): string {
     return TEXT_SECTION_KEYS
@@ -1054,6 +1081,23 @@ function CMDetailPanel({
               })}
             </div>
           )
+        )}
+
+        {/* Memory Notes (shown regardless of active tab) */}
+        {!loading && memoryNotes.length > 0 && (
+          <>
+            <div className="vdp-section-header">
+              📝 Notes<span className="vdp-section-count">{memoryNotes.length}</span>
+            </div>
+            <div>
+              {memoryNotes.map(n => (
+                <div key={n.slug} className="vdp-memory-note">
+                  <div className="vdp-memory-note-title">{n.title}</div>
+                  {n.summary && <div className="vdp-memory-note-summary">{n.summary}</div>}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </>
