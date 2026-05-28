@@ -1,7 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import NavBar from "@/components/NavBar";
+import RefreshControl from "@/components/RefreshControl";
 
 type Market = "ALL" | "SG" | "MY" | "TH" | "HK";
 
@@ -73,6 +75,16 @@ export default function StaffPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const silentRefresh = useCallback(async () => {
+    const res = await fetch("/api/staff");
+    if (res.ok) {
+      const d = await res.json();
+      if (d?.staff) setStaff(d.staff);
+    }
+  }, []);
+
+  const refresh = useAutoRefresh(silentRefresh, { intervalMs: 60_000, paused: savingId !== null });
+
   async function toggleAlly(id: string, makeAlly: boolean) {
     setSavingId(id);
     const optimistic = staff.map(s => s.id === id ? { ...s, is_ally: makeAlly, ally_since: makeAlly ? new Date().toISOString() : null } : s);
@@ -134,11 +146,14 @@ export default function StaffPage() {
       <NavBar user={user} />
       <div className="page-content">
 
-        <div style={{ marginBottom: 24 }}>
-          <h1 className="section-title" style={{ fontSize: 20, marginBottom: 4 }}>Store Staff</h1>
-          <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>
-            {loading ? "Loading…" : `${filtered.length} of ${staff.length} staff · ${summary.allies} allies · ${summary.trained} trained`}
-          </p>
+        <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h1 className="section-title" style={{ fontSize: 20, marginBottom: 4 }}>Store Staff</h1>
+            <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>
+              {loading ? "Loading…" : `${filtered.length} of ${staff.length} staff · ${summary.allies} allies · ${summary.trained} trained`}
+            </p>
+          </div>
+          <RefreshControl controls={refresh} />
         </div>
 
         {/* Controls */}

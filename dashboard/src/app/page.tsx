@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import NavBar from "@/components/NavBar";
+import RefreshControl from "@/components/RefreshControl";
 
 type Market = "ALL" | "SG" | "MY" | "TH" | "HK";
 
@@ -182,6 +184,19 @@ export default function HomePage() {
 
   useEffect(() => { fetchPayroll(from, to); }, [from, to, fetchPayroll]);
 
+  // Silent background refresh — re-fetch overview + payroll without loading flicker.
+  // Hook pauses when tab is hidden, focus is in an input, or payroll is mid-load.
+  const silentRefresh = useCallback(async () => {
+    const [ov, pr] = await Promise.all([
+      fetch("/api/overview").then(r => r.ok ? r.json() : null),
+      fetch(`/api/payroll?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(r => r.ok ? r.json() : null),
+    ]);
+    if (ov) { setStats(ov.stats); setStores(ov.stores); }
+    if (pr) setPayroll(pr);
+  }, [from, to]);
+
+  const refresh = useAutoRefresh(silentRefresh, { intervalMs: 60_000, paused: payrollLoading });
+
   function applyPreset(p: RangePreset) {
     setPreset(p);
     if (p !== "custom") {
@@ -206,6 +221,10 @@ export default function HomePage() {
     <div>
       <NavBar user={user} />
       <div className="page-content">
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <RefreshControl controls={refresh} />
+        </div>
 
         {/* KPI row */}
         <div className="kpi-row">

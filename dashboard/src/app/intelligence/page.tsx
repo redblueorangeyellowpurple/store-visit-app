@@ -3,6 +3,8 @@
 export const dynamic = "force-dynamic";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
+import RefreshControl from "@/components/RefreshControl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -155,6 +157,24 @@ export default function IntelligencePage() {
   }, []);
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
+  // Silent background refresh — refresh report list + active report + notes.
+  // Hard-paused while editing the brief, mid-save, or a drawer is open.
+  const silentRefresh = useCallback(async () => {
+    const [reportList, currentReport, noteList] = await Promise.all([
+      fetch("/api/intelligence/reports").then((r) => r.ok ? r.json() : null),
+      activeDate ? fetch(`/api/intelligence/reports/${activeDate}`).then((r) => r.ok ? r.json() : null) : Promise.resolve(null),
+      fetch("/api/intelligence/notes").then((r) => r.ok ? r.json() : null),
+    ]);
+    if (reportList?.reports) setReports(reportList.reports);
+    if (currentReport?.report !== undefined) setReport(currentReport.report ?? null);
+    if (noteList?.notes) setNotes(noteList.notes);
+  }, [activeDate]);
+
+  const refresh = useAutoRefresh(silentRefresh, {
+    intervalMs: 60_000,
+    paused: editing || saving || drawerStoreId !== null || drawerNoteSlug !== null,
+  });
+
   // Load the active report whenever date changes
   useEffect(() => {
     if (!activeDate) return;
@@ -236,15 +256,18 @@ export default function IntelligencePage() {
                 Lean synthesis of every store visit, with memory that compounds over time
               </p>
             </div>
-            {report && !editing && (
-              <button
-                onClick={() => setEditing(true)}
-                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
-                style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}
-              >
-                Edit brief
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              <RefreshControl controls={refresh} />
+              {report && !editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
+                  style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}
+                >
+                  Edit brief
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Date chips */}

@@ -1,7 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import NavBar from "@/components/NavBar";
+import RefreshControl from "@/components/RefreshControl";
 
 type Market = "ALL" | "SG" | "MY" | "TH" | "HK";
 type Role = "cm" | "cmic" | "am" | "admin";
@@ -121,6 +123,16 @@ export default function ChannelManagersPage() {
     unassigned: cms.filter(c => c.assigned_stores.length === 0 && (c.role === "cm" || c.role === "cmic")).length,
   }), [cms]);
 
+  const silentRefresh = useCallback(async () => {
+    const res = await fetch("/api/cms");
+    if (res.ok) {
+      const d = await res.json();
+      if (d) { setCms(d.cms); setStores(d.stores); }
+    }
+  }, []);
+
+  const refresh = useAutoRefresh(silentRefresh, { intervalMs: 60_000, paused: savingKey !== null });
+
   async function assign(cmId: number, storeId: string) {
     const key = `${cmId}:${storeId}`;
     setSavingKey(key);
@@ -172,13 +184,16 @@ export default function ChannelManagersPage() {
       <NavBar user={user} />
       <div className="page-content">
 
-        <div style={{ marginBottom: 24 }}>
-          <h1 className="section-title" style={{ fontSize: 20, marginBottom: 4 }}>Channel Managers</h1>
-          <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>
-            {loading
-              ? "Loading…"
-              : `${filtered.length} of ${summary.total} CMs · ${summary.assigned} store assignments · ${summary.unassigned} without stores`}
-          </p>
+        <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h1 className="section-title" style={{ fontSize: 20, marginBottom: 4 }}>Channel Managers</h1>
+            <p style={{ fontSize: 13, color: "var(--color-ink-300)" }}>
+              {loading
+                ? "Loading…"
+                : `${filtered.length} of ${summary.total} CMs · ${summary.assigned} store assignments · ${summary.unassigned} without stores`}
+            </p>
+          </div>
+          <RefreshControl controls={refresh} />
         </div>
 
         {/* Controls */}

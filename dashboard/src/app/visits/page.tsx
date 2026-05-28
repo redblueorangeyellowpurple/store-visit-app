@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo, StoreMemoryNote } from "@/lib/queries";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
+import RefreshControl from "@/components/RefreshControl";
+import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo, StoreMemoryNote, StoreOpenTask } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,10 +90,11 @@ const TEXT_SECTION_KEYS = ["good_news", "competitors", "display_stock", "follow_
 
 // Filter bar chips — 4 user-facing labels mapped to underlying section keys
 const CHIP_SECTIONS: Array<{ key: typeof SECTIONS[number]["key"]; label: string; icon: string }> = [
-  { key: "good_news",   label: "Good News",   icon: "🌟" },
-  { key: "trainings",   label: "Engagements", icon: "🎓" },
-  { key: "competitors", label: "Competition", icon: "🔍" },
-  { key: "follow_ups",  label: "Follow-up",   icon: "📌" },
+  { key: "good_news",     label: "Good News",      icon: "🌟" },
+  { key: "trainings",     label: "Engagements",    icon: "🎓" },
+  { key: "display_stock", label: "Display & Stock", icon: "📦" },
+  { key: "competitors",   label: "Competition",    icon: "🔍" },
+  { key: "follow_ups",    label: "Follow-up",      icon: "📌" },
 ];
 
 type SectionKey = typeof SECTIONS[number]["key"];
@@ -219,7 +222,9 @@ export default function VisitsPage() {
 
   useEffect(() => { fetchVisits(); }, [fetchVisits]);
 
-  // Silent background refresh — preserves scroll, expanded state, and selection
+  // Silent background refresh — preserves scroll, expanded state, and selection.
+  // Paused while a drawer/lightbox/dropdown is open; hook also skips when the tab
+  // is hidden or focus is in an input. See useAutoRefresh.
   const silentRefresh = useCallback(async () => {
     const p = selectionParams(selection);
     if (filterCMs.size === 1) {
@@ -237,10 +242,10 @@ export default function VisitsPage() {
     }
   }, [selection, filterCMs, dateFrom, dateTo]);
 
-  useEffect(() => {
-    const interval = setInterval(silentRefresh, 60_000);
-    return () => clearInterval(interval);
-  }, [silentRefresh]);
+  const refresh = useAutoRefresh(silentRefresh, {
+    intervalMs: 60_000,
+    paused: detail !== null || lightbox !== null || cmDropdownOpen,
+  });
 
   // Close CM dropdown when clicking outside
   useEffect(() => {
@@ -463,10 +468,14 @@ export default function VisitsPage() {
 
             <div
               className={`tree-node${selection.type === "all" ? " active" : ""}`}
-              onClick={() => selectNode({ type: "all" })}
+              onClick={() => {
+                setOpenMarkets(new Set());
+                setOpenChains(new Set());
+                selectNode({ type: "all" });
+              }}
             >
               <span style={{ fontSize: 12, width: 12 }} />
-              🌐 All Markets
+              🌐 All Countries
             </div>
 
             {tree?.markets.map(m => {
@@ -540,14 +549,17 @@ export default function VisitsPage() {
         <div className="visits-feed-panel">
 
           {/* Header */}
-          <div className="vfp-header">
-            <span className="vfp-title">{selectionLabel(selection)}</span>
-            <span className="vfp-count">
-              {loading ? "Loading…" : `${total} visit${total !== 1 ? "s" : ""}`}
-              {focusSections.size > 0
-                ? ` · ${[...focusSections].map(k => SECTIONS.find(s => s.key === k)?.icon ?? "").join(" ")}`
-                : selection.type === "all" ? ` · ${ALL_SECTION_EMOJIS}` : ""}
-            </span>
+          <div className="vfp-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+              <span className="vfp-title">{selectionLabel(selection)}</span>
+              <span className="vfp-count">
+                {loading ? "Loading…" : `${total} visit${total !== 1 ? "s" : ""}`}
+                {focusSections.size > 0
+                  ? ` · ${[...focusSections].map(k => SECTIONS.find(s => s.key === k)?.icon ?? "").join(" ")}`
+                  : selection.type === "all" ? ` · ${ALL_SECTION_EMOJIS}` : ""}
+              </span>
+            </div>
+            <RefreshControl controls={refresh} />
           </div>
 
           {/* Section filter bar */}
@@ -622,6 +634,9 @@ export default function VisitsPage() {
                             setDetail({ type: "cm", telegramId, name, market });
                             setCmDetailTab("visits");
                           }}
+                          onOpenStaff={(staffId, staffName, storeName) =>
+                            setDetail({ type: "staff", staffId, staffName, storeName })
+                          }
                         />
                       ))}
                     </div>
@@ -692,7 +707,7 @@ export default function VisitsPage() {
 // ─── Visit Card ───────────────────────────────────────────────────────────────
 
 function VisitCard({
-  v, focusSections, showPhotos, isExpanded, onToggle, onPhoto, onOpenStore, onOpenCM,
+  v, focusSections, showPhotos, isExpanded, onToggle, onPhoto, onOpenStore, onOpenCM, onOpenStaff,
 }: {
   v: VisitRow;
   focusSections: Set<SectionKey>;
@@ -702,6 +717,7 @@ function VisitCard({
   onPhoto: (url: string) => void;
   onOpenStore?: (storeId: string, storeName: string) => void;
   onOpenCM?: (telegramId: number, name: string, market: string) => void;
+  onOpenStaff?: (staffId: string, staffName: string, storeName: string) => void;
 }) {
   const tier = v.store_tier;
   const ts   = tier ? TIER_STYLE[tier] : null;
@@ -802,7 +818,14 @@ function VisitCard({
                       <div key={i} className="sc-staff-row">
                         <span className="pill-trained">Trained</span>
                         <div>
-                          <div className="sc-staff-name">{ts.name}</div>
+                          {ts.id && onOpenStaff ? (
+                            <button
+                              className="visit-cm-link sc-staff-name"
+                              onClick={(e) => { e.stopPropagation(); onOpenStaff(ts.id, ts.name, v.store_name); }}
+                            >{ts.name}</button>
+                          ) : (
+                            <div className="sc-staff-name">{ts.name}</div>
+                          )}
                           {ts.products && <div className="sc-staff-products">{ts.products}</div>}
                         </div>
                       </div>
@@ -851,6 +874,7 @@ function StoreDetailPanel({
     visits: StoreVisitSummary[];
     staff: StaffRow[];
     memory_notes: StoreMemoryNote[];
+    open_tasks: StoreOpenTask[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -865,6 +889,7 @@ function StoreDetailPanel({
   const store        = data?.store;
   const staff        = data?.staff ?? [];
   const memoryNotes  = data?.memory_notes ?? [];
+  const openTasks    = data?.open_tasks ?? [];
 
   const lastVisitDate = visits[0]?.visit_date;
 
@@ -935,6 +960,32 @@ function StoreDetailPanel({
                 </div>
               )}
             </div>
+
+            {/* Open Tasks */}
+            {openTasks.length > 0 && (
+              <>
+                <div className="vdp-section-header">
+                  📌 Open Tasks<span className="vdp-section-count">{openTasks.length}</span>
+                </div>
+                <div>
+                  {openTasks.map(t => (
+                    <div key={t.id} className="vdp-item">
+                      <div className="sc-fu-check" style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="vdp-item-name">{t.title}</div>
+                        <div className="vdp-item-meta">
+                          {t.due_date && <>Due {fmtDate(t.due_date)}</>}
+                          {t.due_date && t.cm_name && <> · </>}
+                          {t.cm_name && <>{t.cm_name}</>}
+                          {(t.due_date || t.cm_name) && t.visit_date && <> · </>}
+                          {t.visit_date && <>from {fmtDate(t.visit_date)} visit</>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             {/* Past Visits */}
             <div className="vdp-section-header">
