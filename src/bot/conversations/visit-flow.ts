@@ -51,6 +51,7 @@ import {
 import { sendVisitDetails } from '../visit-details.js';
 import { broadcastVisitLocked } from '../../notifications/visit-broadcast.js';
 import { config } from '../../config.js';
+import { withTimeout } from '../../utils/timeout.js';
 import type { SectionKey } from '../../db/queries/photos.js';
 
 type VisitConversation = Conversation<BotContext, BotContext>;
@@ -278,11 +279,27 @@ export async function visitFlow(
     );
   } else {
     // ── Store pick (entry) ────────────────────────────────────────────────────
-    const [stores, lastVisits] = await conversation.external(async () => {
-      const s = await getStoresForCM(telegramId);
-      const lv = await getLastVisitDatePerStore(telegramId);
-      return [s, lv] as const;
-    });
+    // Wrapped in withTimeout: if either Supabase query stalls, the per-user
+    // conversation lock would otherwise be held forever — same hang class as
+    // the photo upload bug.
+    let stores: Awaited<ReturnType<typeof getStoresForCM>>;
+    let lastVisits: Awaited<ReturnType<typeof getLastVisitDatePerStore>>;
+    try {
+      [stores, lastVisits] = await conversation.external(async () =>
+        withTimeout(
+          Promise.all([getStoresForCM(telegramId), getLastVisitDatePerStore(telegramId)]),
+          10_000,
+          'store pick load',
+        ),
+      );
+    } catch (err) {
+      console.error('[visit] store pick load failed:', err instanceof Error ? err.message : err);
+      await ctx.reply(
+        '⚠️ Something went wrong loading your stores. Please try /visit again in a moment.',
+        { reply_markup: QUICK_ACCESS_KEYBOARD },
+      );
+      return;
+    }
 
     if (stores.length === 0) {
       await ctx.reply("No stores assigned yet — ask your manager to set this up 🙏", { reply_markup: QUICK_ACCESS_KEYBOARD });
