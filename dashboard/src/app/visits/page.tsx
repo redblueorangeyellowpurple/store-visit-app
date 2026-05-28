@@ -274,11 +274,19 @@ export default function VisitsPage() {
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a));
 
   function toggleMarket(m: string) {
-    setOpenMarkets(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
+    setOpenMarkets(prev => prev.has(m) ? new Set() : new Set([m]));
+    setOpenChains(new Set()); // collapse all chains when switching/closing a market
   }
 
   function toggleChain(key: string) {
-    setOpenChains(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    const market = key.split("::")[0];
+    setOpenChains(prev => {
+      if (prev.has(key)) { const n = new Set(prev); n.delete(key); return n; }
+      // accordion: close sibling chains in the same market, open this one
+      const n = new Set([...prev].filter(k => !k.startsWith(market + "::")));
+      n.add(key);
+      return n;
+    });
   }
 
   function selectNode(s: Selection) {
