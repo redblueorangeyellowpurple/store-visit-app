@@ -103,6 +103,14 @@ export async function handleIncomingPhoto(
     const timer = setTimeout(() => controller.abort(), 30_000);
     try {
       const file = await botApi.getFile(fileId);
+      // Reject oversized files before downloading into memory — Railway's
+      // instance heap is small and a 15MB+ photo (or several at once) can
+      // spike RAM. Telegram caps photos at ~10MB but lets through larger
+      // documents-as-photos.
+      if (file.file_size && file.file_size > 15_000_000) {
+        console.warn(`[photos] skipping oversized file (${file.file_size} bytes) for visit ${c.visitId}`);
+        return;
+      }
       const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${file.file_path}`;
       const resp = await fetch(url, { signal: controller.signal });
       const buffer = Buffer.from(await resp.arrayBuffer());

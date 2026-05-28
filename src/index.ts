@@ -33,17 +33,19 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Telegram webhook
+// Telegram webhook — secret_token header gives defense-in-depth on top of
+// the URL-path secret: even if the URL leaks (logs, env dumps), the header
+// check still rejects forged updates.
 app.use(
   `/webhook/${config.telegram.webhookSecret}`,
   express.json(),
-  webhookCallback(bot, 'express'),
+  webhookCallback(bot, 'express', { secretToken: config.telegram.webhookSecret }),
 );
 
 // Start server and set webhook
 app.listen(config.webhook.port, async () => {
   const webhookUrl = `${config.webhook.domain}/webhook/${config.telegram.webhookSecret}`;
-  await bot.api.setWebhook(webhookUrl);
+  await bot.api.setWebhook(webhookUrl, { secret_token: config.telegram.webhookSecret });
   console.log(`Bot server running on port ${config.webhook.port}`);
   console.log(`Webhook set to ${webhookUrl}`);
   await startupHealthCheck();
