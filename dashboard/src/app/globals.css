@@ -1531,6 +1531,62 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   text-decoration: none; opacity: 0.7; transition: opacity 0.12s;
 }
 .vdp-open-link:hover { opacity: 1; text-decoration: underline; }
+
+/* ── Detail panel — always-visible empty state ──────────── */
+.vdp-empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px;
+  height: 100%; padding: 48px 24px; text-align: center;
+}
+.vdp-empty-hint {
+  font-size: 12px; color: var(--color-ink-300); line-height: 1.6; max-width: 180px;
+}
+
+/* ── Store detail section headers ───────────────────────── */
+.vdp-section-header {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--color-ink-400);
+  padding: 14px 0 6px; border-top: 1px solid var(--color-border);
+  margin-top: 4px;
+}
+.vdp-section-header:first-of-type { border-top: none; margin-top: 0; }
+.vdp-section-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--color-ink-100);
+  font-size: 10px; font-weight: 700; color: var(--color-ink-500);
+}
+
+/* ── Emoji-only section pills (no background) ───────────── */
+.sec-pill-emoji {
+  font-size: 13px; line-height: 1; flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* ── CM dropdown — multi-select enhancements ────────────── */
+.cm-dropdown-mkt-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.cm-dropdown-select-all {
+  background: none; border: none; cursor: pointer; padding: 0 14px 0 8px;
+  font-size: 10px; font-weight: 600; color: var(--color-tc-600);
+  font-family: inherit; line-height: 1;
+}
+.cm-dropdown-select-all:hover { text-decoration: underline; }
+.cm-dropdown-check {
+  display: inline-block; width: 14px; text-align: center;
+  font-size: 11px; color: var(--color-tc-600); flex-shrink: 0;
+}
+.cm-dropdown-item {
+  display: flex; align-items: center; gap: 4px;
+}
+
+/* ── Ally badge (inline, small) ─────────────────────────── */
+.ally-badge-small {
+  font-size: 11px; margin-left: 4px;
+}
+
 /* Hide detail panel in mobile/tablet */
 @media (max-width: 1024px) {
   .visits-detail-panel { display: none; }

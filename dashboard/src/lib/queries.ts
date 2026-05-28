@@ -145,6 +145,7 @@ export async function getStoreStatus(): Promise<StoreStatus[]> {
 
 export async function getVisitsFeed(opts: {
   cm?: number;
+  cms?: number[];  // multi-select CM filter
   store?: string;
   from?: string;
   to?: string;
@@ -177,6 +178,7 @@ export async function getVisitsFeed(opts: {
     .range(offset, offset + limit - 1);
 
   if (opts.cm) q = q.eq("cm_telegram_id", opts.cm);
+  else if (opts.cms?.length) q = q.in("cm_telegram_id", opts.cms);
   if (opts.store) q = q.eq("store_id", opts.store);
   if (opts.from) q = q.gte("visit_date", opts.from);
   if (opts.to) q = q.lte("visit_date", opts.to);
@@ -379,6 +381,188 @@ export async function getAllStaff(): Promise<StaffRow[]> {
   return staffRows;
 }
 
+// ── Store Staff (single store) ────────────────────────────────────────────────
+
+export async function getStoreStaff(storeId: string): Promise<StaffRow[]> {
+  const { data } = await supabase
+    .from('staff')
+    .select('*, stores(name, chain, tier, market)')
+    .eq('store_id', storeId)
+    .order('name');
+
+  const staffRows: StaffRow[] = (data ?? []).map((s) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row = s as any;
+    return {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      phone: row.phone,
+      is_ally: row.is_ally,
+      ally_since: row.ally_since,
+      store_id: row.store_id,
+      store_name: row.stores?.name ?? 'Unknown',
+      store_chain: row.stores?.chain ?? '',
+      store_tier: row.stores?.tier ?? null,
+      store_market: row.stores?.market ?? 'SG',
+      tagged_visits: 0,
+      times_trained: 0,
+      last_trained_at: null,
+      last_trained_products: null,
+    };
+  });
+
+  if (staffRows.length > 0) {
+    const ids = staffRows.map((s) => s.id);
+    const { data: vsRaw, error: vsErr } = await supabase
+      .from('visit_staff')
+      .select('staff_id, was_trained, products_trained_on, visits(visit_date, is_locked)')
+      .in('staff_id', ids);
+    if (!vsErr && vsRaw) {
+      type Vs = {
+        staff_id: string;
+        was_trained?: boolean | null;
+        products_trained_on?: string | null;
+        visits?: { visit_date?: string; is_locked?: boolean } | null;
+      };
+      const byStaff = new Map<string, {
+        tagged: number;
+        trained: number;
+        last_trained_at: string | null;
+        last_trained_products: string | null;
+      }>();
+      for (const linkRaw of vsRaw) {
+        const link = linkRaw as unknown as Vs;
+        const v = link.visits;
+        if (v && v.is_locked === false) continue;
+        const acc = byStaff.get(link.staff_id) ?? { tagged: 0, trained: 0, last_trained_at: null, last_trained_products: null };
+        acc.tagged += 1;
+        if (link.was_trained) {
+          acc.trained += 1;
+          const vDate = v?.visit_date ?? null;
+          if (vDate && (acc.last_trained_at === null || vDate > acc.last_trained_at)) {
+            acc.last_trained_at = vDate;
+            acc.last_trained_products = link.products_trained_on ?? null;
+          }
+        }
+        byStaff.set(link.staff_id, acc);
+      }
+      for (const s of staffRows) {
+        const agg = byStaff.get(s.id);
+        s.tagged_visits = agg?.tagged ?? 0;
+        s.times_trained = agg?.trained ?? 0;
+        s.last_trained_at = agg?.last_trained_at ?? null;
+        s.last_trained_products = agg?.last_trained_products ?? null;
+      }
+    }
+  }
+
+  return staffRows;
+}
+
+// ── Staff Detail ──────────────────────────────────────────────────────────────
+
+export interface StaffTrainingEntry {
+  visit_id: string;
+  visit_date: string;
+  products: string | null;
+}
+
+export interface StaffTaggedVisit {
+  visit_id: string;
+  visit_date: string;
+  was_trained: boolean;
+  store_name: string;
+}
+
+export interface StaffDetailInfo {
+  id: string;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  is_ally: boolean;
+  store_id: string;
+  store_name: string;
+  tagged_visits: number;
+  times_trained: number;
+  last_trained_at: string | null;
+  training_history: StaffTrainingEntry[];
+  tagged_visit_history: StaffTaggedVisit[];
+}
+
+export async function getStaffDetail(staffId: string): Promise<StaffDetailInfo | null> {
+  const { data: staffData } = await supabase
+    .from('staff')
+    .select('*, stores(name)')
+    .eq('id', staffId)
+    .single();
+
+  if (!staffData) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = staffData as any;
+
+  const { data: vsRaw } = await supabase
+    .from('visit_staff')
+    .select('visit_id, was_trained, products_trained_on, visits(visit_date, is_locked, stores(name))')
+    .eq('staff_id', staffId)
+    .order('visit_id', { ascending: false });
+
+  type VsDetail = {
+    visit_id: string;
+    was_trained?: boolean | null;
+    products_trained_on?: string | null;
+    visits?: { visit_date?: string; is_locked?: boolean; stores?: { name?: string } | null } | null;
+  };
+
+  let tagged_visits = 0;
+  let times_trained = 0;
+  let last_trained_at: string | null = null;
+  const training_history: StaffTrainingEntry[] = [];
+  const tagged_visit_history: StaffTaggedVisit[] = [];
+
+  for (const linkRaw of vsRaw ?? []) {
+    const link = linkRaw as unknown as VsDetail;
+    const v = link.visits;
+    if (v && v.is_locked === false) continue;
+    tagged_visits += 1;
+    tagged_visit_history.push({
+      visit_id: link.visit_id,
+      visit_date: v?.visit_date ?? '',
+      was_trained: link.was_trained ?? false,
+      store_name: v?.stores?.name ?? s.stores?.name ?? 'Unknown',
+    });
+    if (link.was_trained) {
+      times_trained += 1;
+      const vDate = v?.visit_date ?? null;
+      if (vDate && (last_trained_at === null || vDate > last_trained_at)) last_trained_at = vDate;
+      training_history.push({
+        visit_id: link.visit_id,
+        visit_date: v?.visit_date ?? '',
+        products: link.products_trained_on ?? null,
+      });
+    }
+  }
+
+  // Sort newest first
+  tagged_visit_history.sort((a, b) => b.visit_date.localeCompare(a.visit_date));
+  training_history.sort((a, b) => b.visit_date.localeCompare(a.visit_date));
+
+  return {
+    id: s.id,
+    name: s.name,
+    role: s.role ?? null,
+    phone: s.phone ?? null,
+    is_ally: s.is_ally ?? false,
+    store_id: s.store_id,
+    store_name: s.stores?.name ?? 'Unknown',
+    tagged_visits,
+    times_trained,
+    last_trained_at,
+    training_history,
+    tagged_visit_history,
+  };
+}
+
 export interface StoreInfo {
   id: string;
   name: string;
@@ -432,8 +616,8 @@ export async function getVisitPhotos(visitId: string): Promise<string[]> {
   return signPhotoUrls(paths);
 }
 
-export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[] }> {
-  const [storeRes, visitsRes, notesRes] = await Promise.all([
+export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[]; staff: StaffRow[] }> {
+  const [storeRes, visitsRes, notesRes, staff] = await Promise.all([
     supabase.from('stores').select('id, name, chain, market, tier').eq('id', storeId).single(),
     supabase
       .from('visits')
@@ -447,6 +631,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
       .eq('scope', 'store')
       .eq('scope_ref', storeId)
       .order('last_touched_at', { ascending: false }),
+    getStoreStaff(storeId),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -456,7 +641,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const memory_notes = (notesRes.data ?? []) as StoreMemoryNote[];
 
-  if (visitRows.length === 0) return { store, visits: [], memory_notes };
+  if (visitRows.length === 0) return { store, visits: [], memory_notes, staff };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ids = visitRows.map((v: any) => v.id);
@@ -506,7 +691,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     photo_urls: (allPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
   }));
 
-  return { store, visits, memory_notes };
+  return { store, visits, memory_notes, staff };
 }
 
 // ── CM Detail (for visits page right panel) ──────────────────────────────────

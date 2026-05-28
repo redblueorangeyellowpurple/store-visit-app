@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo } from "@/lib/queries";
+import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ type Selection =
 
 function selectionLabel(s: Selection): string {
   switch (s.type) {
-    case "all":    return "All Markets";
+    case "all":    return "Store Updates";
     case "market": return `${s.flag} ${s.market}`;
     case "chain":  return `${s.flag} ${s.chain}`;
     case "store":  return s.storeName;
@@ -68,6 +68,7 @@ function selectionParams(s: Selection): URLSearchParams {
 type DetailView =
   | { type: "store"; storeId: string; storeName: string }
   | { type: "cm"; telegramId: number; name: string; market: string }
+  | { type: "staff"; staffId: string; staffName: string; storeName: string }
   | null;
 
 // ─── Section definitions ──────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ type SectionKey = typeof SECTIONS[number]["key"];
 // Markets for CM dropdown grouping
 const MARKET_ORDER_CM = ["SG", "MY", "TH", "HK"];
 const MARKET_FLAG_CM: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
-const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+const MARKET_FLAG: Record<string, string>    = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
 
 // Tier ordering for browse tree
 const TIER_ORDER: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
@@ -141,7 +142,7 @@ function visitMatchesSection(v: VisitRow, key: SectionKey): boolean {
   return !!v[key as keyof VisitRow];
 }
 
-// Section icons present in a StoreVisitSummary (for detail panel visits tab)
+// Section icons present in a StoreVisitSummary (for detail panel visits list)
 function storeSectionIcons(v: StoreVisitSummary): string {
   return TEXT_SECTION_KEYS
     .filter(k => !!v[k as keyof StoreVisitSummary])
@@ -157,7 +158,8 @@ export default function VisitsPage() {
   const [total,          setTotal]          = useState(0);
   const [loading,        setLoading]        = useState(false);
   const [cms,            setCms]            = useState<CMOption[]>([]);
-  const [filterCM,       setFilterCM]       = useState("");
+  const [filterCMs,      setFilterCMs]      = useState<Set<string>>(new Set());
+  const [filterPhotos,   setFilterPhotos]   = useState(false);
   const [dateFrom,       setDateFrom]       = useState("");
   const [dateTo,         setDateTo]         = useState("");
   const [tree,           setTree]           = useState<BrowseTree | null>(null);
@@ -169,12 +171,14 @@ export default function VisitsPage() {
   const [lightbox,       setLightbox]       = useState<string | null>(null);
   const [detail,         setDetail]         = useState<DetailView>(null);
   const [detailWidth,    setDetailWidth]    = useState(300);
-  const feedRef         = useRef<HTMLDivElement>(null);
+  const feedRef                             = useRef<HTMLDivElement>(null);
   const [sidebarWidth,   setSidebarWidth]   = useState(340);
   const [cmDropdownOpen, setCmDropdownOpen] = useState(false);
-  const cmDropdownRef   = useRef<HTMLDivElement>(null);
-  const dragState       = useRef<{ startX: number; startWidth: number } | null>(null);
-  const detailDrag      = useRef<{ startX: number; startWidth: number } | null>(null);
+  const cmDropdownRef                       = useRef<HTMLDivElement>(null);
+  const dragState                           = useRef<{ startX: number; startWidth: number } | null>(null);
+  const detailDrag                          = useRef<{ startX: number; startWidth: number } | null>(null);
+  // CM panel tab lifted to parent so it persists across entity switches
+  const [cmDetailTab,    setCmDetailTab]    = useState<"visits" | "stores">("visits");
 
   // Bootstrap
   useEffect(() => {
@@ -187,7 +191,11 @@ export default function VisitsPage() {
   const fetchVisits = useCallback(async () => {
     setLoading(true);
     const p = selectionParams(selection);
-    if (filterCM) p.set("cm", filterCM);
+    if (filterCMs.size === 1) {
+      p.set("cm", [...filterCMs][0]);
+    } else if (filterCMs.size > 1) {
+      p.set("cm", [...filterCMs].join(","));
+    }
     if (dateFrom) p.set("from", dateFrom);
     if (dateTo)   p.set("to", dateTo);
     const res = await fetch(`/api/visits?${p}`);
@@ -198,7 +206,7 @@ export default function VisitsPage() {
     }
     setLoading(false);
     feedRef.current?.scrollTo({ top: 0 });
-  }, [selection, filterCM, dateFrom, dateTo]);
+  }, [selection, filterCMs, dateFrom, dateTo]);
 
   useEffect(() => { fetchVisits(); }, [fetchVisits]);
 
@@ -216,10 +224,13 @@ export default function VisitsPage() {
 
   if (!user) return null;
 
-  // Filter by section focus (OR — show if any selected section matches)
+  // Client-side: photo filter
+  const photoFiltered = filterPhotos ? visits.filter(v => v.photo_count > 0) : visits;
+
+  // Client-side: section focus filter (OR — show if any selected section matches)
   const filtered = focusSections.size === 0
-    ? visits
-    : visits.filter(v => [...focusSections].some(k => visitMatchesSection(v, k)));
+    ? photoFiltered
+    : photoFiltered.filter(v => [...focusSections].some(k => visitMatchesSection(v, k)));
 
   // Group by date for day dividers
   const byDate = new Map<string, VisitRow[]>();
@@ -231,25 +242,32 @@ export default function VisitsPage() {
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a));
 
   function toggleMarket(m: string) {
-    setOpenMarkets(prev => {
-      const next = new Set(prev);
-      next.has(m) ? next.delete(m) : next.add(m);
-      return next;
-    });
+    setOpenMarkets(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
   }
 
   function toggleChain(key: string) {
-    setOpenChains(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+    setOpenChains(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
 
   function selectNode(s: Selection) {
     setSelection(s);
     setFocusSections(new Set());
     setExpandedVisits(new Set());
+  }
+
+  // Section chip click: toggle focus AND auto-expand matching visits
+  function handleSectionChipClick(key: SectionKey) {
+    setFocusSections(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.size > 0) {
+        const matchIds = visits
+          .filter(v => [...next].some(k => visitMatchesSection(v, k)))
+          .map(v => v.id);
+        setExpandedVisits(new Set(matchIds));
+      }
+      return next;
+    });
   }
 
   function handleResizeMouseDown(e: React.MouseEvent) {
@@ -259,8 +277,7 @@ export default function VisitsPage() {
     document.body.style.cursor = "col-resize";
     function onMove(ev: MouseEvent) {
       if (!dragState.current) return;
-      const delta = ev.clientX - dragState.current.startX;
-      setSidebarWidth(Math.max(160, Math.min(620, dragState.current.startWidth + delta)));
+      setSidebarWidth(Math.max(160, Math.min(620, dragState.current.startWidth + (ev.clientX - dragState.current.startX))));
     }
     function onUp() {
       dragState.current = null;
@@ -280,8 +297,7 @@ export default function VisitsPage() {
     document.body.style.cursor = "col-resize";
     function onMove(ev: MouseEvent) {
       if (!detailDrag.current) return;
-      const delta = detailDrag.current.startX - ev.clientX; // inverted: drag left = grow
-      setDetailWidth(Math.max(240, Math.min(560, detailDrag.current.startWidth + delta)));
+      setDetailWidth(Math.max(240, Math.min(560, detailDrag.current.startWidth + (detailDrag.current.startX - ev.clientX))));
     }
     function onUp() {
       detailDrag.current = null;
@@ -307,7 +323,27 @@ export default function VisitsPage() {
     })),
     ...(cmsByMarketMap.has("Other") ? [{ market: "Other", flag: "🌐", cms: cmsByMarketMap.get("Other")! }] : []),
   ];
-  const selectedCmName = cms.find(c => String(c.telegram_id) === filterCM)?.name ?? "All CMs";
+
+  const selectedCmLabel = filterCMs.size === 0
+    ? "All Channel Managers"
+    : filterCMs.size === 1
+      ? (cms.find(c => filterCMs.has(String(c.telegram_id)))?.name ?? "1 CM")
+      : `${filterCMs.size} CMs`;
+
+  function toggleCM(id: string) {
+    setFilterCMs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  function toggleMarketCMs(mCms: CMOption[], allSelected: boolean) {
+    setFilterCMs(prev => {
+      const n = new Set(prev);
+      for (const c of mCms) allSelected ? n.delete(String(c.telegram_id)) : n.add(String(c.telegram_id));
+      return n;
+    });
+  }
+
+  // All section emojis for "Store Updates" header when no filter active
+  const ALL_SECTION_EMOJIS = SECTIONS.map(s => s.icon).join(" ");
 
   return (
     <div>
@@ -325,18 +361,12 @@ export default function VisitsPage() {
             {/* Date range */}
             <p className="vsb-section-label" style={{ marginBottom: 6 }}>Date Range</p>
             <div className="vsb-date-row" style={{ marginBottom: 12 }}>
-              <input
-                type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="vsb-date-inp"
-              />
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="vsb-date-inp" />
               <span className="vsb-date-sep">→</span>
-              <input
-                type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="vsb-date-inp"
-              />
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="vsb-date-inp" />
             </div>
 
-            {/* CM filter */}
+            {/* CM filter — multi-select */}
             <p className="vsb-section-label" style={{ marginBottom: 6 }}>CM Filter</p>
             {cms.length > 0 && (
               <div className="cm-dropdown" ref={cmDropdownRef}>
@@ -344,27 +374,42 @@ export default function VisitsPage() {
                   className={`cm-dropdown-btn${cmDropdownOpen ? " open" : ""}`}
                   onClick={() => setCmDropdownOpen(o => !o)}
                 >
-                  <span className="cm-dropdown-btn-label">{selectedCmName}</span>
+                  <span className="cm-dropdown-btn-label">{selectedCmLabel}</span>
                   <span className="cm-dropdown-arrow">▼</span>
                 </button>
                 {cmDropdownOpen && (
                   <div className="cm-dropdown-panel">
                     <div
-                      className={`cm-dropdown-all${filterCM === "" ? " selected" : ""}`}
-                      onClick={() => { setFilterCM(""); setCmDropdownOpen(false); }}
-                    >All CMs</div>
-                    {cmGroups.map(g => (
-                      <div key={g.market}>
-                        <div className="cm-dropdown-mkt-header">{g.flag} {g.market}</div>
-                        {g.cms.map(c => (
-                          <div
-                            key={c.telegram_id}
-                            className={`cm-dropdown-item${String(c.telegram_id) === filterCM ? " selected" : ""}`}
-                            onClick={() => { setFilterCM(String(c.telegram_id)); setCmDropdownOpen(false); }}
-                          >{c.name}</div>
-                        ))}
-                      </div>
-                    ))}
+                      className={`cm-dropdown-all${filterCMs.size === 0 ? " selected" : ""}`}
+                      onClick={() => { setFilterCMs(new Set()); setCmDropdownOpen(false); }}
+                    >All Channel Managers</div>
+                    {cmGroups.map(g => {
+                      const allSelected = g.cms.every(c => filterCMs.has(String(c.telegram_id)));
+                      return (
+                        <div key={g.market}>
+                          <div className="cm-dropdown-mkt-header">
+                            <span>{g.flag} {g.market}</span>
+                            <button
+                              className="cm-dropdown-select-all"
+                              onClick={() => toggleMarketCMs(g.cms, allSelected)}
+                            >{allSelected ? "Deselect all" : "Select all"}</button>
+                          </div>
+                          {g.cms.map(c => {
+                            const isSel = filterCMs.has(String(c.telegram_id));
+                            return (
+                              <div
+                                key={c.telegram_id}
+                                className={`cm-dropdown-item${isSel ? " selected" : ""}`}
+                                onClick={() => toggleCM(String(c.telegram_id))}
+                              >
+                                <span className="cm-dropdown-check">{isSel ? "✓" : ""}</span>
+                                {c.name}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -376,7 +421,6 @@ export default function VisitsPage() {
             {/* Browse tree */}
             <p className="vsb-section-label">Browse</p>
 
-            {/* All */}
             <div
               className={`tree-node${selection.type === "all" ? " active" : ""}`}
               onClick={() => selectNode({ type: "all" })}
@@ -385,7 +429,6 @@ export default function VisitsPage() {
               🌐 All Markets
             </div>
 
-            {/* Markets */}
             {tree?.markets.map(m => {
               const mOpen = openMarkets.has(m.market);
               const mActive = selection.type === "market" && selection.market === m.market;
@@ -393,10 +436,7 @@ export default function VisitsPage() {
                 <div key={m.market}>
                   <div
                     className={`tree-node${mActive ? " active" : ""}`}
-                    onClick={() => {
-                      toggleMarket(m.market);
-                      selectNode({ type: "market", market: m.market, flag: m.flag });
-                    }}
+                    onClick={() => { toggleMarket(m.market); selectNode({ type: "market", market: m.market, flag: m.flag }); }}
                   >
                     <span className={`tree-chevron${mOpen ? " open" : ""}`}>›</span>
                     {m.flag} {m.market}
@@ -410,10 +450,7 @@ export default function VisitsPage() {
                       <div key={chainKey}>
                         <div
                           className={`tree-node tree-indent-1${chActive ? " active" : ""}`}
-                          onClick={() => {
-                            toggleChain(chainKey);
-                            selectNode({ type: "chain", market: m.market, flag: m.flag, chain: ch.chain });
-                          }}
+                          onClick={() => { toggleChain(chainKey); selectNode({ type: "chain", market: m.market, flag: m.flag, chain: ch.chain }); }}
                         >
                           <span className={`tree-chevron${chOpen ? " open" : ""}`}>›</span>
                           {ch.chain}
@@ -451,7 +488,7 @@ export default function VisitsPage() {
         {/* ── RESIZE HANDLE ────────────────────────────────── */}
         <div className="visits-resize-handle" onMouseDown={handleResizeMouseDown} />
 
-        {/* ── RIGHT FEED PANEL ──────────────────────────────── */}
+        {/* ── FEED PANEL ────────────────────────────────────── */}
         <div className="visits-feed-panel">
 
           {/* Header */}
@@ -459,7 +496,9 @@ export default function VisitsPage() {
             <span className="vfp-title">{selectionLabel(selection)}</span>
             <span className="vfp-count">
               {loading ? "Loading…" : `${total} visit${total !== 1 ? "s" : ""}`}
-              {focusSections.size > 0 && ` · ${[...focusSections].map(k => SECTIONS.find(s => s.key === k)?.icon ?? "").join(" ")}`}
+              {focusSections.size > 0
+                ? ` · ${[...focusSections].map(k => SECTIONS.find(s => s.key === k)?.icon ?? "").join(" ")}`
+                : selection.type === "all" ? ` · ${ALL_SECTION_EMOJIS}` : ""}
             </span>
           </div>
 
@@ -467,18 +506,18 @@ export default function VisitsPage() {
           <div className="vfp-section-bar">
             <div className="section-chips">
               <button
-                className={`section-chip${focusSections.size === 0 ? " active" : ""}`}
-                onClick={() => setFocusSections(new Set())}
+                className={`section-chip${focusSections.size === 0 && !filterPhotos ? " active" : ""}`}
+                onClick={() => { setFocusSections(new Set()); setFilterPhotos(false); }}
               >All</button>
+              <button
+                className={`section-chip${filterPhotos ? " active" : ""}`}
+                onClick={() => setFilterPhotos(p => !p)}
+              >📸 Photo</button>
               {SECTIONS.map(s => (
                 <button
                   key={s.key}
                   className={`section-chip${focusSections.has(s.key) ? " active" : ""}`}
-                  onClick={() => setFocusSections(prev => {
-                    const next = new Set(prev);
-                    next.has(s.key) ? next.delete(s.key) : next.add(s.key);
-                    return next;
-                  })}
+                  onClick={() => handleSectionChipClick(s.key)}
                 >{s.icon} {s.label}</button>
               ))}
             </div>
@@ -493,7 +532,7 @@ export default function VisitsPage() {
             ) : filtered.length === 0 ? (
               <div className="empty-state">
                 <p className="empty-state-icon">📋</p>
-                <p>No visits {focusSections.size > 0 ? `matching the selected filter${focusSections.size > 1 ? "s" : ""}` : ""} for this scope.</p>
+                <p>No visits {focusSections.size > 0 || filterPhotos ? "matching the selected filter" : ""} for this scope.</p>
               </div>
             ) : (
               <div>
@@ -511,14 +550,24 @@ export default function VisitsPage() {
                           v={v}
                           focusSections={focusSections}
                           isExpanded={expandedVisits.has(v.id)}
-                          onToggle={() => setExpandedVisits(prev => {
-                            const next = new Set(prev);
-                            next.has(v.id) ? next.delete(v.id) : next.add(v.id);
-                            return next;
-                          })}
+                          onToggle={() => {
+                            const isCurrentlyExpanded = expandedVisits.has(v.id);
+                            setExpandedVisits(prev => {
+                              const n = new Set(prev);
+                              isCurrentlyExpanded ? n.delete(v.id) : n.add(v.id);
+                              return n;
+                            });
+                            // Expanding a card also opens its store in the detail panel
+                            if (!isCurrentlyExpanded) {
+                              setDetail({ type: "store", storeId: v.store_id, storeName: v.store_name });
+                            }
+                          }}
                           onPhoto={setLightbox}
                           onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
-                          onOpenCM={(telegramId, name, market) => setDetail({ type: "cm", telegramId, name, market })}
+                          onOpenCM={(telegramId, name, market) => {
+                            setDetail({ type: "cm", telegramId, name, market });
+                            setCmDetailTab("visits");
+                          }}
                         />
                       ))}
                     </div>
@@ -529,35 +578,49 @@ export default function VisitsPage() {
           </div>
         </div>
 
-        {/* ── DETAIL PANEL (column 3) ──────────────────────── */}
-        {detail && (
-          <div className="visits-resize-handle" onMouseDown={handleDetailResizeMouseDown} />
-        )}
-        {detail && (
-          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-          <div className="visits-detail-panel" style={{ "--detail-w": detailWidth + "px" } as any}>
-            {detail.type === "store" && (
-              <StoreDetailPanel
-                key={detail.storeId}
-                storeId={detail.storeId}
-                storeName={detail.storeName}
-                onClose={() => setDetail(null)}
-                onOpenCM={(id, name, market) => setDetail({ type: "cm", telegramId: id, name, market })}
-                onPhoto={setLightbox}
-              />
-            )}
-            {detail.type === "cm" && (
-              <CMDetailPanel
-                key={detail.telegramId}
-                telegramId={detail.telegramId}
-                name={detail.name}
-                market={detail.market}
-                onClose={() => setDetail(null)}
-                onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
-              />
-            )}
-          </div>
-        )}
+        {/* ── DETAIL PANEL — always visible ─────────────────── */}
+        <div className="visits-resize-handle" onMouseDown={handleDetailResizeMouseDown} />
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        <div className="visits-detail-panel" style={{ "--detail-w": detailWidth + "px" } as any}>
+          {detail === null ? (
+            <div className="vdp-empty-state">
+              <div className="vdp-empty-icon" style={{ fontSize: 32, opacity: 0.2 }}>🏪</div>
+              <div className="vdp-empty-title">Nothing selected</div>
+              <div className="vdp-empty-hint">Click a store name or CM to see details here</div>
+            </div>
+          ) : detail.type === "store" ? (
+            <StoreDetailPanel
+              key={detail.storeId}
+              storeId={detail.storeId}
+              storeName={detail.storeName}
+              onClose={() => setDetail(null)}
+              onOpenCM={(id, name, market) => {
+                setDetail({ type: "cm", telegramId: id, name, market });
+                setCmDetailTab("visits");
+              }}
+              onOpenStaff={(staffId, staffName, sName) => setDetail({ type: "staff", staffId, staffName, storeName: sName })}
+            />
+          ) : detail.type === "cm" ? (
+            <CMDetailPanel
+              key={detail.telegramId}
+              telegramId={detail.telegramId}
+              name={detail.name}
+              market={detail.market}
+              tab={cmDetailTab}
+              onTabChange={setCmDetailTab}
+              onClose={() => setDetail(null)}
+              onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
+            />
+          ) : (
+            <StaffDetailPanel
+              key={detail.staffId}
+              staffId={detail.staffId}
+              staffName={detail.staffName}
+              storeName={detail.storeName}
+              onClose={() => setDetail(null)}
+            />
+          )}
+        </div>
       </div>
 
       {/* Lightbox */}
@@ -575,13 +638,7 @@ export default function VisitsPage() {
 // ─── Visit Card ───────────────────────────────────────────────────────────────
 
 function VisitCard({
-  v,
-  focusSections,
-  isExpanded,
-  onToggle,
-  onPhoto,
-  onOpenStore,
-  onOpenCM,
+  v, focusSections, isExpanded, onToggle, onPhoto, onOpenStore, onOpenCM,
 }: {
   v: VisitRow;
   focusSections: Set<SectionKey>;
@@ -594,12 +651,12 @@ function VisitCard({
   const tier = v.store_tier;
   const ts   = tier ? TIER_STYLE[tier] : null;
 
-  // Text sections with content (for header pills — always all present, ignore focusSections)
+  // Sections with content — for header pill row (emoji only, no background)
   const pillSections = SECTIONS
     .filter(s => (TEXT_SECTION_KEYS as readonly string[]).includes(s.key))
     .filter(s => !!v[s.key as keyof VisitRow]);
 
-  // Which text sections to show in body (respects multi-select focus)
+  // Sections to show in expanded body (respects multi-select focus)
   const textFocus = [...focusSections].filter(k => k !== "trainings" && k !== "follow_ups") as SectionKey[];
   const textSections = SECTIONS
     .filter(s => (TEXT_SECTION_KEYS as readonly string[]).includes(s.key))
@@ -610,40 +667,29 @@ function VisitCard({
 
   const showTrainings = (focusSections.size === 0 || focusSections.has("trainings")) && v.training_count > 0;
   const showFollowUps = (focusSections.size === 0 || focusSections.has("follow_ups")) && v.follow_up_count > 0;
-
-  const hasContent = textSections.length > 0 || showTrainings || showFollowUps || v.photo_count > 0;
+  const hasContent    = textSections.length > 0 || showTrainings || showFollowUps || v.photo_count > 0;
 
   return (
     <div className="visit-card">
-      {/* Card header — click to expand/collapse */}
+      {/* Card header */}
       <div className="visit-card-header" onClick={onToggle}>
-        {ts && (
-          <span className="tier-badge" style={{ background: ts.bg, color: ts.color }}>{tier}</span>
-        )}
+        {ts && <span className="tier-badge" style={{ background: ts.bg, color: ts.color }}>{tier}</span>}
         <div className="visit-card-store">
-          {/* Store name → opens store detail panel */}
           <button
             className="visit-store-link"
             onClick={(e) => { e.stopPropagation(); onOpenStore?.(v.store_id, v.store_name); }}
-          >
-            {v.store_name}
-          </button>
+          >{v.store_name}</button>
           <div className="visit-meta-row">
-            {/* CM name → opens CM detail panel */}
             <button
               className="visit-cm-link"
               onClick={(e) => { e.stopPropagation(); onOpenCM?.(v.cm_telegram_id, v.cm_name, v.store_market); }}
-            >
-              {v.cm_name}
-            </button>
+            >{v.cm_name}</button>
             <span className="visit-meta-item">·</span>
             <span className="visit-meta-item">{fmtDate(v.visit_date)}</span>
 
-            {/* Section pills */}
+            {/* Section pills — emoji only, no backgrounds */}
             {pillSections.map(s => (
-              <span key={s.key} className="sec-pill" style={{ background: s.iconBg, color: s.color }}>
-                {s.icon} {s.label}
-              </span>
+              <span key={s.key} className="sec-pill-emoji">{s.icon}</span>
             ))}
 
             {v.photo_count > 0 && (
@@ -663,141 +709,106 @@ function VisitCard({
         <span className={`visit-chevron${isExpanded ? " open" : ""}`}>›</span>
       </div>
 
-      {/* Card body — only rendered when expanded */}
-      {isExpanded && <div className="visit-detail">
-        {/* Photo strip */}
-        {v.photo_urls.length > 0 && (
-          <div className="photo-strip-wrap">
-            <div className="photo-strip">
-              {v.photo_urls.map((url, i) => (
-                <button key={i} className="photo-thumb" onClick={() => onPhoto(url)}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Photo ${i + 1}`} />
-                </button>
-              ))}
+      {/* Card body */}
+      {isExpanded && (
+        <div className="visit-detail">
+          {v.photo_urls.length > 0 && (
+            <div className="photo-strip-wrap">
+              <div className="photo-strip">
+                {v.photo_urls.map((url, i) => (
+                  <button key={i} className="photo-thumb" onClick={() => onPhoto(url)}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`Photo ${i + 1}`} />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {!hasContent ? (
-          <p style={{ fontSize: 13, color: "var(--color-ink-300)", paddingTop: 14 }}>
-            No notes were added for this visit.
-          </p>
-        ) : (
-          <div className="visit-sections-grid" style={{ paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
-
-            {/* Text section blocks — clean, no colored backgrounds */}
-            {textSections.map(s => (
-              <div key={s.key} className="visit-section-card">
-                <div className="visit-section-label" style={{ color: s.color }}>
-                  {s.icon} {s.label}
+          {!hasContent ? (
+            <p style={{ fontSize: 13, color: "var(--color-ink-300)", paddingTop: 14 }}>
+              No notes were added for this visit.
+            </p>
+          ) : (
+            <div className="visit-sections-grid" style={{ paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
+              {textSections.map(s => (
+                <div key={s.key} className="visit-section-card">
+                  <div className="visit-section-label" style={{ color: s.color }}>{s.icon} {s.label}</div>
+                  <p className="visit-section-text">{v[s.key as keyof VisitRow] as string}</p>
                 </div>
-                <p className="visit-section-text">{v[s.key as keyof VisitRow] as string}</p>
-              </div>
-            ))}
+              ))}
 
-            {/* Trainings Logged */}
-            {showTrainings && (
-              <div className="visit-section-card">
-                <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>
-                  🎓 Trainings Logged
-                </div>
-                <div className="sc-staff-list">
-                  {v.trained_staff.map((ts, i) => (
-                    <div key={i} className="sc-staff-row">
-                      <span className="pill-trained">Trained</span>
-                      <div>
-                        <div className="sc-staff-name">{ts.name}</div>
-                        {ts.products && <div className="sc-staff-products">{ts.products}</div>}
+              {showTrainings && (
+                <div className="visit-section-card">
+                  <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>🎓 Trainings Logged</div>
+                  <div className="sc-staff-list">
+                    {v.trained_staff.map((ts, i) => (
+                      <div key={i} className="sc-staff-row">
+                        <span className="pill-trained">Trained</span>
+                        <div>
+                          <div className="sc-staff-name">{ts.name}</div>
+                          {ts.products && <div className="sc-staff-products">{ts.products}</div>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Follow-ups */}
-            {showFollowUps && (
-              <div className="visit-section-card">
-                <div className="visit-section-label" style={{ color: "#C0185A" }}>
-                  📌 Follow-ups
-                </div>
-                <div className="sc-fu-list">
-                  {v.follow_up_items.map(fu => (
-                    <div key={fu.id} className="sc-fu-row">
-                      <div className={`sc-fu-check${fu.status === "done" ? " done" : ""}`} />
-                      <div>
-                        <div className={`sc-fu-title${fu.status === "done" ? " done" : ""}`}>{fu.title}</div>
-                        {fu.due_date && (
-                          <div className="sc-fu-due">Due {fmtDate(fu.due_date)}</div>
-                        )}
+              {showFollowUps && (
+                <div className="visit-section-card">
+                  <div className="visit-section-label" style={{ color: "#C0185A" }}>📌 Follow-ups</div>
+                  <div className="sc-fu-list">
+                    {v.follow_up_items.map(fu => (
+                      <div key={fu.id} className="sc-fu-row">
+                        <div className={`sc-fu-check${fu.status === "done" ? " done" : ""}`} />
+                        <div>
+                          <div className={`sc-fu-title${fu.status === "done" ? " done" : ""}`}>{fu.title}</div>
+                          {fu.due_date && <div className="sc-fu-due">Due {fmtDate(fu.due_date)}</div>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-
-          </div>
-        )}
-      </div>}
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Store Detail Panel ───────────────────────────────────────────────────────
 
-const STORE_SECTIONS_DP = [
-  { key: "good_news",       label: "Good News",      icon: "🌟" },
-  { key: "competitors",     label: "Competitors",     icon: "🔍" },
-  { key: "display_stock",   label: "Display & Stock", icon: "📦" },
-  { key: "follow_up",       label: "Follow Up",       icon: "📌" },
-  { key: "buzz_plan",       label: "Buzz Plan",       icon: "⚡" },
-  { key: "people_training", label: "Training",        icon: "🤝" },
-] as const;
-
-type StoreSectionKey = typeof STORE_SECTIONS_DP[number]["key"];
-
 function StoreDetailPanel({
-  storeId, storeName, onClose, onOpenCM, onPhoto,
+  storeId, storeName, onClose, onOpenCM, onOpenStaff,
 }: {
   storeId: string;
   storeName: string;
   onClose: () => void;
   onOpenCM: (id: number, name: string, market: string) => void;
-  onPhoto: (url: string) => void;
+  onOpenStaff: (staffId: string, staffName: string, storeName: string) => void;
 }) {
-  const [data, setData] = useState<{ store: { id: string; name: string; chain: string; market: string; tier: string | null }; visits: StoreVisitSummary[]; } | null>(null);
+  const [data, setData] = useState<{
+    store: { id: string; name: string; chain: string; market: string; tier: string | null } | null;
+    visits: StoreVisitSummary[];
+    staff: StaffRow[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "visits">("info");
-  const [activeSection, setActiveSection] = useState<StoreSectionKey | "all">("all");
 
   useEffect(() => {
     setLoading(true);
-    setTab("info");
-    setActiveSection("all");
     fetch(`/api/visits/store/${storeId}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d); setLoading(false); });
   }, [storeId]);
 
   const visits = data?.visits ?? [];
-  const store = data?.store;
+  const store  = data?.store;
+  const staff  = data?.staff ?? [];
 
-  // Stats
-  const totalVisits = visits.length;
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const thisMonth = visits.filter(v => v.visit_date >= monthStart).length;
   const lastVisitDate = visits[0]?.visit_date;
-  const daysSinceLast = lastVisitDate ? daysSince(lastVisitDate) : null;
-
-  // Section entries for visits tab
-  const sectionEntries = activeSection === "all"
-    ? []
-    : visits.filter(v => !!v[activeSection as keyof StoreVisitSummary]);
-
-  const hasSectionData = (key: StoreSectionKey) => visits.some(v => !!v[key as keyof StoreVisitSummary]);
 
   const TIER_COLORS: Record<string, { bg: string; color: string }> = {
     T1: { bg: "var(--color-tier-t1-bg)", color: "var(--color-tier-t1-fg)" },
@@ -822,38 +833,20 @@ function StoreDetailPanel({
               }}>{store.tier}</span>
             )}
             <div className="vdp-title">{loading ? storeName : (store?.name ?? storeName)}</div>
-            {store && (
-              <div className="vdp-sub">
-                {MARKET_FLAG[store.market] ?? ""} {store.chain} · {store.market}
-              </div>
-            )}
+            {store && <div className="vdp-sub">{MARKET_FLAG[store.market] ?? ""} {store.chain} · {store.market}</div>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <Link
-              href={`/visits/store/${storeId}`}
-              target="_blank"
-              rel="noreferrer"
-              className="vdp-open-link"
-              onClick={e => e.stopPropagation()}
-            >↗</Link>
+            <Link href={`/visits/store/${storeId}`} target="_blank" rel="noreferrer" className="vdp-open-link" onClick={e => e.stopPropagation()}>↗</Link>
             <button className="vdp-close" onClick={onClose}>✕</button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="vdp-tabs">
-        <button className={`vdp-tab${tab === "info" ? " active" : ""}`} onClick={() => setTab("info")}>Info</button>
-        <button className={`vdp-tab${tab === "visits" ? " active" : ""}`} onClick={() => setTab("visits")}>
-          Visits {!loading && `(${totalVisits})`}
-        </button>
-      </div>
-
-      {/* Body */}
+      {/* Single scrollable body — no tabs */}
       <div className="vdp-scroll">
         {loading ? (
           <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>Loading…</p>
-        ) : tab === "info" ? (
+        ) : (
           <>
             {/* KV info */}
             <div className="vdp-kv-list">
@@ -885,103 +878,63 @@ function StoreDetailPanel({
               )}
             </div>
 
-            {/* Stats */}
-            {totalVisits > 0 && (
-              <div className="vdp-stats">
-                <div className="vdp-stat-item">
-                  <div className="vdp-stat-num">{totalVisits}</div>
-                  <div className="vdp-stat-label">Total visits</div>
-                </div>
-                <div className="vdp-stat-div" />
-                <div className="vdp-stat-item">
-                  <div className="vdp-stat-num">{thisMonth}</div>
-                  <div className="vdp-stat-label">This month</div>
-                </div>
-                <div className="vdp-stat-div" />
-                <div className="vdp-stat-item">
-                  <div className="vdp-stat-num">{daysSinceLast !== null ? `${daysSinceLast}d` : "—"}</div>
-                  <div className="vdp-stat-label">Since last</div>
-                </div>
+            {/* Past Visits */}
+            <div className="vdp-section-header">
+              Past Visits{visits.length > 0 && <span className="vdp-section-count">{visits.length}</span>}
+            </div>
+            {visits.length === 0 ? (
+              <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", padding: "8px 0 16px" }}>No visits logged yet.</p>
+            ) : (
+              <div>
+                {visits.map(v => (
+                  <div key={v.id} className="vdp-item">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
+                      <div className="vdp-item-meta">
+                        <button
+                          className="visit-cm-link"
+                          style={{ fontSize: 11.5 }}
+                          onClick={() => { if (v.cm_telegram_id) onOpenCM(v.cm_telegram_id, v.cm_name, store?.market ?? ""); }}
+                        >{v.cm_name}</button>
+                        {storeSectionIcons(v) && <> · {storeSectionIcons(v)}</>}
+                        {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
+                      </div>
+                    </div>
+                    <span className="vdp-item-chev">›</span>
+                  </div>
+                ))}
               </div>
             )}
 
-            {totalVisits === 0 && (
-              <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>No visits logged yet.</p>
-            )}
-          </>
-        ) : (
-          /* Visits tab */
-          <>
-            {/* Section chips */}
-            {visits.length > 0 && (
-              <div className="vdp-visit-chips">
-                <button className={`vdp-visit-chip${activeSection === "all" ? " active" : ""}`} onClick={() => setActiveSection("all")}>
-                  All
-                </button>
-                {STORE_SECTIONS_DP.map(s => {
-                  if (!hasSectionData(s.key)) return null;
-                  return (
-                    <button
-                      key={s.key}
-                      className={`vdp-visit-chip${activeSection === s.key ? " active" : ""}`}
-                      onClick={() => setActiveSection(s.key)}
-                    >
-                      {s.icon}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* All view: compact visit list */}
-            {activeSection === "all" && (
-              visits.length === 0 ? (
-                <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>No visits logged yet.</p>
-              ) : (
+            {/* Store Staff */}
+            {staff.length > 0 && (
+              <>
+                <div className="vdp-section-header">
+                  Staff<span className="vdp-section-count">{staff.length}</span>
+                </div>
                 <div>
-                  {visits.map(v => (
-                    <div key={v.id} className="vdp-item" onClick={() => { /* future: open visit */ }}>
+                  {staff.map(s => (
+                    <div
+                      key={s.id}
+                      className="vdp-item"
+                      onClick={() => onOpenStaff(s.id, s.name, store?.name ?? storeName)}
+                    >
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
+                        <div className="vdp-item-name">
+                          {s.name}
+                          {s.is_ally && <span className="ally-badge-small">🤝</span>}
+                        </div>
                         <div className="vdp-item-meta">
-                          <button
-                            className="visit-cm-link"
-                            style={{ fontSize: 11.5 }}
-                            onClick={(e) => { e.stopPropagation(); if (v.cm_telegram_id) onOpenCM(v.cm_telegram_id, v.cm_name, store?.market ?? ""); }}
-                          >
-                            {v.cm_name}
-                          </button>
-                          {storeSectionIcons(v) && <> · {storeSectionIcons(v)}</>}
-                          {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
+                          {s.role ?? "Staff"}
+                          {(s.times_trained ?? 0) > 0 && <> · 🎓 {s.times_trained}×</>}
+                          {(s.tagged_visits ?? 0) > 0 && <> · {s.tagged_visits} visit{s.tagged_visits !== 1 ? "s" : ""}</>}
                         </div>
                       </div>
                       <span className="vdp-item-chev">›</span>
                     </div>
                   ))}
                 </div>
-              )
-            )}
-
-            {/* Section view: flat content list */}
-            {activeSection !== "all" && (
-              sectionEntries.length === 0 ? (
-                <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>
-                  No {STORE_SECTIONS_DP.find(s => s.key === activeSection)?.label.toLowerCase()} logged for this store.
-                </p>
-              ) : (
-                <div>
-                  {sectionEntries.map(v => (
-                    <div key={v.id} className="vdp-sec-entry">
-                      <div className="vdp-sec-entry-date">
-                        {fmtDateFull(v.visit_date)} · {v.cm_name}
-                      </div>
-                      <div className="vdp-sec-entry-text">
-                        {v[activeSection as keyof StoreVisitSummary] as string}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
+              </>
             )}
           </>
         )}
@@ -993,27 +946,27 @@ function StoreDetailPanel({
 // ─── CM Detail Panel ──────────────────────────────────────────────────────────
 
 function CMDetailPanel({
-  telegramId, name, market, onClose, onOpenStore,
+  telegramId, name, market, tab, onTabChange, onClose, onOpenStore,
 }: {
   telegramId: number;
   name: string;
   market: string;
+  tab: "visits" | "stores";
+  onTabChange: (t: "visits" | "stores") => void;
   onClose: () => void;
   onOpenStore: (storeId: string, storeName: string) => void;
 }) {
   const [data, setData] = useState<{ cm: CMDetailInfo | null; visits: VisitRow[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"stores" | "visits">("stores");
 
   useEffect(() => {
     setLoading(true);
-    setTab("stores");
     fetch(`/api/visits/cm/${telegramId}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d); setLoading(false); });
   }, [telegramId]);
 
-  const cm = data?.cm;
+  const cm     = data?.cm;
   const stores = cm?.assigned_stores ?? [];
   const visits = data?.visits ?? [];
 
@@ -1026,37 +979,54 @@ function CMDetailPanel({
 
   return (
     <>
-      {/* Header */}
       <div className="vdp-header">
         <div className="vdp-header-row">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="vdp-sub" style={{ marginBottom: 2 }}>
-              {MARKET_FLAG[market] ?? ""} {market} · Channel Manager
-            </div>
+            <div className="vdp-sub" style={{ marginBottom: 2 }}>{MARKET_FLAG[market] ?? ""} {market} · Channel Manager</div>
             <div className="vdp-title">{cm?.full_name ?? name}</div>
-            {cm?.am_name && (
-              <div className="vdp-sub">AM: {cm.am_name}</div>
-            )}
+            {cm?.am_name && <div className="vdp-sub">AM: {cm.am_name}</div>}
           </div>
           <button className="vdp-close" onClick={onClose}>✕</button>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Visits first */}
       <div className="vdp-tabs">
-        <button className={`vdp-tab${tab === "stores" ? " active" : ""}`} onClick={() => setTab("stores")}>
-          Stores {!loading && `(${stores.length})`}
-        </button>
-        <button className={`vdp-tab${tab === "visits" ? " active" : ""}`} onClick={() => setTab("visits")}>
+        <button className={`vdp-tab${tab === "visits" ? " active" : ""}`} onClick={() => onTabChange("visits")}>
           Visits {!loading && `(${visits.length})`}
+        </button>
+        <button className={`vdp-tab${tab === "stores" ? " active" : ""}`} onClick={() => onTabChange("stores")}>
+          Stores {!loading && `(${stores.length})`}
         </button>
       </div>
 
-      {/* Body */}
       <div className="vdp-scroll">
         {loading ? (
           <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>Loading…</p>
-        ) : tab === "stores" ? (
+        ) : tab === "visits" ? (
+          visits.length === 0 ? (
+            <div className="vdp-empty">
+              <div className="vdp-empty-icon">📋</div>
+              <div className="vdp-empty-title">No visits yet</div>
+            </div>
+          ) : (
+            <div>
+              {visits.map(v => (
+                <div key={v.id} className="vdp-item" onClick={() => onOpenStore(v.store_id, v.store_name)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="vdp-item-name">{v.store_name}</div>
+                    <div className="vdp-item-meta">
+                      {fmtDate(v.visit_date)}
+                      {visitSectionIcons(v) && <> · {visitSectionIcons(v)}</>}
+                      {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
+                    </div>
+                  </div>
+                  <span className="vdp-item-chev">›</span>
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
           stores.length === 0 ? (
             <div className="vdp-empty">
               <div className="vdp-empty-icon">🏪</div>
@@ -1084,29 +1054,128 @@ function CMDetailPanel({
               })}
             </div>
           )
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Staff Detail Panel ───────────────────────────────────────────────────────
+
+function StaffDetailPanel({
+  staffId, staffName, storeName, onClose,
+}: {
+  staffId: string;
+  staffName: string;
+  storeName: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<StaffDetailInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/visits/staff/${staffId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setData(d); setLoading(false); });
+  }, [staffId]);
+
+  return (
+    <>
+      <div className="vdp-header">
+        <div className="vdp-header-row">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="vdp-sub" style={{ marginBottom: 2 }}>🏪 {data?.store_name ?? storeName}</div>
+            <div className="vdp-title">{data?.name ?? staffName}</div>
+            {data?.role && <div className="vdp-sub">{data.role}</div>}
+          </div>
+          <button className="vdp-close" onClick={onClose}>✕</button>
+        </div>
+      </div>
+
+      <div className="vdp-scroll">
+        {loading ? (
+          <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>Loading…</p>
+        ) : !data ? (
+          <div className="vdp-empty">
+            <div className="vdp-empty-icon">👤</div>
+            <div className="vdp-empty-title">Staff not found</div>
+          </div>
         ) : (
-          visits.length === 0 ? (
-            <div className="vdp-empty">
-              <div className="vdp-empty-icon">📋</div>
-              <div className="vdp-empty-title">No visits yet</div>
-            </div>
-          ) : (
-            <div>
-              {visits.map(v => (
-                <div key={v.id} className="vdp-item" onClick={() => onOpenStore(v.store_id, v.store_name)}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="vdp-item-name">{v.store_name}</div>
-                    <div className="vdp-item-meta">
-                      {fmtDate(v.visit_date)}
-                      {visitSectionIcons(v) && <> · {visitSectionIcons(v)}</>}
-                      {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
-                    </div>
-                  </div>
-                  <span className="vdp-item-chev">›</span>
+          <>
+            <div className="vdp-kv-list">
+              {data.role && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Role</span>
+                  <span className="vdp-kv-val">{data.role}</span>
                 </div>
-              ))}
+              )}
+              {data.phone && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Phone</span>
+                  <span className="vdp-kv-val">{data.phone}</span>
+                </div>
+              )}
+              {data.is_ally && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Status</span>
+                  <span className="vdp-kv-val">🤝 Ally</span>
+                </div>
+              )}
+              <div className="vdp-kv-row">
+                <span className="vdp-kv-label">Trained</span>
+                <span className="vdp-kv-val">{data.times_trained}×</span>
+              </div>
+              <div className="vdp-kv-row">
+                <span className="vdp-kv-label">Visit tags</span>
+                <span className="vdp-kv-val">{data.tagged_visits}</span>
+              </div>
+              {data.last_trained_at && (
+                <div className="vdp-kv-row">
+                  <span className="vdp-kv-label">Last trained</span>
+                  <span className="vdp-kv-val">{fmtDateFull(data.last_trained_at)}</span>
+                </div>
+              )}
             </div>
-          )
+
+            {data.training_history.length > 0 && (
+              <>
+                <div className="vdp-section-header">
+                  Training History<span className="vdp-section-count">{data.training_history.length}</span>
+                </div>
+                {data.training_history.map(t => (
+                  <div key={t.visit_id} className="vdp-item">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="vdp-item-name">{fmtDateFull(t.visit_date)}</div>
+                      {t.products && <div className="vdp-item-meta">{t.products}</div>}
+                    </div>
+                    <span className="pill-trained" style={{ flexShrink: 0, fontSize: 10 }}>Trained</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {data.tagged_visit_history.length > 0 && (
+              <>
+                <div className="vdp-section-header">
+                  Visit History<span className="vdp-section-count">{data.tagged_visit_history.length}</span>
+                </div>
+                {data.tagged_visit_history.map(v => (
+                  <div key={v.visit_id} className="vdp-item">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
+                      <div className="vdp-item-meta">{v.store_name}</div>
+                    </div>
+                    {v.was_trained && <span className="pill-trained" style={{ flexShrink: 0, fontSize: 10 }}>Trained</span>}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {data.training_history.length === 0 && data.tagged_visit_history.length === 0 && (
+              <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 16 }}>No visit history yet.</p>
+            )}
+          </>
         )}
       </div>
     </>
