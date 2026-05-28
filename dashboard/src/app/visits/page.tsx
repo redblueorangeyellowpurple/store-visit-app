@@ -91,7 +91,8 @@ type SectionKey = typeof SECTIONS[number]["key"];
 // Markets for CM dropdown grouping
 const MARKET_ORDER_CM = ["SG", "MY", "TH", "HK"];
 const MARKET_FLAG_CM: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
-const MARKET_FLAG: Record<string, string>    = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+const MARKET_FLAG: Record<string, string>      = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+const MARKET_FULL_NAME: Record<string, string> = { SG: "Singapore", MY: "Malaysia", TH: "Thailand", HK: "Hong Kong" };
 
 // Tier ordering for browse tree
 const TIER_ORDER: Record<string, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
@@ -205,10 +206,33 @@ export default function VisitsPage() {
       setTotal(data.total);
     }
     setLoading(false);
-    feedRef.current?.scrollTo({ top: 0 });
+    // scroll reset intentionally removed — auto-refresh should not disrupt position
   }, [selection, filterCMs, dateFrom, dateTo]);
 
   useEffect(() => { fetchVisits(); }, [fetchVisits]);
+
+  // Silent background refresh — preserves scroll, expanded state, and selection
+  const silentRefresh = useCallback(async () => {
+    const p = selectionParams(selection);
+    if (filterCMs.size === 1) {
+      p.set("cm", [...filterCMs][0]);
+    } else if (filterCMs.size > 1) {
+      p.set("cm", [...filterCMs].join(","));
+    }
+    if (dateFrom) p.set("from", dateFrom);
+    if (dateTo)   p.set("to", dateTo);
+    const res = await fetch(`/api/visits?${p}`);
+    if (res.ok) {
+      const data = await res.json();
+      setVisits(data.visits);
+      setTotal(data.total);
+    }
+  }, [selection, filterCMs, dateFrom, dateTo]);
+
+  useEffect(() => {
+    const interval = setInterval(silentRefresh, 60_000);
+    return () => clearInterval(interval);
+  }, [silentRefresh]);
 
   // Close CM dropdown when clicking outside
   useEffect(() => {
@@ -367,7 +391,7 @@ export default function VisitsPage() {
             </div>
 
             {/* CM filter — multi-select */}
-            <p className="vsb-section-label" style={{ marginBottom: 6 }}>CM Filter</p>
+            <p className="vsb-section-label" style={{ marginBottom: 6 }}>Channel Managers</p>
             {cms.length > 0 && (
               <div className="cm-dropdown" ref={cmDropdownRef}>
                 <button
@@ -419,7 +443,7 @@ export default function VisitsPage() {
           <div className="visits-sidebar-inner">
 
             {/* Browse tree */}
-            <p className="vsb-section-label">Browse</p>
+            <p className="vsb-section-label">Locations</p>
 
             <div
               className={`tree-node${selection.type === "all" ? " active" : ""}`}
@@ -439,45 +463,53 @@ export default function VisitsPage() {
                     onClick={() => { toggleMarket(m.market); selectNode({ type: "market", market: m.market, flag: m.flag }); }}
                   >
                     <span className={`tree-chevron${mOpen ? " open" : ""}`}>›</span>
-                    {m.flag} {m.market}
+                    {m.flag} {MARKET_FULL_NAME[m.market] ?? m.market}
                   </div>
 
-                  {mOpen && m.chains.map(ch => {
-                    const chainKey = `${m.market}::${ch.chain}`;
-                    const chOpen = openChains.has(chainKey);
-                    const chActive = selection.type === "chain" && selection.market === m.market && selection.chain === ch.chain;
-                    return (
-                      <div key={chainKey}>
-                        <div
-                          className={`tree-node tree-indent-1${chActive ? " active" : ""}`}
-                          onClick={() => { toggleChain(chainKey); selectNode({ type: "chain", market: m.market, flag: m.flag, chain: ch.chain }); }}
-                        >
-                          <span className={`tree-chevron${chOpen ? " open" : ""}`}>›</span>
-                          {ch.chain}
-                        </div>
-
-                        {chOpen && sortStoresByTier(ch.stores).map(st => {
-                          const stActive = selection.type === "store" && selection.storeId === st.id;
-                          return (
+                  <div className={`tree-market-children${mOpen ? " open" : ""}`}>
+                    <div className="tree-market-children-wrap">
+                      {m.chains.map(ch => {
+                        const chainKey = `${m.market}::${ch.chain}`;
+                        const chOpen = openChains.has(chainKey);
+                        const chActive = selection.type === "chain" && selection.market === m.market && selection.chain === ch.chain;
+                        return (
+                          <div key={chainKey}>
                             <div
-                              key={st.id}
-                              className={`tree-node tree-indent-2${stActive ? " active" : ""}`}
-                              onClick={() => selectNode({ type: "store", storeId: st.id, storeName: st.name, market: m.market, flag: m.flag, chain: ch.chain })}
+                              className={`tree-node tree-indent-1${chActive ? " active" : ""}`}
+                              onClick={() => { toggleChain(chainKey); selectNode({ type: "chain", market: m.market, flag: m.flag, chain: ch.chain }); }}
                             >
-                              {st.tier && (
-                                <span style={{
-                                  fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
-                                  background: TIER_STYLE[st.tier]?.bg, color: TIER_STYLE[st.tier]?.color,
-                                  flexShrink: 0,
-                                }}>{st.tier}</span>
-                              )}
-                              {st.name}
+                              <span className={`tree-chevron${chOpen ? " open" : ""}`}>›</span>
+                              {ch.chain}
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+
+                            <div className={`tree-chain-children${chOpen ? " open" : ""}`}>
+                              <div className="tree-chain-children-wrap">
+                                {sortStoresByTier(ch.stores).map(st => {
+                                  const stActive = selection.type === "store" && selection.storeId === st.id;
+                                  return (
+                                    <div
+                                      key={st.id}
+                                      className={`tree-node tree-indent-2${stActive ? " active" : ""}`}
+                                      onClick={() => selectNode({ type: "store", storeId: st.id, storeName: st.name, market: m.market, flag: m.flag, chain: ch.chain })}
+                                    >
+                                      {st.tier && (
+                                        <span style={{
+                                          fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
+                                          background: TIER_STYLE[st.tier]?.bg, color: TIER_STYLE[st.tier]?.color,
+                                          flexShrink: 0,
+                                        }}>{st.tier}</span>
+                                      )}
+                                      {st.name}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               );
             })}

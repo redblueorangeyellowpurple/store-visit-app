@@ -1143,6 +1143,22 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 .tree-indent-1 { padding-left: 18px; }
 .tree-indent-2 { padding-left: 32px; }
 
+/* Animated market/chain expand-collapse */
+.tree-market-children,
+.tree-chain-children {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.tree-market-children.open,
+.tree-chain-children.open {
+  grid-template-rows: 1fr;
+}
+.tree-market-children-wrap,
+.tree-chain-children-wrap {
+  overflow: hidden;
+}
+
 /* Right feed panel */
 .visits-feed-panel {
   flex: 1;
