@@ -150,7 +150,8 @@ function trendPolyline(counts: number[]): string {
     .join(" ");
 }
 
-function stripAnalyticsSection(md: string): string {
+function stripAnalyticsSection(md: string | null | undefined): string {
+  if (!md) return "";
   return md.replace(/\n## (?:📊 )?Analytics[\s\S]*?(?=\n## |\n# |$)/, "");
 }
 function stripBriefTitle(md: string): string {
@@ -412,7 +413,7 @@ export default function HomePage() {
                 return (
                   <div key={cm.telegram_id} className="row">
                     <div className="name">
-                      <span className="av" style={{ background: cm.color }}>{cm.name[0]}</span> {cm.name}
+                      <span className="av" style={{ background: cm.color }}>{cm.name?.[0] ?? "?"}</span> {cm.name ?? "—"}
                     </div>
                     <div className="market">{cm.market}</div>
                     <div>
