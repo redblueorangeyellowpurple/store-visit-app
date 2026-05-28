@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
 import NavBar from "@/components/NavBar";
+import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import RefreshControl from "@/components/RefreshControl";
 import { TrainedStaffItem, FollowUpItem, CMOption, StoreVisitSummary, CMDetailInfo, StaffRow, StaffDetailInfo, StoreMemoryNote, StoreOpenTask } from "@/lib/queries";
@@ -182,7 +182,8 @@ export default function VisitsPage() {
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
   const [lightbox,       setLightbox]       = useState<string | null>(null);
   const [detail,         setDetail]         = useState<DetailView>(null);
-  const [detailWidth,    setDetailWidth]    = useState(325);
+  const [detailWidth,    setDetailWidth]    = useState(400);
+  const [noteSlug,       setNoteSlug]       = useState<string | null>(null);
   const feedRef                             = useRef<HTMLDivElement>(null);
   const [sidebarWidth,   setSidebarWidth]   = useState(300);
   const [cmDropdownOpen, setCmDropdownOpen] = useState(false);
@@ -244,7 +245,7 @@ export default function VisitsPage() {
 
   const refresh = useAutoRefresh(silentRefresh, {
     intervalMs: 60_000,
-    paused: detail !== null || lightbox !== null || cmDropdownOpen,
+    paused: detail !== null || lightbox !== null || cmDropdownOpen || noteSlug !== null,
   });
 
   // Close CM dropdown when clicking outside
@@ -298,6 +299,31 @@ export default function VisitsPage() {
     setSelection(s);
     setFocusSections(new Set());
     setExpandedVisits(new Set());
+  }
+
+  // Jump the middle feed to a specific visit: re-scope to its store if needed,
+  // clear section filters, expand the visit, and scroll it into view.
+  function openVisit(storeId: string, storeName: string, visitId: string) {
+    const needsRescope = selection.type !== "store" || selection.storeId !== storeId;
+    if (needsRescope) {
+      setSelection({ type: "store", storeId, storeName, market: "", flag: "", chain: "" });
+    }
+    setFocusSections(new Set());
+    setExpandedVisits(prev => {
+      const n = new Set(prev);
+      n.add(visitId);
+      return n;
+    });
+    // After fetch + render settle, scroll the card into view.
+    const tryScroll = (attemptsLeft: number) => {
+      const el = document.getElementById(`visit-${visitId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      if (attemptsLeft > 0) setTimeout(() => tryScroll(attemptsLeft - 1), 150);
+    };
+    setTimeout(() => tryScroll(8), needsRescope ? 200 : 50);
   }
 
   // Section chip click: toggle focus AND auto-expand matching visits
@@ -668,6 +694,8 @@ export default function VisitsPage() {
                 setCmDetailTab("visits");
               }}
               onOpenStaff={(staffId, staffName, sName) => setDetail({ type: "staff", staffId, staffName, storeName: sName })}
+              onOpenVisit={openVisit}
+              onOpenNote={(slug) => setNoteSlug(slug)}
             />
           ) : detail.type === "cm" ? (
             <CMDetailPanel
@@ -679,6 +707,8 @@ export default function VisitsPage() {
               onTabChange={setCmDetailTab}
               onClose={() => setDetail(null)}
               onOpenStore={(storeId, storeName) => setDetail({ type: "store", storeId, storeName })}
+              onOpenVisit={openVisit}
+              onOpenNote={(slug) => setNoteSlug(slug)}
             />
           ) : (
             <StaffDetailPanel
@@ -687,10 +717,14 @@ export default function VisitsPage() {
               staffName={detail.staffName}
               storeName={detail.storeName}
               onClose={() => setDetail(null)}
+              onOpenVisit={openVisit}
             />
           )}
         </div>
       </div>
+
+      {/* Memory note drawer — overlays the store/CM/staff panel */}
+      <MemoryNoteDrawer slug={noteSlug} onClose={() => setNoteSlug(null)} />
 
       {/* Lightbox */}
       {lightbox && (
@@ -742,7 +776,7 @@ function VisitCard({
   const hasContent    = textSections.length > 0 || showTrainings || showFollowUps || v.photo_count > 0;
 
   return (
-    <div className="visit-card">
+    <div className="visit-card" id={`visit-${v.id}`}>
       {/* Card header */}
       <div className="visit-card-header" onClick={onToggle}>
         {ts && <span className="tier-badge" style={{ background: ts.bg, color: ts.color }}>{tier}</span>}
@@ -861,14 +895,17 @@ function VisitCard({
 // ─── Store Detail Panel ───────────────────────────────────────────────────────
 
 function StoreDetailPanel({
-  storeId, storeName, onClose, onOpenCM, onOpenStaff,
+  storeId, storeName, onClose, onOpenCM, onOpenStaff, onOpenVisit, onOpenNote,
 }: {
   storeId: string;
   storeName: string;
   onClose: () => void;
   onOpenCM: (id: number, name: string, market: string) => void;
   onOpenStaff: (staffId: string, staffName: string, storeName: string) => void;
+  onOpenVisit: (storeId: string, storeName: string, visitId: string) => void;
+  onOpenNote: (slug: string) => void;
 }) {
+  const [showCompleted, setShowCompleted] = useState(false);
   const [data, setData] = useState<{
     store: { id: string; name: string; chain: string; market: string; tier: string | null } | null;
     visits: StoreVisitSummary[];
@@ -918,10 +955,7 @@ function StoreDetailPanel({
             <div className="vdp-title">{loading ? storeName : (store?.name ?? storeName)}</div>
             {store && <div className="vdp-sub">{MARKET_FLAG[store.market] ?? ""} {store.chain} · {store.market}</div>}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <Link href={`/visits/store/${storeId}`} target="_blank" rel="noreferrer" className="vdp-open-link" onClick={e => e.stopPropagation()}>↗</Link>
-            <button className="vdp-close" onClick={onClose}>✕</button>
-          </div>
+          <button className="vdp-close" onClick={onClose}>✕</button>
         </div>
       </div>
 
@@ -961,31 +995,80 @@ function StoreDetailPanel({
               )}
             </div>
 
-            {/* Open Tasks */}
-            {openTasks.length > 0 && (
-              <>
-                <div className="vdp-section-header">
-                  📌 Open Tasks<span className="vdp-section-count">{openTasks.length}</span>
-                </div>
-                <div>
-                  {openTasks.map(t => (
-                    <div key={t.id} className="vdp-item">
-                      <div className="sc-fu-check" style={{ flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="vdp-item-name">{t.title}</div>
-                        <div className="vdp-item-meta">
-                          {t.due_date && <>Due {fmtDate(t.due_date)}</>}
-                          {t.due_date && t.cm_name && <> · </>}
-                          {t.cm_name && <>{t.cm_name}</>}
-                          {(t.due_date || t.cm_name) && t.visit_date && <> · </>}
-                          {t.visit_date && <>from {fmtDate(t.visit_date)} visit</>}
-                        </div>
+            {/* Tasks — open by default, completed collapsed */}
+            {(() => {
+              const open = openTasks.filter(t => t.status !== "done");
+              const done = openTasks.filter(t => t.status === "done");
+              if (open.length === 0 && done.length === 0) return null;
+              return (
+                <>
+                  {open.length > 0 && (
+                    <>
+                      <div className="vdp-section-header">
+                        📌 Open Tasks<span className="vdp-section-count">{open.length}</span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+                      <div>
+                        {open.map(t => (
+                          <div
+                            key={t.id}
+                            className="vdp-item"
+                            onClick={() => onOpenVisit(storeId, store?.name ?? storeName, t.visit_id)}
+                          >
+                            <div className="sc-fu-check" style={{ flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="vdp-item-name">{t.title}</div>
+                              <div className="vdp-item-meta">
+                                {t.due_date && <>Due {fmtDate(t.due_date)}</>}
+                                {t.due_date && t.cm_name && <> · </>}
+                                {t.cm_name && <>{t.cm_name}</>}
+                                {(t.due_date || t.cm_name) && t.visit_date && <> · </>}
+                                {t.visit_date && <>from {fmtDate(t.visit_date)} visit</>}
+                              </div>
+                            </div>
+                            <span className="vdp-item-chev">›</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {done.length > 0 && (
+                    <>
+                      <button
+                        className="vdp-section-header"
+                        onClick={() => setShowCompleted(v => !v)}
+                        style={{ width: "100%", textAlign: "left", background: "none", border: 0, cursor: "pointer", font: "inherit" }}
+                      >
+                        <span style={{ display: "inline-block", transform: showCompleted ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                        {" "}Completed<span className="vdp-section-count">{done.length}</span>
+                      </button>
+                      {showCompleted && (
+                        <div>
+                          {done.map(t => (
+                            <div
+                              key={t.id}
+                              className="vdp-item"
+                              onClick={() => onOpenVisit(storeId, store?.name ?? storeName, t.visit_id)}
+                              style={{ opacity: 0.7 }}
+                            >
+                              <div className="sc-fu-check done" style={{ flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="vdp-item-name" style={{ textDecoration: "line-through" }}>{t.title}</div>
+                                <div className="vdp-item-meta">
+                                  {t.cm_name && <>{t.cm_name}</>}
+                                  {t.cm_name && t.visit_date && <> · </>}
+                                  {t.visit_date && <>from {fmtDate(t.visit_date)} visit</>}
+                                </div>
+                              </div>
+                              <span className="vdp-item-chev">›</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Past Visits */}
             <div className="vdp-section-header">
@@ -996,14 +1079,18 @@ function StoreDetailPanel({
             ) : (
               <div>
                 {visits.map(v => (
-                  <div key={v.id} className="vdp-item">
+                  <div
+                    key={v.id}
+                    className="vdp-item"
+                    onClick={() => onOpenVisit(storeId, store?.name ?? storeName, v.id)}
+                  >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
                       <div className="vdp-item-meta">
                         <button
                           className="visit-cm-link"
                           style={{ fontSize: 11.5 }}
-                          onClick={() => { if (v.cm_telegram_id) onOpenCM(v.cm_telegram_id, v.cm_name, store?.market ?? ""); }}
+                          onClick={(e) => { e.stopPropagation(); if (v.cm_telegram_id) onOpenCM(v.cm_telegram_id, v.cm_name, store?.market ?? ""); }}
                         >{v.cm_name}</button>
                         {storeSectionIcons(v) && <> · {storeSectionIcons(v)}</>}
                         {v.photo_count > 0 && <> · 📸 {v.photo_count}</>}
@@ -1054,7 +1141,12 @@ function StoreDetailPanel({
                 </div>
                 <div>
                   {memoryNotes.map(n => (
-                    <div key={n.slug} className="vdp-memory-note">
+                    <div
+                      key={n.slug}
+                      className="vdp-memory-note"
+                      onClick={() => onOpenNote(n.slug)}
+                      style={{ cursor: "pointer" }}
+                    >
                       <div className="vdp-memory-note-title">{n.title}</div>
                       {n.summary && <div className="vdp-memory-note-summary">{n.summary}</div>}
                     </div>
@@ -1072,7 +1164,7 @@ function StoreDetailPanel({
 // ─── CM Detail Panel ──────────────────────────────────────────────────────────
 
 function CMDetailPanel({
-  telegramId, name, market, tab, onTabChange, onClose, onOpenStore,
+  telegramId, name, market, tab, onTabChange, onClose, onOpenStore, onOpenVisit, onOpenNote,
 }: {
   telegramId: number;
   name: string;
@@ -1081,6 +1173,8 @@ function CMDetailPanel({
   onTabChange: (t: "visits" | "stores") => void;
   onClose: () => void;
   onOpenStore: (storeId: string, storeName: string) => void;
+  onOpenVisit: (storeId: string, storeName: string, visitId: string) => void;
+  onOpenNote: (slug: string) => void;
 }) {
   const [data, setData] = useState<{ cm: CMDetailInfo | null; visits: VisitRow[]; memory_notes: StoreMemoryNote[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1139,7 +1233,7 @@ function CMDetailPanel({
           ) : (
             <div>
               {visits.map(v => (
-                <div key={v.id} className="vdp-item" onClick={() => onOpenStore(v.store_id, v.store_name)}>
+                <div key={v.id} className="vdp-item" onClick={() => onOpenVisit(v.store_id, v.store_name, v.id)}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="vdp-item-name">{v.store_name}</div>
                     <div className="vdp-item-meta">
@@ -1191,7 +1285,12 @@ function CMDetailPanel({
             </div>
             <div>
               {memoryNotes.map(n => (
-                <div key={n.slug} className="vdp-memory-note">
+                <div
+                  key={n.slug}
+                  className="vdp-memory-note"
+                  onClick={() => onOpenNote(n.slug)}
+                  style={{ cursor: "pointer" }}
+                >
                   <div className="vdp-memory-note-title">{n.title}</div>
                   {n.summary && <div className="vdp-memory-note-summary">{n.summary}</div>}
                 </div>
@@ -1207,12 +1306,13 @@ function CMDetailPanel({
 // ─── Staff Detail Panel ───────────────────────────────────────────────────────
 
 function StaffDetailPanel({
-  staffId, staffName, storeName, onClose,
+  staffId, staffName, storeName, onClose, onOpenVisit,
 }: {
   staffId: string;
   staffName: string;
   storeName: string;
   onClose: () => void;
+  onOpenVisit: (storeId: string, storeName: string, visitId: string) => void;
 }) {
   const [data, setData] = useState<StaffDetailInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1288,7 +1388,11 @@ function StaffDetailPanel({
                   Training History<span className="vdp-section-count">{data.training_history.length}</span>
                 </div>
                 {data.training_history.map(t => (
-                  <div key={t.visit_id} className="vdp-item">
+                  <div
+                    key={t.visit_id}
+                    className="vdp-item"
+                    onClick={() => onOpenVisit(t.store_id, t.store_name, t.visit_id)}
+                  >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="vdp-item-name">{fmtDateFull(t.visit_date)}</div>
                       {t.products && <div className="vdp-item-meta">{t.products}</div>}
@@ -1305,7 +1409,11 @@ function StaffDetailPanel({
                   Visit History<span className="vdp-section-count">{data.tagged_visit_history.length}</span>
                 </div>
                 {data.tagged_visit_history.map(v => (
-                  <div key={v.visit_id} className="vdp-item">
+                  <div
+                    key={v.visit_id}
+                    className="vdp-item"
+                    onClick={() => onOpenVisit(v.store_id, v.store_name, v.visit_id)}
+                  >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="vdp-item-name">{fmtDateFull(v.visit_date)}</div>
                       <div className="vdp-item-meta">{v.store_name}</div>

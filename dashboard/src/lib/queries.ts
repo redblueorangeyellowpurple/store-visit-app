@@ -467,12 +467,15 @@ export interface StaffTrainingEntry {
   visit_id: string;
   visit_date: string;
   products: string | null;
+  store_id: string;
+  store_name: string;
 }
 
 export interface StaffTaggedVisit {
   visit_id: string;
   visit_date: string;
   was_trained: boolean;
+  store_id: string;
   store_name: string;
 }
 
@@ -504,7 +507,7 @@ export async function getStaffDetail(staffId: string): Promise<StaffDetailInfo |
 
   const { data: vsRaw } = await supabase
     .from('visit_staff')
-    .select('visit_id, was_trained, products_trained_on, visits(visit_date, is_locked, stores(name))')
+    .select('visit_id, was_trained, products_trained_on, visits(visit_date, is_locked, store_id, stores(id, name))')
     .eq('staff_id', staffId)
     .order('visit_id', { ascending: false });
 
@@ -512,7 +515,7 @@ export async function getStaffDetail(staffId: string): Promise<StaffDetailInfo |
     visit_id: string;
     was_trained?: boolean | null;
     products_trained_on?: string | null;
-    visits?: { visit_date?: string; is_locked?: boolean; stores?: { name?: string } | null } | null;
+    visits?: { visit_date?: string; is_locked?: boolean; store_id?: string; stores?: { id?: string; name?: string } | null } | null;
   };
 
   let tagged_visits = 0;
@@ -525,12 +528,15 @@ export async function getStaffDetail(staffId: string): Promise<StaffDetailInfo |
     const link = linkRaw as unknown as VsDetail;
     const v = link.visits;
     if (v && v.is_locked === false) continue;
+    const storeId = v?.stores?.id ?? v?.store_id ?? s.store_id;
+    const storeName = v?.stores?.name ?? s.stores?.name ?? 'Unknown';
     tagged_visits += 1;
     tagged_visit_history.push({
       visit_id: link.visit_id,
       visit_date: v?.visit_date ?? '',
       was_trained: link.was_trained ?? false,
-      store_name: v?.stores?.name ?? s.stores?.name ?? 'Unknown',
+      store_id: storeId,
+      store_name: storeName,
     });
     if (link.was_trained) {
       times_trained += 1;
@@ -540,6 +546,8 @@ export async function getStaffDetail(staffId: string): Promise<StaffDetailInfo |
         visit_id: link.visit_id,
         visit_date: v?.visit_date ?? '',
         products: link.products_trained_on ?? null,
+        store_id: storeId,
+        store_name: storeName,
       });
     }
   }
@@ -601,6 +609,7 @@ export interface StoreMemoryNote {
 export interface StoreOpenTask {
   id: string;
   title: string;
+  status: "open" | "done";
   due_date: string | null;
   visit_id: string;
   visit_date: string | null;
@@ -644,9 +653,8 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     getStoreStaff(storeId),
     supabase
       .from('visit_follow_ups')
-      .select('id, title, due_date, visit_id, visits!visit_id(visit_date, cm_telegram_id, cms!cm_telegram_id(full_name, nickname))')
+      .select('id, title, status, due_date, visit_id, visits!visit_id(visit_date, cm_telegram_id, cms!cm_telegram_id(full_name, nickname))')
       .eq('store_id', storeId)
-      .eq('status', 'open')
       .order('due_date', { ascending: true, nullsFirst: false }),
   ]);
 
@@ -661,6 +669,7 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   const open_tasks: StoreOpenTask[] = (tasksRes.data ?? []).map((t: any) => ({
     id: t.id,
     title: t.title,
+    status: t.status === "done" ? "done" : "open",
     due_date: t.due_date ?? null,
     visit_id: t.visit_id,
     visit_date: t.visits?.visit_date ?? null,
