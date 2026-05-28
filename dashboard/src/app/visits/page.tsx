@@ -716,8 +716,9 @@ function VisitCard({
   const textSections = SECTIONS
     .filter(s => (TEXT_SECTION_KEYS as readonly string[]).includes(s.key))
     .filter(s => {
-      if (textFocus.length > 0) return textFocus.includes(s.key) && !!v[s.key as keyof VisitRow];
-      return !!v[s.key as keyof VisitRow];
+      if (focusSections.size === 0) return !!v[s.key as keyof VisitRow];          // no filter: show all
+      if (textFocus.length > 0) return textFocus.includes(s.key) && !!v[s.key as keyof VisitRow]; // text-section focus
+      return false;                                                                 // focus is trainings/follow_ups only
     });
 
   const showTrainings = (focusSections.size === 0 || focusSections.has("trainings")) && v.training_count > 0;

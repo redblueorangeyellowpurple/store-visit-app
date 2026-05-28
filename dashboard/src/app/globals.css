@@ -243,7 +243,7 @@ body {
 .visit-cm-link:hover { color: var(--color-tc-500); text-decoration: underline solid; }
 .visit-store-link {
   background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
-  font-size: 19px; font-weight: 700; color: var(--color-ink-900);
+  font-size: 15px; font-weight: 700; color: var(--color-ink-900);
   text-align: left;
   transition: color 0.12s;
 }
