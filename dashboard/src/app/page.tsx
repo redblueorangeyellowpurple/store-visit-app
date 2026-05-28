@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
+
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
+};
 
 interface Stats {
   visits_this_month: number;
@@ -38,6 +47,40 @@ interface VisitRow {
   training: string | null;
 }
 
+interface PayrollWeek { start: string; end: string }
+interface PayrollRow {
+  telegram_id: number;
+  full_name: string;
+  market: "SG" | "MY" | "TH" | "HK";
+  am_name: string | null;
+  counts: number[];
+  range_total: number;
+}
+interface PayrollGrid {
+  weeks: PayrollWeek[];
+  rows: PayrollRow[];
+  range: { from: string; to: string };
+}
+
+interface ReportSummary {
+  id: string;
+  report_date: string;
+  version: number;
+  edited_by_human: boolean;
+}
+interface ReportFull extends ReportSummary {
+  brief_markdown: string;
+}
+
+interface NoteSummary {
+  slug: string;
+  scope: "store" | "person" | "theme" | "channel";
+  title: string;
+  summary: string;
+  tier: "short" | "long";
+  last_touched_at: string;
+}
+
 interface User { first_name: string; username?: string; role?: string }
 
 // ── helpers ──────────────────────────────────────────────────────
@@ -60,6 +103,11 @@ function shiftDays(iso: string, days: number): string {
 function fmtTodayHeader(): string {
   return new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
+function fmtDateHeader(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "short", day: "numeric", month: "short", year: "numeric",
+  });
+}
 function fmtWeekRange(monIso: string): string {
   const mon = new Date(monIso + "T00:00:00");
   const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
@@ -69,42 +117,72 @@ function fmtWeekRange(monIso: string): string {
 function dayShort(iso: string): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" });
 }
+function fmtRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  const days = Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
+  if (days === 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 14) return `${days}d ago`;
+  if (days < 60) return `${Math.floor(days / 7)}w ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
 function countSections(v: VisitRow): { on: boolean[]; total: number } {
   const arr = [v.good_news, v.competitors, v.display_stock, v.follow_up, v.buzz_plan];
   const on = arr.map((s) => !!s);
   return { on, total: on.filter(Boolean).length };
 }
 
-// ── sample data for un-wired panels ──────────────────────────────
-const SAMPLE_CMS = [
-  { name: "Ricky",     market: "SG", planned: 5, executed: 4, color: "#8B6534", trend: "0,18 20,12 40,14 60,8 80,6 100,5" },
-  { name: "Ginger",    market: "SG", planned: 5, executed: 5, color: "#6B4E7A", trend: "0,14 20,10 40,6 60,8 80,4 100,2" },
-  { name: "Jerome",    market: "MY", planned: 5, executed: 3, color: "#4A6A3F", trend: "0,8 20,14 40,12 60,16 80,18 100,14" },
-  { name: "Johnathan", market: "TH", planned: 4, executed: 2, color: "#3F5A78", trend: "0,12 20,10 40,16 60,14 80,18 100,16" },
-  { name: "Zhi Yong",  market: "HK", planned: 4, executed: 4, color: "#B86B00", trend: "0,12 20,8 40,10 60,6 80,8 100,4" },
-];
+const CM_COLORS = ["#8B6534", "#6B4E7A", "#4A6A3F", "#3F5A78", "#B86B00", "#5B3FB5", "#1E7A3A", "#B5331A"];
+function colorForIdx(i: number) { return CM_COLORS[i % CM_COLORS.length]; }
 
-function pillForRate(rate: number): "good" | "mid" | "low" {
-  if (rate >= 0.8) return "good";
-  if (rate >= 0.6) return "mid";
-  return "low";
+function trendPolyline(counts: number[]): string {
+  if (counts.length === 0) return "";
+  const max = Math.max(...counts, 1);
+  const w = 100;
+  const h = 24;
+  const stepX = counts.length > 1 ? w / (counts.length - 1) : 0;
+  return counts
+    .map((c, i) => {
+      const x = i * stepX;
+      const y = h - (c / max) * (h - 4) - 2; // pad 2 top/bottom
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
 }
-function barColor(rate: number): string {
-  if (rate >= 0.8) return "#1E7A3A";
-  if (rate >= 0.6) return "var(--color-tc-500)";
-  return "#B5331A";
+
+function stripAnalyticsSection(md: string): string {
+  return md.replace(/\n## (?:📊 )?Analytics[\s\S]*?(?=\n## |\n# |$)/, "");
 }
+function stripBriefTitle(md: string): string {
+  return md.replace(/^#[^\n]*\n*/, "");
+}
+
+const SCOPE_ICON: Record<string, string> = {
+  store: "🏬", person: "👤", theme: "🧵", channel: "🔗",
+};
 
 export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [stores, setStores] = useState<StoreStatus[]>([]);
   const [visits, setVisits] = useState<VisitRow[]>([]);
+  const [payroll, setPayroll] = useState<PayrollGrid | null>(null);
+
   const [intelView, setIntelView] = useState<"daily" | "weekly">("daily");
+  const [reports, setReports] = useState<ReportSummary[]>([]);
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  const [report, setReport] = useState<ReportFull | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const [notes, setNotes] = useState<NoteSummary[]>([]);
 
   const weekMon = useMemo(() => mondayOfISO(todayISO()), []);
   const weekSun = useMemo(() => shiftDays(weekMon, 6), [weekMon]);
   const weekRange = useMemo(() => fmtWeekRange(weekMon), [weekMon]);
+
+  // Payroll range: 4 weeks ending this Sunday
+  const payrollFrom = useMemo(() => shiftDays(weekMon, -21), [weekMon]);
+  const payrollTo = weekSun;
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d) setUser(d); });
@@ -114,11 +192,111 @@ export default function HomePage() {
     fetch(`/api/visits?from=${weekMon}&to=${weekSun}`).then(r => r.ok ? r.json() : null).then(d => {
       if (d?.visits) setVisits(d.visits);
     });
-  }, [weekMon, weekSun]);
+    fetch(`/api/payroll?from=${payrollFrom}&to=${payrollTo}`).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setPayroll(d);
+    });
+    fetch("/api/intelligence/reports").then(r => r.ok ? r.json() : null).then(d => {
+      const list: ReportSummary[] = d?.reports ?? [];
+      setReports(list);
+      if (list.length > 0) setActiveDate(list[0].report_date);
+    });
+    fetch("/api/intelligence/notes").then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.notes) setNotes(d.notes.slice(0, 5));
+    });
+  }, [weekMon, weekSun, payrollFrom, payrollTo]);
+
+  // Load the active brief whenever activeDate changes
+  useEffect(() => {
+    if (!activeDate) { setReport(null); return; }
+    setReportLoading(true);
+    fetch(`/api/intelligence/reports/${activeDate}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { setReport(d?.report ?? null); })
+      .finally(() => setReportLoading(false));
+  }, [activeDate]);
 
   if (!user) return null;
 
   const uniqueStoresVisited = new Set(visits.map(v => v.store_id)).size;
+  const activeStores = stores.filter(s => s); // all stores in /api/overview are active
+
+  // ── CM execution rows (live from payroll) ──────────────────────
+  // payroll.weeks ordered oldest → newest. Last week = current week.
+  const cmRows = useMemo(() => {
+    if (!payroll) return [];
+    const lastIdx = payroll.weeks.length - 1;
+    return payroll.rows
+      .map((r, i) => {
+        const counts = r.counts;
+        const thisWeek = lastIdx >= 0 ? (counts[lastIdx] ?? 0) : 0;
+        // 4-wk avg includes all weeks in the window
+        const avg = counts.length > 0
+          ? counts.reduce((a, b) => a + b, 0) / counts.length
+          : 0;
+        return {
+          telegram_id: r.telegram_id,
+          name: r.full_name,
+          market: r.market,
+          thisWeek,
+          avg,
+          counts,
+          color: colorForIdx(i),
+        };
+      })
+      .sort((a, b) => b.thisWeek - a.thisWeek);
+  }, [payroll]);
+
+  // ── By-market (live) ───────────────────────────────────────────
+  const byMarket = useMemo(() => {
+    const markets: ("SG" | "MY" | "TH" | "HK")[] = ["SG", "MY", "TH", "HK"];
+    return markets.map((m) => {
+      const visitsInMkt = visits.filter(v => v.store_market === m);
+      const uniqueStores = new Set(visitsInMkt.map(v => v.store_id)).size;
+      const totalStoresInMkt = activeStores.filter(s => s.market === m).length;
+      const rate = totalStoresInMkt > 0 ? uniqueStores / totalStoresInMkt : null;
+      return { market: m, visits: visitsInMkt.length, stores: uniqueStores, total: totalStoresInMkt, rate };
+    });
+  }, [visits, activeStores]);
+
+  // ── By-tier (live) ────────────────────────────────────────────
+  const byTier = useMemo(() => {
+    const tiers: ("T1" | "T2" | "T3" | "T4")[] = ["T1", "T2", "T3", "T4"];
+    return tiers.map((t) => {
+      const visitsInTier = visits.filter(v => v.store_tier === t);
+      const uniqueStores = new Set(visitsInTier.map(v => v.store_id)).size;
+      const totalStoresInTier = activeStores.filter(s => s.tier === t).length;
+      const rate = totalStoresInTier > 0 ? uniqueStores / totalStoresInTier : null;
+      return { tier: t, visits: visitsInTier.length, stores: uniqueStores, total: totalStoresInTier, rate };
+    });
+  }, [visits, activeStores]);
+
+  // ── Intelligence date nav ─────────────────────────────────────
+  const activeIdx = activeDate ? reports.findIndex(r => r.report_date === activeDate) : -1;
+  const hasPrev = activeIdx >= 0 && activeIdx < reports.length - 1; // older
+  const hasNext = activeIdx > 0; // newer
+  function goPrev() { if (hasPrev) setActiveDate(reports[activeIdx + 1].report_date); }
+  function goNext() { if (hasNext) setActiveDate(reports[activeIdx - 1].report_date); }
+  function goToday() { if (reports.length > 0) setActiveDate(reports[0].report_date); }
+
+  function rateLabel(rate: number | null): string {
+    if (rate === null) return "—";
+    return `${Math.round(rate * 100)}%`;
+  }
+  function ratePillClass(rate: number | null): string {
+    if (rate === null) return "low";
+    if (rate >= 0.8) return "good";
+    if (rate >= 0.5) return "mid";
+    return "low";
+  }
+
+  function deltaPill(thisWeek: number, avg: number) {
+    if (avg === 0 && thisWeek === 0) return { cls: "low", txt: "—" };
+    if (avg === 0) return { cls: "good", txt: "+new" };
+    const ratio = thisWeek / avg;
+    if (ratio >= 1.1) return { cls: "good", txt: "above avg" };
+    if (ratio >= 0.9) return { cls: "mid",  txt: "at avg" };
+    return { cls: "low", txt: "below avg" };
+  }
 
   return (
     <div>
@@ -199,60 +377,88 @@ export default function HomePage() {
               </div>
             </div>
 
-            <h3 className="sub-head" id="stats-cms">CM execution</h3>
-            {/* TODO: wire to a new per-CM planned-vs-executed aggregation API */}
+            <h3 className="sub-head" id="stats-cms">
+              CM execution
+              <span style={{ marginLeft: 8, color: "var(--color-ink-400)", fontWeight: 500, fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
+                this week vs 4-week trend
+              </span>
+            </h3>
             <div className="cm-table">
               <div className="row head">
                 <span>Channel manager</span>
                 <span>Market</span>
-                <span>Planned / Executed</span>
+                <span>This wk / 4-wk avg</span>
                 <span>4-wk trend</span>
-                <span style={{ textAlign: "right" }}>Rate</span>
+                <span style={{ textAlign: "right" }}>vs avg</span>
               </div>
-              {SAMPLE_CMS.map((cm) => {
-                const rate = cm.executed / cm.planned;
-                const pct = Math.round(rate * 100);
+              {!payroll && (
+                <div className="row">
+                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
+                    Loading…
+                  </span>
+                </div>
+              )}
+              {payroll && cmRows.length === 0 && (
+                <div className="row">
+                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
+                    No CM activity in the last 4 weeks.
+                  </span>
+                </div>
+              )}
+              {cmRows.map((cm) => {
+                const max = Math.max(cm.thisWeek, Math.ceil(cm.avg), 1);
+                const pct = Math.round((cm.thisWeek / max) * 100);
+                const delta = deltaPill(cm.thisWeek, cm.avg);
                 return (
-                  <div key={cm.name} className="row">
+                  <div key={cm.telegram_id} className="row">
                     <div className="name">
                       <span className="av" style={{ background: cm.color }}>{cm.name[0]}</span> {cm.name}
                     </div>
                     <div className="market">{cm.market}</div>
                     <div>
                       <div className="bar-track">
-                        <div className="bar-fill" style={{ width: `${pct}%`, background: barColor(rate) }}></div>
+                        <div className="bar-fill" style={{ width: `${pct}%`, background: cm.color }}></div>
                       </div>
-                      <div className="bar-label">{cm.executed} / {cm.planned}</div>
+                      <div className="bar-label">{cm.thisWeek} <span style={{ color: "var(--color-ink-400)" }}>/ {cm.avg.toFixed(1)}</span></div>
                     </div>
                     <div>
                       <svg className="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none"
                            stroke="var(--color-ink-500)" strokeWidth="1.5" fill="none">
-                        <polyline points={cm.trend} />
+                        <polyline points={trendPolyline(cm.counts)} />
                       </svg>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <span className={`rate-pill ${pillForRate(rate)}`}>{pct}%</span>
+                      <span className={`rate-pill ${delta.cls}`}>{delta.txt}</span>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* TODO: wire by-market + by-tier from real aggregations */}
             <div className="split-panels">
               <div className="panel">
                 <h4>By market</h4>
-                <div className="panel-row"><span className="k">SG</span><span className="v">5 visits · 3 stores</span><span className="rate-pill good">86%</span></div>
-                <div className="panel-row"><span className="k">MY</span><span className="v">3 visits · 2 stores</span><span className="rate-pill mid">60%</span></div>
-                <div className="panel-row"><span className="k">TH</span><span className="v">2 visits · 2 stores</span><span className="rate-pill low">50%</span></div>
-                <div className="panel-row"><span className="k">HK</span><span className="v">2 visits · 1 store</span><span className="rate-pill good">100%</span></div>
+                {byMarket.map((m) => (
+                  <div key={m.market} className="panel-row">
+                    <span className="k">{m.market}</span>
+                    <span className="v">{m.visits} visit{m.visits !== 1 ? "s" : ""} · {m.stores}/{m.total} stores</span>
+                    {m.rate !== null
+                      ? <span className={`rate-pill ${ratePillClass(m.rate)}`}>{rateLabel(m.rate)}</span>
+                      : <span style={{ color: "var(--color-ink-300)", fontSize: 11 }}>—</span>}
+                  </div>
+                ))}
               </div>
               <div className="panel">
                 <h4>By tier</h4>
-                <div className="panel-row"><span className="k">T1</span><span className="v">6 visits · 4 / 4 stores</span><span className="rate-pill good">100%</span></div>
-                <div className="panel-row"><span className="k">T2</span><span className="v">4 visits · 3 / 5 stores</span><span className="rate-pill mid">60%</span></div>
-                <div className="panel-row"><span className="k">T3</span><span className="v">2 visits · 1 / 4 stores</span><span className="rate-pill low">25%</span></div>
-                <div className="panel-row"><span className="k">T4</span><span className="v">0 visits · 0 / 1 store</span><span className="rate-pill low">0%</span></div>
+                {byTier.map((t) => (
+                  <div key={t.tier} className="panel-row">
+                    <span className="k">{t.tier}</span>
+                    <span className="v">{t.visits} visit{t.visits !== 1 ? "s" : ""} · {t.stores}/{t.total} stores</span>
+                    {t.rate !== null
+                      ? <span className={`rate-pill ${ratePillClass(t.rate)}`}>{rateLabel(t.rate)}</span>
+                      : <span style={{ color: "var(--color-ink-300)", fontSize: 11 }}>—</span>}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -266,12 +472,7 @@ export default function HomePage() {
             <div className="db-head">
               <div className="view-toggle">
                 <button className="active">Table</button>
-                <button>Board</button>
-                <button>Map</button>
               </div>
-              <button className="db-btn">Filter</button>
-              <button className="db-btn">↕ Sort</button>
-              <button className="db-btn">Group</button>
               <Link href="/visits" className="db-btn" style={{ marginLeft: "auto", color: "var(--color-tc-600)", textDecoration: "none" }}>
                 Open feed →
               </Link>
@@ -328,6 +529,9 @@ export default function HomePage() {
             <div className="chapter-head">
               <span className="num">02</span>
               <h2>Intelligence</h2>
+              {reports.length > 0 && (
+                <span className="chapter-cadence">{reports.length} brief{reports.length !== 1 ? "s" : ""} on file</span>
+              )}
             </div>
 
             <div className="intel-datebar">
@@ -341,26 +545,56 @@ export default function HomePage() {
               </div>
               {intelView === "daily" ? (
                 <div className="date-nav">
-                  <button className="arrow" title="Previous day">‹</button>
-                  <button className="date-label">📅 {fmtTodayHeader()}</button>
-                  <button className="arrow" title="Next day">›</button>
-                  <button className="today-btn">Today</button>
+                  <button className="arrow" title="Older brief" disabled={!hasPrev} onClick={goPrev}>‹</button>
+                  <button className="date-label">
+                    📅 {activeDate ? fmtDateHeader(activeDate) : "No briefs yet"}
+                  </button>
+                  <button className="arrow" title="Newer brief" disabled={!hasNext} onClick={goNext}>›</button>
+                  <button className="today-btn" disabled={reports.length === 0} onClick={goToday}>Latest</button>
                 </div>
               ) : (
                 <div className="date-nav">
-                  <button className="arrow" title="Previous week">‹</button>
                   <button className="date-label">📅 {weekRange}</button>
-                  <button className="arrow" title="Next week">›</button>
-                  <button className="today-btn">This week</button>
                 </div>
               )}
             </div>
 
-            <div className="shell-empty">
-              {intelView === "daily"
-                ? "Daily highlights will appear here — content design in progress."
-                : "Weekly report will appear here — content design in progress."}
-            </div>
+            {intelView === "daily" && reports.length === 0 && (
+              <div className="shell-empty">
+                No intelligence briefs yet. Run <code>npm run intelligence</code> to generate today&apos;s.
+              </div>
+            )}
+            {intelView === "daily" && reports.length > 0 && reportLoading && (
+              <div className="shell-empty">Loading brief…</div>
+            )}
+            {intelView === "daily" && report && !reportLoading && (
+              <div className="markdown-brief" style={{ marginTop: 8 }}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                  components={{
+                    a({ href, children, ...props }) {
+                      return <a href={href} {...props}>{children}</a>;
+                    },
+                  }}
+                >
+                  {stripBriefTitle(stripAnalyticsSection(report.brief_markdown))}
+                </ReactMarkdown>
+                <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--color-border)" }}>
+                  <Link href="/intelligence" style={{ color: "var(--color-tc-600)", textDecoration: "none", fontWeight: 600, fontSize: 13 }}>
+                    Open full intelligence workspace →
+                  </Link>
+                </div>
+              </div>
+            )}
+            {intelView === "weekly" && (
+              <div className="shell-empty">
+                Weekly report not yet generated.<br />
+                <span style={{ color: "var(--color-ink-400)", fontSize: 12 }}>
+                  Daily briefs are available above — switch to the Daily tab.
+                </span>
+              </div>
+            )}
           </section>
 
           {/* 3. MEMORY */}
@@ -371,12 +605,51 @@ export default function HomePage() {
               <span className="chapter-cadence">notes that grow with every visit</span>
             </div>
 
-            <div className="shell-empty">
-              Memory browser will appear here — content design in progress.<br />
-              <Link href="/intelligence" style={{ color: "var(--color-tc-600)", marginTop: 12, display: "inline-block", textDecoration: "none", fontWeight: 600 }}>
-                Open the existing memory browser →
-              </Link>
-            </div>
+            {notes.length === 0 && (
+              <div className="shell-empty">
+                No memory notes yet. They&apos;ll accrue as briefs reference stores, people, themes and channels.
+              </div>
+            )}
+            {notes.length > 0 && (
+              <>
+                <div className="db-head">
+                  <span style={{ fontSize: 12, color: "var(--color-ink-400)", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 700 }}>
+                    Recently touched
+                  </span>
+                  <Link href="/intelligence" className="db-btn" style={{ marginLeft: "auto", color: "var(--color-tc-600)", textDecoration: "none" }}>
+                    Browse all →
+                  </Link>
+                </div>
+                <div className="db-table">
+                  {notes.map((n) => (
+                    <Link
+                      key={n.slug}
+                      href={`/intelligence/notes/${n.slug}`}
+                      className="db-row"
+                      style={{
+                        gridTemplateColumns: "32px 1fr auto",
+                        textDecoration: "none",
+                        color: "inherit",
+                        gap: 12,
+                      }}
+                    >
+                      <span style={{ fontSize: 16 }}>{SCOPE_ICON[n.scope] ?? "✦"}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {n.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--color-ink-400)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {n.summary}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, color: "var(--color-ink-400)", fontFamily: "ui-monospace, monospace" }}>
+                        {fmtRelative(n.last_touched_at)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
           </section>
 
         </main>
