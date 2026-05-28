@@ -179,7 +179,7 @@ export default function VisitsPage() {
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
   const [lightbox,       setLightbox]       = useState<string | null>(null);
   const [detail,         setDetail]         = useState<DetailView>(null);
-  const [detailWidth,    setDetailWidth]    = useState(375);
+  const [detailWidth,    setDetailWidth]    = useState(300);
   const feedRef                             = useRef<HTMLDivElement>(null);
   const [sidebarWidth,   setSidebarWidth]   = useState(300);
   const [cmDropdownOpen, setCmDropdownOpen] = useState(false);

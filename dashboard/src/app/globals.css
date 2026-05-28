@@ -1201,7 +1201,7 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 20px 0 10px;
+  margin: 32px 0 10px;
 }
 .day-divider:first-child { margin-top: 0; }
 .day-divider-line { flex: 1; border: none; border-top: 1px solid var(--color-border); }
