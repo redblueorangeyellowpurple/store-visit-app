@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import "./dashboard-v3.css";
+import NavBar from "@/components/NavBar";
 
 interface Stats {
   visits_this_month: number;
@@ -91,13 +90,12 @@ function pillForRate(rate: number): "good" | "mid" | "low" {
   return "low";
 }
 function barColor(rate: number): string {
-  if (rate >= 0.8) return "var(--green)";
-  if (rate >= 0.6) return "var(--amber)";
-  return "var(--red)";
+  if (rate >= 0.8) return "#1E7A3A";
+  if (rate >= 0.6) return "var(--color-tc-500)";
+  return "#B5331A";
 }
 
 export default function HomePage() {
-  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [stores, setStores] = useState<StoreStatus[]>([]);
@@ -118,46 +116,24 @@ export default function HomePage() {
     });
   }, [weekMon, weekSun]);
 
-  const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  }, [router]);
-
   if (!user) return null;
 
-  const initials = user.first_name.slice(0, 2).toUpperCase();
   const uniqueStoresVisited = new Set(visits.map(v => v.store_id)).size;
 
   return (
-    <div className="dash-v3-root">
+    <div>
+      <NavBar user={user} />
 
-      {/* TOP NAV ─────────────────────────────────────────── */}
-      <header className="topnav">
-        <Link href="/" className="brand">sva<span className="dot">.</span></Link>
-        <nav className="topnav-tabs">
-          <button className="active"          onClick={() => router.push("/")}>Dashboard</button>
-          <button                              onClick={() => router.push("/visits")}>Updates</button>
-          {user.role === "admin" && (
-            <button                            onClick={() => router.push("/admin")}>Admin</button>
-          )}
-        </nav>
-        <div className="topnav-right">
-          <span className="kbd">⌘K</span>
-          <button onClick={logout} className="kbd" style={{ cursor: "pointer" }}>Sign out</button>
-          <div className="avatar" title={user.first_name}>{initials}</div>
-        </div>
-      </header>
+      <div className="dashboard-grid">
 
-      <div className="page">
-
-        {/* SIDEBAR ─────────────────────────────────────────── */}
-        <aside className="side">
-          <div className="side-section">
-            <div className="side-label">Dashboard</div>
-            <ul className="toc">
+        {/* SIDEBAR ─────────────────────────────────────── */}
+        <aside className="dashboard-sidebar">
+          <div className="sidebar-section">
+            <div className="sidebar-label">Dashboard</div>
+            <ul className="sidebar-toc">
               <li>
                 <a className="chap" href="#stats"><span className="n">01</span> Statistics</a>
-                <ul className="toc sub">
+                <ul className="sub">
                   <li><a href="#stats-overview">Overview</a></li>
                   <li><a href="#stats-cms">CM execution</a></li>
                   <li><a href="#stats-visited">Stores visited</a></li>
@@ -165,7 +141,7 @@ export default function HomePage() {
               </li>
               <li style={{ marginTop: 10 }}>
                 <a className="chap" href="#intel"><span className="n">02</span> Intelligence</a>
-                <ul className="toc sub">
+                <ul className="sub">
                   <li><a href="#intel" onClick={() => setIntelView("daily")}>Daily highlights</a></li>
                   <li><a href="#intel" onClick={() => setIntelView("weekly")}>Weekly report</a></li>
                 </ul>
@@ -175,59 +151,51 @@ export default function HomePage() {
               </li>
             </ul>
           </div>
-          <div className="side-foot">
-            Brief delivered<br />
-            📧 5 recipients · 💬 4 markets
-          </div>
         </aside>
 
-        {/* MAIN CANVAS ───────────────────────────────────── */}
-        <main className="main">
+        {/* MAIN ─────────────────────────────────────────── */}
+        <main className="dashboard-main">
 
-          {/* HEADER */}
-          <div className="header">
-            <h1>Dashboard <em>— store visits</em></h1>
-            <div className="meta">
-              <span>{fmtTodayHeader()}</span>
-              <span className="dot"></span>
-              <span>SG · MY · TH · HK</span>
-              <span className="dot"></span>
-              <span>{stats ? `${stats.active_cms_this_month} channel manager${stats.active_cms_this_month === 1 ? "" : "s"}` : "—"}</span>
-            </div>
-          </div>
-
-          {/* 1. STATISTICS ─────────────────────────────── */}
+          {/* 1. STATISTICS */}
           <section className="chapter" id="stats">
             <div className="chapter-head">
               <span className="num">01</span>
               <h2>Statistics</h2>
-              <div className="chapter-right">
-                <button className="tf-pill">📅 <b>This week</b> <em>· {weekRange}</em> <span className="caret">▾</span></button>
-                <button className="link-btn">+ Compare</button>
-              </div>
+              <span className="chapter-cadence">{fmtTodayHeader()}</span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <button className="tf-pill">📅 <b>This week</b> <em>· {weekRange}</em> ▾</button>
+              <button className="compare-link">+ Compare</button>
             </div>
 
             <h3 className="sub-head" id="stats-overview">Overview</h3>
-            <div className="kpi-grid">
-              <div className="kpi">
-                <div className="label">Visits</div>
-                <div className="value">{visits.length}</div>
-                <div className="delta flat">this week</div>
+            <div className="kpi-row">
+              <div className="kpi-card accent">
+                <p className="kpi-value">{visits.length}</p>
+                <p className="kpi-label">Visits this week</p>
               </div>
-              <div className="kpi">
-                <div className="label">Stores covered</div>
-                <div className="value">{uniqueStoresVisited}<span style={{ fontSize: 18, color: "var(--ink-4)" }}> /{stats?.total_stores ?? "—"}</span></div>
-                <div className="delta flat">{stats ? `${stats.total_stores} active` : "—"}</div>
+              <div className="kpi-card">
+                <p className="kpi-value">
+                  {uniqueStoresVisited}
+                  <span style={{ fontSize: 18, color: "var(--color-ink-300)", marginLeft: 4 }}>
+                    /{stats?.total_stores ?? "—"}
+                  </span>
+                </p>
+                <p className="kpi-label">Stores covered</p>
               </div>
-              <div className="kpi">
-                <div className="label">Active CMs</div>
-                <div className="value">{stats?.active_cms_this_month ?? "—"}<span style={{ fontSize: 18, color: "var(--ink-4)" }}> /{stats?.total_cms ?? "—"}</span></div>
-                <div className="delta flat">this month</div>
+              <div className="kpi-card">
+                <p className="kpi-value">
+                  {stats?.active_cms_this_month ?? "—"}
+                  <span style={{ fontSize: 18, color: "var(--color-ink-300)", marginLeft: 4 }}>
+                    /{stats?.total_cms ?? "—"}
+                  </span>
+                </p>
+                <p className="kpi-label">Active CMs (mo)</p>
               </div>
-              <div className="kpi">
-                <div className="label">Visits this month</div>
-                <div className="value">{stats?.visits_this_month ?? "—"}</div>
-                <div className="delta flat">{stats ? `${stats.visits_all_time} all-time` : "—"}</div>
+              <div className="kpi-card">
+                <p className="kpi-value">{stats?.visits_this_month ?? "—"}</p>
+                <p className="kpi-label">Visits this month</p>
               </div>
             </div>
 
@@ -258,39 +226,39 @@ export default function HomePage() {
                     </div>
                     <div>
                       <svg className="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none"
-                           stroke="#3A3631" strokeWidth="1.5" fill="none">
+                           stroke="var(--color-ink-500)" strokeWidth="1.5" fill="none">
                         <polyline points={cm.trend} />
                       </svg>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <span className={`pill ${pillForRate(rate)}`}>{pct}%</span>
+                      <span className={`rate-pill ${pillForRate(rate)}`}>{pct}%</span>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* TODO: wire by-market + by-tier aggregations once API is extended */}
-            <div className="split">
+            {/* TODO: wire by-market + by-tier from real aggregations */}
+            <div className="split-panels">
               <div className="panel">
                 <h4>By market</h4>
-                <div className="row"><span className="k">SG</span><span className="v">5 visits · 3 stores</span><span><span className="pill good">86%</span></span></div>
-                <div className="row"><span className="k">MY</span><span className="v">3 visits · 2 stores</span><span><span className="pill mid">60%</span></span></div>
-                <div className="row"><span className="k">TH</span><span className="v">2 visits · 2 stores</span><span><span className="pill low">50%</span></span></div>
-                <div className="row"><span className="k">HK</span><span className="v">2 visits · 1 store</span><span><span className="pill good">100%</span></span></div>
+                <div className="panel-row"><span className="k">SG</span><span className="v">5 visits · 3 stores</span><span className="rate-pill good">86%</span></div>
+                <div className="panel-row"><span className="k">MY</span><span className="v">3 visits · 2 stores</span><span className="rate-pill mid">60%</span></div>
+                <div className="panel-row"><span className="k">TH</span><span className="v">2 visits · 2 stores</span><span className="rate-pill low">50%</span></div>
+                <div className="panel-row"><span className="k">HK</span><span className="v">2 visits · 1 store</span><span className="rate-pill good">100%</span></div>
               </div>
               <div className="panel">
                 <h4>By tier</h4>
-                <div className="row"><span className="k">T1</span><span className="v">6 visits · 4 / 4 stores</span><span><span className="pill good">100%</span></span></div>
-                <div className="row"><span className="k">T2</span><span className="v">4 visits · 3 / 5 stores</span><span><span className="pill mid">60%</span></span></div>
-                <div className="row"><span className="k">T3</span><span className="v">2 visits · 1 / 4 stores</span><span><span className="pill low">25%</span></span></div>
-                <div className="row"><span className="k">T4</span><span className="v">0 visits · 0 / 1 store</span><span><span className="pill low">0%</span></span></div>
+                <div className="panel-row"><span className="k">T1</span><span className="v">6 visits · 4 / 4 stores</span><span className="rate-pill good">100%</span></div>
+                <div className="panel-row"><span className="k">T2</span><span className="v">4 visits · 3 / 5 stores</span><span className="rate-pill mid">60%</span></div>
+                <div className="panel-row"><span className="k">T3</span><span className="v">2 visits · 1 / 4 stores</span><span className="rate-pill low">25%</span></div>
+                <div className="panel-row"><span className="k">T4</span><span className="v">0 visits · 0 / 1 store</span><span className="rate-pill low">0%</span></div>
               </div>
             </div>
 
             <h3 className="sub-head" id="stats-visited">
               Stores visited
-              <span style={{ fontFamily: "var(--sans)", fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--ink-4)", marginLeft: 8 }}>
+              <span style={{ marginLeft: 8, color: "var(--color-ink-400)", fontWeight: 500, fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
                 {visits.length} visits · {uniqueStoresVisited} stores
               </span>
             </h3>
@@ -304,7 +272,9 @@ export default function HomePage() {
               <button className="db-btn">Filter</button>
               <button className="db-btn">↕ Sort</button>
               <button className="db-btn">Group</button>
-              <Link href="/visits" className="db-btn" style={{ marginLeft: "auto", color: "var(--amber)" }}>Open feed →</Link>
+              <Link href="/visits" className="db-btn" style={{ marginLeft: "auto", color: "var(--color-tc-600)", textDecoration: "none" }}>
+                Open feed →
+              </Link>
             </div>
 
             <div className="db-table">
@@ -314,12 +284,12 @@ export default function HomePage() {
                 <span>Tier</span>
                 <span>CM</span>
                 <span>Day</span>
-                <span>Sections touched</span>
+                <span>Sections</span>
                 <span style={{ textAlign: "right" }}>—</span>
               </div>
               {visits.length === 0 && (
                 <div className="db-row">
-                  <span style={{ gridColumn: "1 / -1", color: "var(--ink-4)", padding: "12px 4px" }}>
+                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
                     No visits this week yet.
                   </span>
                 </div>
@@ -338,7 +308,7 @@ export default function HomePage() {
                         <div key={i} className={`d${on ? " on" : ""}`}></div>
                       ))}
                     </div>
-                    <span style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--ink-2)" }}>
+                    <span style={{ textAlign: "right", fontSize: 11, color: "var(--color-ink-400)", fontFamily: "ui-monospace, monospace" }}>
                       {sec.total}/5
                     </span>
                   </div>
@@ -353,7 +323,7 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* 2. INTELLIGENCE ───────────────────────────── */}
+          {/* 2. INTELLIGENCE */}
           <section className="chapter" id="intel">
             <div className="chapter-head">
               <span className="num">02</span>
@@ -361,7 +331,7 @@ export default function HomePage() {
             </div>
 
             <div className="intel-datebar">
-              <div className="sub-tab-row" id="hl-tabs">
+              <div className="sub-tab-row">
                 <button className={intelView === "daily" ? "active" : ""} onClick={() => setIntelView("daily")}>
                   Daily
                 </button>
@@ -372,54 +342,38 @@ export default function HomePage() {
               {intelView === "daily" ? (
                 <div className="date-nav">
                   <button className="arrow" title="Previous day">‹</button>
-                  <button className="date-label">📅 <em>{fmtTodayHeader()}</em></button>
+                  <button className="date-label">📅 {fmtTodayHeader()}</button>
                   <button className="arrow" title="Next day">›</button>
                   <button className="today-btn">Today</button>
                 </div>
               ) : (
                 <div className="date-nav">
                   <button className="arrow" title="Previous week">‹</button>
-                  <button className="date-label">📅 <em>{weekRange}</em></button>
+                  <button className="date-label">📅 {weekRange}</button>
                   <button className="arrow" title="Next week">›</button>
                   <button className="today-btn">This week</button>
                 </div>
               )}
             </div>
 
-            <div style={{
-              padding: "48px 24px",
-              border: "1px dashed var(--line-2)",
-              borderRadius: 10,
-              textAlign: "center",
-              color: "var(--ink-4)",
-              fontSize: 13.5,
-              background: "var(--bg-card)",
-            }}>
+            <div className="shell-empty">
               {intelView === "daily"
                 ? "Daily highlights will appear here — content design in progress."
                 : "Weekly report will appear here — content design in progress."}
             </div>
           </section>
 
-          {/* 3. MEMORY ─────────────────────────────────── */}
+          {/* 3. MEMORY */}
           <section className="chapter" id="memory">
             <div className="chapter-head">
               <span className="num">03</span>
               <h2>Memory</h2>
-              <span className="cadence">notes that grow with every visit</span>
+              <span className="chapter-cadence">notes that grow with every visit</span>
             </div>
 
-            <div style={{
-              padding: "48px 24px",
-              border: "1px dashed var(--line-2)",
-              borderRadius: 10,
-              textAlign: "center",
-              color: "var(--ink-4)",
-              fontSize: 13.5,
-              background: "var(--bg-card)",
-            }}>
+            <div className="shell-empty">
               Memory browser will appear here — content design in progress.<br />
-              <Link href="/intelligence" style={{ color: "var(--amber)", marginTop: 12, display: "inline-block" }}>
+              <Link href="/intelligence" style={{ color: "var(--color-tc-600)", marginTop: 12, display: "inline-block", textDecoration: "none", fontWeight: 600 }}>
                 Open the existing memory browser →
               </Link>
             </div>

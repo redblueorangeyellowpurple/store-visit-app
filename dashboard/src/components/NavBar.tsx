@@ -4,11 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const BASE_TABS = [
-  { href: "/",                 label: "Overview"         },
-  { href: "/intelligence",     label: "Intelligence"     },
-  { href: "/visits",           label: "Store Updates"    },
-  { href: "/staff",            label: "Store Staff"      },
-  { href: "/channel-managers", label: "Channel Managers" },
+  { href: "/",       label: "Dashboard"     },
+  { href: "/visits", label: "Store Updates" },
 ];
 
 const ADMIN_TAB = { href: "/admin", label: "Admin" };
