@@ -128,6 +128,8 @@ body {
   transition: box-shadow 0.15s;
 }
 .kpi-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+.kpi-card.clickable { cursor: pointer; }
+.kpi-card.clickable:hover { border-color: var(--color-tc-100); transform: translateY(-1px); }
 .kpi-card.accent {
   background: var(--color-tc-50);
   border-color: var(--color-tc-100);
@@ -1669,11 +1671,45 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 /* ── Dashboard v3 layout (sidebar + chapters) ─────────── */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr) 380px;
   gap: 0;
-  max-width: 1320px;
+  max-width: 1640px;
   margin: 0 auto;
 }
+
+/* Right-hand detail drawer — sticky full-height, mirrors /visits */
+.dashboard-detail {
+  position: sticky;
+  top: 105px; /* below top-bar (65px) + tab-bar (40px) */
+  align-self: start;
+  height: calc(100vh - 105px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+}
+.dashboard-drawer-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  padding: 12px 18px;
+}
+.dashboard-drawer-footer a {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px; border-radius: 9px;
+  background: var(--color-tc-50); color: var(--color-tc-600);
+  font-weight: 700; font-size: 13px; text-decoration: none;
+  transition: background 0.12s;
+}
+.dashboard-drawer-footer a:hover { background: var(--color-tc-100); }
+
+/* Clickable store/CM names in dashboard tables */
+.db-link {
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--color-tier-t1-fg); font-weight: 600; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.db-link:hover { text-decoration: underline; }
 .dashboard-sidebar {
   position: sticky;
   top: 105px; /* below top-bar (65px) + tab-bar (40px) */
@@ -1980,6 +2016,12 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
   padding: 6px 10px;
   font-size: 12px; font-weight: 600; color: var(--color-tc-600);
   background: transparent; border: 0; cursor: pointer; font-family: inherit;
+}
+
+/* Drop the detail drawer when there isn't room for three columns */
+@media (max-width: 1180px) {
+  .dashboard-grid { grid-template-columns: 240px minmax(0, 1fr); max-width: 1320px; }
+  .dashboard-detail { display: none; }
 }
 
 /* Hide sidebar on tablets/mobile */

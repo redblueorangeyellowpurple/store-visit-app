@@ -12,6 +12,9 @@ AM/IC web dashboard for TC Store Visit App.
 2. In BotFather: `/setdomain` → set to your Railway domain (required for Telegram Login Widget)
 3. `npm install && npm run dev`
 
+## Conventions
+- Every page component must run all hooks unconditionally — auth/loading gates (`if (!user) return null`) go on the JSX `return`, NOT above the `useMemo`/`useEffect` calls. Violating this throws React error #310 in production. App ships `app/error.tsx` so any future hook-order or render bug surfaces inline instead of as a browser-level "page couldn't load". See `claude-os-knowledge/insights/learnings/react-hooks-after-early-return.md`.
+
 ## Env vars
 - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — same as bot/miniapp
 - `TELEGRAM_BOT_TOKEN` — same as bot
@@ -25,7 +28,7 @@ AM/IC web dashboard for TC Store Visit App.
 - Add all env vars to the Railway service
 
 ## Routes
-- `/` — Home: KPI cards + store status grid + **weekly payroll grid** (range chips + custom from/to, AM-grouped CM rows)
+- `/` — Home: **3-column layout mirroring `/visits`** — left section nav (Statistics/Intelligence/Memory), middle content (KPI cards, CM execution, by-market/tier, stores-visited table, intelligence brief, memory notes), right **detail drawer**. Clicking a store/CM name opens the shared `StoreDetailPanel`/`CMDetailPanel` (from `@/components/DetailPanels`, kernel in `@/lib/visit-shared`); KPI cards open a history/breakdown drawer (weekly trend from `payroll.counts`, no extra fetch); memory notes open `MemoryNoteDrawer`. Each entity/KPI drawer deep-links into `/visits?store=|cm=|from=&to=` (the visits page seeds `selection`/`filterCMs` from those query params).
 - `/intelligence` — Daily Intelligence: brief reader (date chips + edit-as-new-version) + memory browser (5 scope tabs, search, sort, tier filter, 🔗 touched-in-this-brief toggle). Visible to all dashboard roles.
 - `/intelligence/notes/[slug]` — Single memory note (full content + version history + edit-as-new-version)
 - `/visits` — Store Updates: 2-up card grid; section chips are **single-section focus** (tap Good News → only Good News visits + only that section card per visit), not multi-select "has" filters; sections inside cards stack 1-column

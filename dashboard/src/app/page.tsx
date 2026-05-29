@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
+import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
+import { StoreDetailPanel, CMDetailPanel, StaffDetailPanel } from "@/components/DetailPanels";
+import type { DetailView } from "@/lib/visit-shared";
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -162,6 +166,9 @@ const SCOPE_ICON: Record<string, string> = {
   store: "🏬", person: "👤", theme: "🧵", channel: "🔗",
 };
 
+// Which KPI card's history/breakdown the drawer is showing.
+type KpiKey = "visits_week" | "stores_covered" | "active_cms" | "visits_month";
+
 export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -176,6 +183,13 @@ export default function HomePage() {
   const [reportLoading, setReportLoading] = useState(false);
 
   const [notes, setNotes] = useState<NoteSummary[]>([]);
+
+  // Right-hand detail drawer (mirrors /visits)
+  const [detail, setDetail] = useState<DetailView>(null);
+  const [kpi, setKpi] = useState<KpiKey | null>(null);
+  const [noteSlug, setNoteSlug] = useState<string | null>(null);
+  const [cmDetailTab, setCmDetailTab] = useState<"visits" | "stores">("visits");
+  const router = useRouter();
 
   const weekMon = useMemo(() => mondayOfISO(todayISO()), []);
   const weekSun = useMemo(() => shiftDays(weekMon, 6), [weekMon]);
@@ -269,6 +283,16 @@ export default function HomePage() {
     });
   }, [visits, activeStores]);
 
+  // ── Weekly visit totals (team-wide), for the KPI history drawer ─
+  // payroll.rows[].counts are per-CM weekly visit counts; sum across CMs.
+  const weeklyVisitTotals = useMemo(() => {
+    if (!payroll) return [] as { week: PayrollWeek; total: number }[];
+    return payroll.weeks.map((w, i) => ({
+      week: w,
+      total: payroll.rows.reduce((sum, r) => sum + (r.counts[i] ?? 0), 0),
+    }));
+  }, [payroll]);
+
   // ── Intelligence date nav ─────────────────────────────────────
   const activeIdx = activeDate ? reports.findIndex(r => r.report_date === activeDate) : -1;
   const hasPrev = activeIdx >= 0 && activeIdx < reports.length - 1; // older
@@ -296,6 +320,35 @@ export default function HomePage() {
     if (ratio >= 0.9) return { cls: "mid",  txt: "at avg" };
     return { cls: "low", txt: "below avg" };
   }
+
+  // ── Detail drawer openers (KPI + entity drawers are mutually exclusive) ──
+  function openStore(storeId: string, storeName: string) {
+    setKpi(null);
+    setDetail({ type: "store", storeId, storeName });
+  }
+  function openCM(telegramId: number, name: string, market: string) {
+    setKpi(null);
+    setDetail({ type: "cm", telegramId, name, market });
+    setCmDetailTab("visits");
+  }
+  function openKPI(k: KpiKey) {
+    setDetail(null);
+    setKpi(k);
+  }
+  // Panels hand back a visit to open; on the dashboard that means jumping
+  // to the scoped Store Updates feed.
+  const goToVisitStore = (storeId: string) => router.push(`/visits?store=${storeId}`);
+
+  // "Open in Store Updates →" target for the current drawer entity.
+  const monthStart = todayISO().slice(0, 8) + "01";
+  const drawerStoreUpdatesHref =
+    detail?.type === "store" ? `/visits?store=${detail.storeId}`
+    : detail?.type === "cm" ? `/visits?cm=${detail.telegramId}`
+    : null;
+  const kpiFeedHref =
+    kpi === "visits_month" ? `/visits?from=${monthStart}&to=${todayISO()}`
+    : kpi ? `/visits?from=${weekMon}&to=${weekSun}`
+    : null;
 
   if (!user) return null;
 
@@ -350,11 +403,11 @@ export default function HomePage() {
 
             <h3 className="sub-head" id="stats-overview">Overview</h3>
             <div className="kpi-row">
-              <div className="kpi-card accent">
+              <div className="kpi-card accent clickable" onClick={() => openKPI("visits_week")}>
                 <p className="kpi-value">{visits.length}</p>
                 <p className="kpi-label">Visits this week</p>
               </div>
-              <div className="kpi-card">
+              <div className="kpi-card clickable" onClick={() => openKPI("stores_covered")}>
                 <p className="kpi-value">
                   {uniqueStoresVisited}
                   <span style={{ fontSize: 18, color: "var(--color-ink-300)", marginLeft: 4 }}>
@@ -363,7 +416,7 @@ export default function HomePage() {
                 </p>
                 <p className="kpi-label">Stores covered</p>
               </div>
-              <div className="kpi-card">
+              <div className="kpi-card clickable" onClick={() => openKPI("active_cms")}>
                 <p className="kpi-value">
                   {stats?.active_cms_this_month ?? "—"}
                   <span style={{ fontSize: 18, color: "var(--color-ink-300)", marginLeft: 4 }}>
@@ -372,7 +425,7 @@ export default function HomePage() {
                 </p>
                 <p className="kpi-label">Active CMs (mo)</p>
               </div>
-              <div className="kpi-card">
+              <div className="kpi-card clickable" onClick={() => openKPI("visits_month")}>
                 <p className="kpi-value">{stats?.visits_this_month ?? "—"}</p>
                 <p className="kpi-label">Visits this month</p>
               </div>
@@ -413,7 +466,10 @@ export default function HomePage() {
                 return (
                   <div key={cm.telegram_id} className="row">
                     <div className="name">
-                      <span className="av" style={{ background: cm.color }}>{cm.name?.[0] ?? "?"}</span> {cm.name ?? "—"}
+                      <span className="av" style={{ background: cm.color }}>{cm.name?.[0] ?? "?"}</span>{" "}
+                      <button className="db-link" onClick={() => openCM(cm.telegram_id, cm.name ?? "—", cm.market)}>
+                        {cm.name ?? "—"}
+                      </button>
                     </div>
                     <div className="market">{cm.market}</div>
                     <div>
@@ -500,10 +556,18 @@ export default function HomePage() {
                 const sec = countSections(v);
                 return (
                   <div key={v.id} className="db-row">
-                    <span className="store">{v.store_name}</span>
+                    <span className="store">
+                      <button className="db-link" onClick={() => openStore(v.store_id, v.store_name)}>
+                        {v.store_name}
+                      </button>
+                    </span>
                     <span className="mk">{v.store_market}</span>
                     <span>{v.store_tier && <span className="tier">{v.store_tier}</span>}</span>
-                    <span>{v.cm_name}</span>
+                    <span>
+                      <button className="db-link" onClick={() => openCM(v.cm_telegram_id, v.cm_name, v.store_market)}>
+                        {v.cm_name}
+                      </button>
+                    </span>
                     <span className="mk">{dayShort(v.visit_date)}</span>
                     <div className="sec-dots">
                       {sec.on.map((on, i) => (
@@ -623,15 +687,21 @@ export default function HomePage() {
                 </div>
                 <div className="db-table">
                   {notes.map((n) => (
-                    <Link
+                    <button
                       key={n.slug}
-                      href={`/intelligence/notes/${n.slug}`}
+                      onClick={() => setNoteSlug(n.slug)}
                       className="db-row"
                       style={{
                         gridTemplateColumns: "32px 1fr auto",
                         textDecoration: "none",
                         color: "inherit",
                         gap: 12,
+                        background: "none",
+                        border: "none",
+                        font: "inherit",
+                        textAlign: "left",
+                        width: "100%",
+                        cursor: "pointer",
                       }}
                     >
                       <span style={{ fontSize: 16 }}>{SCOPE_ICON[n.scope] ?? "✦"}</span>
@@ -646,7 +716,7 @@ export default function HomePage() {
                       <span style={{ fontSize: 11, color: "var(--color-ink-400)", fontFamily: "ui-monospace, monospace" }}>
                         {fmtRelative(n.last_touched_at)}
                       </span>
-                    </Link>
+                    </button>
                   ))}
                 </div>
               </>
@@ -654,7 +724,186 @@ export default function HomePage() {
           </section>
 
         </main>
+
+        {/* RIGHT DETAIL DRAWER ──────────────────────────── */}
+        <aside className="dashboard-detail">
+          {kpi !== null ? (
+            <>
+              <KpiDrawer
+                kpi={kpi}
+                visitsThisWeek={visits.length}
+                uniqueStoresVisited={uniqueStoresVisited}
+                stats={stats}
+                weeklyVisitTotals={weeklyVisitTotals}
+                byMarket={byMarket}
+                cmRows={cmRows}
+                onClose={() => setKpi(null)}
+                onOpenCM={openCM}
+              />
+              {kpiFeedHref && (
+                <div className="dashboard-drawer-footer">
+                  <Link href={kpiFeedHref}>View these visits in Store Updates →</Link>
+                </div>
+              )}
+            </>
+          ) : detail === null ? (
+            <div className="vdp-empty-state">
+              <div className="vdp-empty-icon" style={{ fontSize: 32, opacity: 0.2 }}>🏪</div>
+              <div className="vdp-empty-title">Nothing selected</div>
+              <div className="vdp-empty-hint">Click a store, CM, KPI, or note to see details here</div>
+            </div>
+          ) : (
+            <>
+              {detail.type === "store" ? (
+                <StoreDetailPanel
+                  key={detail.storeId}
+                  storeId={detail.storeId}
+                  storeName={detail.storeName}
+                  onClose={() => setDetail(null)}
+                  onOpenCM={(id, name, market) => openCM(id, name, market)}
+                  onOpenStaff={(staffId, staffName, sName) => setDetail({ type: "staff", staffId, staffName, storeName: sName })}
+                  onOpenVisit={(storeId) => goToVisitStore(storeId)}
+                  onOpenNote={(slug) => setNoteSlug(slug)}
+                />
+              ) : detail.type === "cm" ? (
+                <CMDetailPanel
+                  key={detail.telegramId}
+                  telegramId={detail.telegramId}
+                  name={detail.name}
+                  market={detail.market}
+                  tab={cmDetailTab}
+                  onTabChange={setCmDetailTab}
+                  onClose={() => setDetail(null)}
+                  onOpenStore={(storeId, storeName) => openStore(storeId, storeName)}
+                  onOpenVisit={(storeId) => goToVisitStore(storeId)}
+                  onOpenNote={(slug) => setNoteSlug(slug)}
+                />
+              ) : (
+                <StaffDetailPanel
+                  key={detail.staffId}
+                  staffId={detail.staffId}
+                  staffName={detail.staffName}
+                  storeName={detail.storeName}
+                  onClose={() => setDetail(null)}
+                  onOpenVisit={(storeId) => goToVisitStore(storeId)}
+                />
+              )}
+              {drawerStoreUpdatesHref && (
+                <div className="dashboard-drawer-footer">
+                  <Link href={drawerStoreUpdatesHref}>Open in Store Updates →</Link>
+                </div>
+              )}
+            </>
+          )}
+        </aside>
       </div>
+
+      <MemoryNoteDrawer slug={noteSlug} onClose={() => setNoteSlug(null)} />
     </div>
+  );
+}
+
+// ─── KPI history / breakdown drawer ───────────────────────────────────────────
+// Reuses already-computed page data — no extra fetch. Visit KPIs show a weekly
+// trend; coverage shows per-market; active-CMs lists CMs (clickable).
+
+interface CmRow { telegram_id: number; name: string; market: "SG" | "MY" | "TH" | "HK"; thisWeek: number; avg: number }
+interface MarketRow { market: "SG" | "MY" | "TH" | "HK"; visits: number; stores: number; total: number; rate: number | null }
+
+function KpiDrawer({
+  kpi, visitsThisWeek, uniqueStoresVisited, stats, weeklyVisitTotals, byMarket, cmRows, onClose, onOpenCM,
+}: {
+  kpi: KpiKey;
+  visitsThisWeek: number;
+  uniqueStoresVisited: number;
+  stats: Stats | null;
+  weeklyVisitTotals: { week: PayrollWeek; total: number }[];
+  byMarket: MarketRow[];
+  cmRows: CmRow[];
+  onClose: () => void;
+  onOpenCM: (telegramId: number, name: string, market: string) => void;
+}) {
+  const META: Record<KpiKey, { label: string; value: string }> = {
+    visits_week:    { label: "Visits this week",   value: `${visitsThisWeek}` },
+    stores_covered: { label: "Stores covered",     value: `${uniqueStoresVisited} / ${stats?.total_stores ?? "—"}` },
+    active_cms:     { label: "Active CMs (month)",  value: `${stats?.active_cms_this_month ?? "—"} / ${stats?.total_cms ?? "—"}` },
+    visits_month:   { label: "Visits this month",  value: `${stats?.visits_this_month ?? "—"}` },
+  };
+  const meta = META[kpi];
+  const maxWeek = Math.max(...weeklyVisitTotals.map(w => w.total), 1);
+
+  return (
+    <>
+      <div className="vdp-header">
+        <div className="vdp-header-row">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="vdp-sub" style={{ marginBottom: 2 }}>📊 Metric</div>
+            <div className="vdp-title">{meta.label}</div>
+            <div className="vdp-sub">{meta.value}</div>
+          </div>
+          <button className="vdp-close" onClick={onClose}>✕</button>
+        </div>
+      </div>
+
+      <div className="vdp-scroll">
+        {(kpi === "visits_week" || kpi === "visits_month") && (
+          weeklyVisitTotals.length === 0 ? (
+            <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>No history yet.</p>
+          ) : (
+            <>
+              <div className="vdp-section-header">Weekly visits<span className="vdp-section-count">{weeklyVisitTotals.length} wks</span></div>
+              {weeklyVisitTotals.map((w, i) => {
+                const isCurrent = i === weeklyVisitTotals.length - 1;
+                return (
+                  <div key={w.week.start} className="vdp-item" style={{ cursor: "default" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="vdp-item-name" style={{ fontWeight: isCurrent ? 800 : 600 }}>{fmtWeekRange(w.week.start)}</div>
+                      <div className="bar-track" style={{ marginTop: 4 }}>
+                        <div className="bar-fill" style={{ width: `${Math.round((w.total / maxWeek) * 100)}%`, background: isCurrent ? "var(--color-tc-500)" : "var(--color-ink-300)" }} />
+                      </div>
+                    </div>
+                    <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{w.total}</span>
+                  </div>
+                );
+              })}
+            </>
+          )
+        )}
+
+        {kpi === "stores_covered" && (
+          <>
+            <div className="vdp-section-header">Coverage by market</div>
+            {byMarket.map(m => (
+              <div key={m.market} className="vdp-kv-row">
+                <span className="vdp-kv-label">{m.market}</span>
+                <span className="vdp-kv-val">
+                  {m.stores}/{m.total} stores
+                  {m.rate !== null && <span style={{ color: "var(--color-ink-400)", fontWeight: 600 }}> · {Math.round(m.rate * 100)}%</span>}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {kpi === "active_cms" && (
+          cmRows.length === 0 ? (
+            <p style={{ fontSize: 13, color: "var(--color-ink-300)", textAlign: "center", paddingTop: 32 }}>No CM activity yet.</p>
+          ) : (
+            <>
+              <div className="vdp-section-header">Channel managers<span className="vdp-section-count">{cmRows.length}</span></div>
+              {cmRows.map(cm => (
+                <div key={cm.telegram_id} className="vdp-item" onClick={() => onOpenCM(cm.telegram_id, cm.name, cm.market)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="vdp-item-name">{cm.name}</div>
+                    <div className="vdp-item-meta">{cm.market} · {cm.thisWeek} this week · {cm.avg.toFixed(1)} avg</div>
+                  </div>
+                  <span className="vdp-item-chev">›</span>
+                </div>
+              ))}
+            </>
+          )
+        )}
+      </div>
+    </>
   );
 }
