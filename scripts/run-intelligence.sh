@@ -1,29 +1,33 @@
 #!/bin/bash
 # Manually fire the SVA intelligence routine from any terminal.
 #
-# Usage:
-#   ./scripts/run-intelligence.sh                    # today SGT
-#   ./scripts/run-intelligence.sh 2026-05-26         # specific date
-#   ./scripts/run-intelligence.sh 2026-05-26 force   # regenerate even if report exists
-#   ./scripts/run-intelligence.sh today force        # today + force
+# Usage (flags combine in any order):
+#   ./scripts/run-intelligence.sh                          # yesterday SGT, broadcast on
+#   ./scripts/run-intelligence.sh 2026-05-28               # specific date
+#   ./scripts/run-intelligence.sh today                    # today SGT
+#   ./scripts/run-intelligence.sh 2026-05-28 force         # regenerate even if a report exists
+#   ./scripts/run-intelligence.sh 2026-05-28 nobroadcast   # backfill silently (no Telegram)
 
 set -euo pipefail
 
 ROUTINE_SPEC="/Users/wilsontan/Claude/tc-store-visit-app_v2/tc-sva-bot/scripts/intelligence-routine.md"
 
-DATE_ARG="${1:-today}"
-FORCE_ARG="${2:-}"
+DATE_ARG=""; FORCE=""; NOBROADCAST=""
+for a in "$@"; do
+  case "$a" in
+    force)       FORCE=1 ;;
+    nobroadcast) NOBROADCAST=1 ;;
+    today)       DATE_ARG=$(TZ=Asia/Singapore date +%Y-%m-%d) ;;
+    yesterday)   DATE_ARG=$(TZ=Asia/Singapore date -v-1d +%Y-%m-%d) ;;
+    *)           DATE_ARG="$a" ;;
+  esac
+done
 
-if [[ "$DATE_ARG" == "today" ]]; then
-  REPORT_DATE=$(TZ=Asia/Singapore date +%Y-%m-%d)
-else
-  REPORT_DATE="$DATE_ARG"
-fi
+PROMPT="Execute the routine at $ROUTINE_SPEC"
+[[ -n "$DATE_ARG" ]]     && PROMPT="$PROMPT for date $DATE_ARG"
+[[ -n "$FORCE" ]]        && PROMPT="$PROMPT. Use force (skip the idempotency check)"
+[[ -n "$NOBROADCAST" ]]  && PROMPT="$PROMPT. Use nobroadcast (do not send any Telegram)"
+PROMPT="$PROMPT."
 
-PROMPT="Execute the routine at $ROUTINE_SPEC for date $REPORT_DATE."
-if [[ "$FORCE_ARG" == "force" ]]; then
-  PROMPT="$PROMPT Use force (skip the idempotency check)."
-fi
-
-echo "[run-intelligence] firing routine: $REPORT_DATE${FORCE_ARG:+ (force)}"
+echo "[run-intelligence] ${DATE_ARG:-yesterday}${FORCE:+ force}${NOBROADCAST:+ nobroadcast}"
 claude --print --dangerously-skip-permissions "$PROMPT"
