@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -66,6 +66,38 @@ interface PayrollGrid {
   range: { from: string; to: string };
 }
 
+interface CoverageStore {
+  id: string;
+  name: string;
+  chain: string;
+  market: "SG" | "MY" | "TH" | "HK";
+  tier: "T1" | "T2" | "T3" | "T4" | null;
+  weeks: boolean[];
+  last_visit_date: string | null;
+}
+interface CoverageGrid {
+  weeks: string[];
+  stores: CoverageStore[];
+  total: number;
+  ever_visited: number;
+  asof: string;
+}
+
+interface ExecutionRow {
+  telegram_id: number;
+  full_name: string;
+  market: "SG" | "MY" | "TH" | "HK";
+  planned: number;
+  fulfilled: number;
+  executed: number;
+}
+interface ExecutionGrid {
+  rows: ExecutionRow[];
+  total_planned: number;
+  total_executed: number;
+  range: { from: string; to: string };
+}
+
 interface ReportSummary {
   id: string;
   report_date: string;
@@ -118,9 +150,6 @@ function fmtWeekRange(monIso: string): string {
   const mShort = (d: Date) => d.toLocaleDateString("en-GB", { month: "short" });
   return `${mon.getDate()} ${mShort(mon)} — ${sun.getDate()} ${mShort(sun)}`;
 }
-function dayShort(iso: string): string {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" });
-}
 function fmtRelative(iso: string): string {
   const then = new Date(iso).getTime();
   const days = Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
@@ -130,29 +159,8 @@ function fmtRelative(iso: string): string {
   if (days < 60) return `${Math.floor(days / 7)}w ago`;
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
-function countSections(v: VisitRow): { on: boolean[]; total: number } {
-  const arr = [v.good_news, v.competitors, v.display_stock, v.follow_up, v.buzz_plan];
-  const on = arr.map((s) => !!s);
-  return { on, total: on.filter(Boolean).length };
-}
-
 const CM_COLORS = ["#8B6534", "#6B4E7A", "#4A6A3F", "#3F5A78", "#B86B00", "#5B3FB5", "#1E7A3A", "#B5331A"];
 function colorForIdx(i: number) { return CM_COLORS[i % CM_COLORS.length]; }
-
-function trendPolyline(counts: number[]): string {
-  if (counts.length === 0) return "";
-  const max = Math.max(...counts, 1);
-  const w = 100;
-  const h = 24;
-  const stepX = counts.length > 1 ? w / (counts.length - 1) : 0;
-  return counts
-    .map((c, i) => {
-      const x = i * stepX;
-      const y = h - (c / max) * (h - 4) - 2; // pad 2 top/bottom
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
 
 function stripAnalyticsSection(md: string | null | undefined): string {
   if (!md) return "";
@@ -175,6 +183,12 @@ export default function HomePage() {
   const [stores, setStores] = useState<StoreStatus[]>([]);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [payroll, setPayroll] = useState<PayrollGrid | null>(null);
+  const [coverage, setCoverage] = useState<CoverageGrid | null>(null);
+  const [execution, setExecution] = useState<ExecutionGrid | null>(null);
+
+  // Statistics view toggle + coverage grouping
+  const [statsView, setStatsView] = useState<"stores" | "cms">("stores");
+  const [coverageGroup, setCoverageGroup] = useState<"country" | "tier">("country");
 
   const [intelView, setIntelView] = useState<"daily" | "weekly">("daily");
   const [reports, setReports] = useState<ReportSummary[]>([]);
@@ -209,6 +223,12 @@ export default function HomePage() {
     });
     fetch(`/api/payroll?from=${payrollFrom}&to=${payrollTo}`).then(r => r.ok ? r.json() : null).then(d => {
       if (d) setPayroll(d);
+    });
+    fetch("/api/coverage").then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setCoverage(d);
+    });
+    fetch(`/api/execution?from=${weekMon}&to=${weekSun}`).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setExecution(d);
     });
     fetch("/api/intelligence/reports").then(r => r.ok ? r.json() : null).then(d => {
       const list: ReportSummary[] = d?.reports ?? [];
@@ -271,18 +291,6 @@ export default function HomePage() {
     });
   }, [visits, activeStores]);
 
-  // ── By-tier (live) ────────────────────────────────────────────
-  const byTier = useMemo(() => {
-    const tiers: ("T1" | "T2" | "T3" | "T4")[] = ["T1", "T2", "T3", "T4"];
-    return tiers.map((t) => {
-      const visitsInTier = visits.filter(v => v.store_tier === t);
-      const uniqueStores = new Set(visitsInTier.map(v => v.store_id)).size;
-      const totalStoresInTier = activeStores.filter(s => s.tier === t).length;
-      const rate = totalStoresInTier > 0 ? uniqueStores / totalStoresInTier : null;
-      return { tier: t, visits: visitsInTier.length, stores: uniqueStores, total: totalStoresInTier, rate };
-    });
-  }, [visits, activeStores]);
-
   // ── Weekly visit totals (team-wide), for the KPI history drawer ─
   // payroll.rows[].counts are per-CM weekly visit counts; sum across CMs.
   const weeklyVisitTotals = useMemo(() => {
@@ -300,26 +308,6 @@ export default function HomePage() {
   function goPrev() { if (hasPrev) setActiveDate(reports[activeIdx + 1].report_date); }
   function goNext() { if (hasNext) setActiveDate(reports[activeIdx - 1].report_date); }
   function goToday() { if (reports.length > 0) setActiveDate(reports[0].report_date); }
-
-  function rateLabel(rate: number | null): string {
-    if (rate === null) return "—";
-    return `${Math.round(rate * 100)}%`;
-  }
-  function ratePillClass(rate: number | null): string {
-    if (rate === null) return "low";
-    if (rate >= 0.8) return "good";
-    if (rate >= 0.5) return "mid";
-    return "low";
-  }
-
-  function deltaPill(thisWeek: number, avg: number) {
-    if (avg === 0 && thisWeek === 0) return { cls: "low", txt: "—" };
-    if (avg === 0) return { cls: "good", txt: "+new" };
-    const ratio = thisWeek / avg;
-    if (ratio >= 1.1) return { cls: "good", txt: "above avg" };
-    if (ratio >= 0.9) return { cls: "mid",  txt: "at avg" };
-    return { cls: "low", txt: "below avg" };
-  }
 
   // ── Detail drawer openers (KPI + entity drawers are mutually exclusive) ──
   function openStore(storeId: string, storeName: string) {
@@ -367,8 +355,7 @@ export default function HomePage() {
                 <a className="chap" href="#stats"><span className="n">01</span> Statistics</a>
                 <ul className="sub">
                   <li><a href="#stats-overview">Overview</a></li>
-                  <li><a href="#stats-cms">CM execution</a></li>
-                  <li><a href="#stats-visited">Stores visited</a></li>
+                  <li><a href="#stats-coverage">Coverage &amp; execution</a></li>
                 </ul>
               </li>
               <li style={{ marginTop: 10 }}>
@@ -431,162 +418,32 @@ export default function HomePage() {
               </div>
             </div>
 
-            <h3 className="sub-head" id="stats-cms">
-              CM execution
-              <span style={{ marginLeft: 8, color: "var(--color-ink-400)", fontWeight: 500, fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
-                this week vs 4-week trend
-              </span>
-            </h3>
-            <div className="cm-table">
-              <div className="row head">
-                <span>Channel manager</span>
-                <span>Market</span>
-                <span>This wk / 4-wk avg</span>
-                <span>4-wk trend</span>
-                <span style={{ textAlign: "right" }}>vs avg</span>
+            <h3 className="sub-head" id="stats-coverage">Coverage &amp; execution</h3>
+
+            <div className="stats-bar">
+              <div className="stats-seg">
+                <button className={statsView === "stores" ? "on" : ""} onClick={() => setStatsView("stores")}>Stores</button>
+                <button className={statsView === "cms" ? "on" : ""} onClick={() => setStatsView("cms")}>CMs</button>
               </div>
-              {!payroll && (
-                <div className="row">
-                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
-                    Loading…
-                  </span>
-                </div>
+              {statsView === "stores" && coverage && (
+                <span className="stats-count">
+                  <b>{coverage.ever_visited}</b> / {coverage.total} visited
+                  {coverage.total - coverage.ever_visited > 0 && (
+                    <> · <b className="r">{coverage.total - coverage.ever_visited} never visited</b></>
+                  )}
+                </span>
               )}
-              {payroll && cmRows.length === 0 && (
-                <div className="row">
-                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
-                    No CM activity in the last 4 weeks.
-                  </span>
-                </div>
-              )}
-              {cmRows.map((cm) => {
-                const max = Math.max(cm.thisWeek, Math.ceil(cm.avg), 1);
-                const pct = Math.round((cm.thisWeek / max) * 100);
-                const delta = deltaPill(cm.thisWeek, cm.avg);
-                return (
-                  <div key={cm.telegram_id} className="row">
-                    <div className="name">
-                      <span className="av" style={{ background: cm.color }}>{cm.name?.[0] ?? "?"}</span>{" "}
-                      <button className="db-link" onClick={() => openCM(cm.telegram_id, cm.name ?? "—", cm.market)}>
-                        {cm.name ?? "—"}
-                      </button>
-                    </div>
-                    <div className="market">{cm.market}</div>
-                    <div>
-                      <div className="bar-track">
-                        <div className="bar-fill" style={{ width: `${pct}%`, background: cm.color }}></div>
-                      </div>
-                      <div className="bar-label">{cm.thisWeek} <span style={{ color: "var(--color-ink-400)" }}>/ {cm.avg.toFixed(1)}</span></div>
-                    </div>
-                    <div>
-                      <svg className="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none"
-                           stroke="var(--color-ink-500)" strokeWidth="1.5" fill="none">
-                        <polyline points={trendPolyline(cm.counts)} />
-                      </svg>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <span className={`rate-pill ${delta.cls}`}>{delta.txt}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="split-panels">
-              <div className="panel">
-                <h4>By market</h4>
-                {byMarket.map((m) => (
-                  <div key={m.market} className="panel-row">
-                    <span className="k">{m.market}</span>
-                    <span className="v">{m.visits} visit{m.visits !== 1 ? "s" : ""} · {m.stores}/{m.total} stores</span>
-                    {m.rate !== null
-                      ? <span className={`rate-pill ${ratePillClass(m.rate)}`}>{rateLabel(m.rate)}</span>
-                      : <span style={{ color: "var(--color-ink-300)", fontSize: 11 }}>—</span>}
-                  </div>
-                ))}
-              </div>
-              <div className="panel">
-                <h4>By tier</h4>
-                {byTier.map((t) => (
-                  <div key={t.tier} className="panel-row">
-                    <span className="k">{t.tier}</span>
-                    <span className="v">{t.visits} visit{t.visits !== 1 ? "s" : ""} · {t.stores}/{t.total} stores</span>
-                    {t.rate !== null
-                      ? <span className={`rate-pill ${ratePillClass(t.rate)}`}>{rateLabel(t.rate)}</span>
-                      : <span style={{ color: "var(--color-ink-300)", fontSize: 11 }}>—</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <h3 className="sub-head" id="stats-visited">
-              Stores visited
-              <span style={{ marginLeft: 8, color: "var(--color-ink-400)", fontWeight: 500, fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
-                {visits.length} visits · {uniqueStoresVisited} stores
-              </span>
-            </h3>
-
-            <div className="db-head">
-              <div className="view-toggle">
-                <button className="active">Table</button>
-              </div>
-              <Link href="/visits" className="db-btn" style={{ marginLeft: "auto", color: "var(--color-tc-600)", textDecoration: "none" }}>
-                Open feed →
-              </Link>
-            </div>
-
-            <div className="db-table">
-              <div className="db-row head">
-                <span>Store</span>
-                <span>Market</span>
-                <span>Tier</span>
-                <span>CM</span>
-                <span>Day</span>
-                <span>Sections</span>
-                <span style={{ textAlign: "right" }}>—</span>
-              </div>
-              {visits.length === 0 && (
-                <div className="db-row">
-                  <span style={{ gridColumn: "1 / -1", color: "var(--color-ink-400)", padding: "12px 0" }}>
-                    No visits this week yet.
-                  </span>
-                </div>
-              )}
-              {visits.slice(0, 12).map((v) => {
-                const sec = countSections(v);
-                return (
-                  <div key={v.id} className="db-row">
-                    <span className="store">
-                      <button className="db-link" onClick={() => openStore(v.store_id, v.store_name)}>
-                        {v.store_name}
-                      </button>
-                    </span>
-                    <span className="mk">{v.store_market}</span>
-                    <span>{v.store_tier && <span className="tier">{v.store_tier}</span>}</span>
-                    <span>
-                      <button className="db-link" onClick={() => openCM(v.cm_telegram_id, v.cm_name, v.store_market)}>
-                        {v.cm_name}
-                      </button>
-                    </span>
-                    <span className="mk">{dayShort(v.visit_date)}</span>
-                    <div className="sec-dots">
-                      {sec.on.map((on, i) => (
-                        <div key={i} className={`d${on ? " on" : ""}`}></div>
-                      ))}
-                    </div>
-                    <span style={{ textAlign: "right", fontSize: 11, color: "var(--color-ink-400)", fontFamily: "ui-monospace, monospace" }}>
-                      {sec.total}/5
-                    </span>
-                  </div>
-                );
-              })}
-              {visits.length > 0 && (
-                <div className="db-footer">
-                  <span>Showing {Math.min(visits.length, 12)} of {visits.length}</span>
-                  <span>{stores.length} total stores</span>
-                </div>
+              {statsView === "cms" && execution && (
+                <span className="stats-count">
+                  team <b>{execution.total_executed}</b> executed this week
+                  {execution.total_planned > 0 && <> · <b>{execution.total_planned}</b> planned</>}
+                </span>
               )}
             </div>
+
+            {statsView === "stores"
+              ? <CoverageView coverage={coverage} group={coverageGroup} onGroupChange={setCoverageGroup} onOpenStore={openStore} />
+              : <ExecutionView execution={execution} weekRange={weekRange} />}
           </section>
 
           {/* 2. INTELLIGENCE */}
@@ -905,5 +762,248 @@ function KpiDrawer({
         )}
       </div>
     </>
+  );
+}
+
+// ─── Statistics: Coverage heatmap (Stores view) ───────────────────────────────
+
+const COV_CADENCE: Record<string, number> = { T1: 7, T2: 14, T3: 30, T4: 90 };
+const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+const MARKET_NAME: Record<string, string> = { SG: "Singapore", MY: "Malaysia", TH: "Thailand", HK: "Hong Kong" };
+const MARKET_ORDER = ["SG", "MY", "TH", "HK"];
+const TIER_META: { key: "T1" | "T2" | "T3" | "T4" | null; label: string; cad: string }[] = [
+  { key: "T1", label: "Tier 1", cad: "weekly" },
+  { key: "T2", label: "Tier 2", cad: "fortnightly" },
+  { key: "T3", label: "Tier 3", cad: "monthly" },
+  { key: "T4", label: "Tier 4", cad: "quarterly" },
+  { key: null, label: "Untiered", cad: "no set cadence" },
+];
+
+function daysAgoFrom(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400000);
+}
+function covStatus(days: number | null, tier: string | null): "g" | "a" | "r" {
+  if (days === null) return "r";
+  const c = (tier && COV_CADENCE[tier]) || 30;
+  return days > c ? "r" : days > c * 0.75 ? "a" : "g";
+}
+function covBarColor(p: number): string {
+  return p >= 80 ? "#2F8A57" : p >= 40 ? "#B5811F" : "#C0473C";
+}
+function dayMonth(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+function coverageRatio(stores: CoverageStore[]): number {
+  if (!stores.length) return 0;
+  return stores.filter((s) => s.last_visit_date !== null).length / stores.length;
+}
+
+function HeatHead({ weeks }: { weeks: string[] }) {
+  return (
+    <div className="hm-head">
+      <span /><span>Store</span><span className="hm-tierlab">Tier</span>
+      {weeks.map((w, i) => (
+        <span key={w} className={`hm-wk${i === weeks.length - 1 ? " now" : ""}`}>{dayMonth(w)}</span>
+      ))}
+      <span className="hm-lastlab">Last visit</span>
+    </div>
+  );
+}
+
+function HeatRow({ store, onOpenStore }: { store: CoverageStore; onOpenStore: (id: string, name: string) => void }) {
+  const days = daysAgoFrom(store.last_visit_date);
+  const st = covStatus(days, store.tier);
+  return (
+    <div className="hm-row">
+      <span className={`hm-dot ${st}`} />
+      <button className="hm-name" onClick={() => onOpenStore(store.id, store.name)}>{store.name}</button>
+      <span className={`hm-tier ${store.tier ?? "none"}`}>{store.tier ?? "–"}</span>
+      {store.weeks.map((v, i) => (
+        <span key={i} className={`hm-cell${v ? " v" : ""}${i === store.weeks.length - 1 ? " now" : ""}`} />
+      ))}
+      <span className="hm-last">
+        {days !== null ? `${days}d ago · ${dayMonth(store.last_visit_date!)}` : "never"}
+      </span>
+    </div>
+  );
+}
+
+function ChannelBlock({ chain, stores, weeks, onOpenStore }: {
+  chain: string; stores: CoverageStore[]; weeks: string[]; onOpenStore: (id: string, name: string) => void;
+}) {
+  const visited = stores.filter((s) => s.last_visit_date !== null);
+  const never = stores.length - visited.length;
+  const tot = stores.length;
+  const pct = tot ? Math.round((visited.length / tot) * 100) : 0;
+  const open = visited.length > 0 && visited.length <= 8;
+  return (
+    <details className="cov-chan" open={open}>
+      <summary className="cov-chan-h">
+        <span className="cov-chan-name">{chain}{pct === 100 && tot > 0 && <span className="cov-full">✓ full</span>}</span>
+        <span className="cov-bar"><i style={{ width: `${pct}%`, background: covBarColor(pct) }} /></span>
+        <span className="cov-frac">{visited.length}<small>/{tot}</small></span>
+        <span className="cov-chev">›</span>
+      </summary>
+      <div className="cov-grid">
+        <HeatHead weeks={weeks} />
+        {visited.map((s) => <HeatRow key={s.id} store={s} onOpenStore={onOpenStore} />)}
+        {never > 0 && (
+          <div className="cov-never"><span className="cov-never-pill">{never}</span> not yet visited — never logged</div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function CovBand({ title, flag, tierChip, cad, visited, total, openDefault, children }: {
+  title: string; flag?: string; tierChip?: "T1" | "T2" | "T3" | "T4" | null; cad?: string;
+  visited: number; total: number; openDefault?: boolean; children: ReactNode;
+}) {
+  const pct = total ? Math.round((visited / total) * 100) : 0;
+  const isTier = tierChip !== undefined;
+  return (
+    <details className="cov-band" open={openDefault}>
+      <summary className="cov-band-h">
+        <span className="cov-band-title">
+          {isTier
+            ? <span className={`cov-tierchip ${tierChip ?? "none"}`}>{tierChip ?? "–"}</span>
+            : <span className="cov-flag">{flag}</span>}
+          {title}
+          {cad && <span className="cov-cad">· {cad}</span>}
+        </span>
+        <span className="cov-bar"><i style={{ width: `${pct}%`, background: covBarColor(pct) }} /></span>
+        <span className="cov-frac">{visited}<small> / {total} visited</small></span>
+        <span className="cov-chev">›</span>
+      </summary>
+      <div className="cov-chans">{children}</div>
+    </details>
+  );
+}
+
+function CoverageView({ coverage, group, onGroupChange, onOpenStore }: {
+  coverage: CoverageGrid | null;
+  group: "country" | "tier";
+  onGroupChange: (g: "country" | "tier") => void;
+  onOpenStore: (id: string, name: string) => void;
+}) {
+  if (!coverage) return <div className="shell-empty">Loading coverage…</div>;
+  const { weeks, stores, total, ever_visited } = coverage;
+  const pct = total ? Math.round((ever_visited / total) * 100) : 0;
+  const never = total - ever_visited;
+
+  function channelsFor(subset: CoverageStore[]) {
+    const chains = [...new Set(subset.map((s) => s.chain))];
+    return chains
+      .map((c) => ({ chain: c, stores: subset.filter((s) => s.chain === c) }))
+      .sort((a, b) => coverageRatio(a.stores) - coverageRatio(b.stores)); // worst-covered first
+  }
+
+  let bands: ReactNode;
+  if (group === "country") {
+    const markets = MARKET_ORDER.filter((m) => stores.some((s) => s.market === m));
+    bands = markets.map((m) => {
+      const subset = stores.filter((s) => s.market === m);
+      const v = subset.filter((s) => s.last_visit_date !== null).length;
+      return (
+        <CovBand key={m} title={MARKET_NAME[m] ?? m} flag={MARKET_FLAG[m] ?? "🏳️"} visited={v} total={subset.length} openDefault>
+          {channelsFor(subset).map((ch) => (
+            <ChannelBlock key={ch.chain} chain={ch.chain} stores={ch.stores} weeks={weeks} onOpenStore={onOpenStore} />
+          ))}
+        </CovBand>
+      );
+    });
+  } else {
+    bands = TIER_META.filter((t) => stores.some((s) => s.tier === t.key)).map((t) => {
+      const subset = stores.filter((s) => s.tier === t.key);
+      const v = subset.filter((s) => s.last_visit_date !== null).length;
+      return (
+        <CovBand key={t.label} title={t.label} tierChip={t.key} cad={t.cad} visited={v} total={subset.length}
+          openDefault={t.key === "T2" || t.key === "T3"}>
+          {channelsFor(subset).map((ch) => (
+            <ChannelBlock key={ch.chain} chain={ch.chain} stores={ch.stores} weeks={weeks} onOpenStore={onOpenStore} />
+          ))}
+        </CovBand>
+      );
+    });
+  }
+
+  return (
+    <div className="cov-wrap">
+      <div className="cov-overall">
+        <span className="cov-overall-big">{ever_visited}<span> / {total} stores</span></span>
+        <span className="cov-overall-bar"><i style={{ width: `${pct}%` }} /></span>
+        <span className="cov-overall-note">{pct}% visited{never > 0 && <> · <b>{never} never visited</b></>}</span>
+      </div>
+
+      <div className="cov-toggle">
+        <button className={group === "country" ? "on" : ""} onClick={() => onGroupChange("country")}>Country → Channel</button>
+        <button className={group === "tier" ? "on" : ""} onClick={() => onGroupChange("tier")}>Tier → Channel</button>
+      </div>
+
+      <div className="cov-legend">
+        <span><i className="cov-sq v" /> visited</span>
+        <span><i className="cov-sq" /> no visit</span>
+        <span><i className="cov-sq now" /> this week</span>
+        <span className="cov-legend-cad">Cadence: T1 weekly · T2 fortnightly · T3 monthly · T4 quarterly</span>
+      </div>
+      <p className="cov-sub">Last 6 weeks · filled = visited that week. Status judged vs each tier&apos;s cadence.</p>
+
+      <div className="cov-groups">{bands}</div>
+    </div>
+  );
+}
+
+// ─── Statistics: Execution (CMs view) ─────────────────────────────────────────
+
+function ExecutionView({ execution, weekRange }: { execution: ExecutionGrid | null; weekRange: string }) {
+  if (!execution) return <div className="shell-empty">Loading…</div>;
+  const { rows, total_planned, total_executed } = execution;
+
+  if (total_planned === 0) {
+    return (
+      <div className="exec-empty">
+        <div className="exec-empty-icon">🗓️</div>
+        <div className="exec-empty-title">No plans logged yet</div>
+        <div className="exec-empty-hint">
+          Once CMs log their Friday plans, this view shows planned-vs-executed completion per CM, grouped by market.
+          <br />This week ({weekRange}): <b>{total_executed}</b> visit{total_executed !== 1 ? "s" : ""} executed, with no plans to compare against.
+        </div>
+      </div>
+    );
+  }
+
+  const markets = MARKET_ORDER.filter((m) => rows.some((r) => r.market === m));
+  return (
+    <div className="exec-panel">
+      <div className="exec-head">
+        <span>Market / CM</span><span className="exec-c">Planned</span><span className="exec-c">Executed</span><span>Completion</span>
+      </div>
+      {markets.map((m) => {
+        const mrows = rows.filter((r) => r.market === m);
+        const mp = mrows.reduce((a, r) => a + r.planned, 0);
+        const mf = mrows.reduce((a, r) => a + r.fulfilled, 0);
+        const mpct = mp ? Math.round((mf / mp) * 100) : 0;
+        return (
+          <div key={m}>
+            <div className="exec-band">
+              <span className="exec-mn">{MARKET_FLAG[m]} {MARKET_NAME[m]}</span>
+              <span className="exec-c">{mp}</span><span className="exec-c">{mf}</span>
+              <span className="exec-compl"><span className="exec-bar"><i style={{ width: `${mpct}%`, background: covBarColor(mpct) }} /></span><span className="exec-pct">{mpct}%</span></span>
+            </div>
+            {mrows.map((r) => {
+              const cpct = r.planned ? Math.round((r.fulfilled / r.planned) * 100) : 0;
+              return (
+                <div key={r.telegram_id} className="exec-row">
+                  <span className="exec-nm">{r.full_name}</span>
+                  <span className="exec-c">{r.planned}</span><span className="exec-c">{r.fulfilled}</span>
+                  <span className="exec-compl"><span className="exec-bar"><i style={{ width: `${cpct}%`, background: covBarColor(cpct) }} /></span><span className="exec-pct">{cpct}%</span></span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
   );
 }

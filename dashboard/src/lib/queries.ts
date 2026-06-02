@@ -1053,6 +1053,163 @@ export async function getPayrollGrid(fromISO: string, toISO: string): Promise<Pa
   return { weeks, rows, co_credit_active: coCreditActive, range: { from: windowStartISO, to: windowEndISO } };
 }
 
+// ─── Statistics: store coverage heatmap ──────────────────────────────────────
+
+export interface CoverageStore {
+  id: string;
+  name: string;
+  chain: string;
+  market: 'SG' | 'MY' | 'TH' | 'HK';
+  tier: 'T1' | 'T2' | 'T3' | 'T4' | null;
+  weeks: boolean[];            // visited in each of the last 6 weeks, oldest → newest
+  last_visit_date: string | null;
+}
+
+export interface CoverageGrid {
+  weeks: string[];             // ISO Monday starts, oldest → newest (length 6)
+  stores: CoverageStore[];
+  total: number;
+  ever_visited: number;
+  asof: string;                // ISO today
+}
+
+// Last 6 weeks of coverage for every active store. Filled-week flags come from
+// locked visits inside the window; last_visit_date is the all-time most recent
+// locked visit (so a store visited long ago shows empty cells but isn't "never").
+export async function getCoverageGrid(): Promise<CoverageGrid> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayISO = isoDate(today);
+  const thisMon = mondayOf(today);
+  const windowStart = new Date(thisMon);
+  windowStart.setDate(thisMon.getDate() - 35); // 6 Mondays incl. the current week
+  const weeks = buildWeeks(isoDate(windowStart), todayISO);
+
+  const { data: storesRaw } = await supabase
+    .from('stores')
+    .select('id, name, chain, market, tier')
+    .eq('is_active', true)
+    .order('chain')
+    .order('name');
+  const stores = (storesRaw ?? []) as {
+    id: string; name: string; chain: string | null;
+    market: 'SG' | 'MY' | 'TH' | 'HK'; tier: 'T1' | 'T2' | 'T3' | 'T4' | null;
+  }[];
+
+  const { data: visitsRaw } = await supabase
+    .from('visits')
+    .select('store_id, visit_date')
+    .eq('is_locked', true)
+    .order('visit_date', { ascending: false });
+  const visits = (visitsRaw ?? []) as { store_id: string; visit_date: string }[];
+
+  const weekIdx = new Map(weeks.map((w, i) => [w.start, i]));
+  const lastByStore = new Map<string, string>();
+  const flagsByStore = new Map<string, boolean[]>();
+  for (const v of visits) {
+    if (!lastByStore.has(v.store_id)) lastByStore.set(v.store_id, v.visit_date);
+    const mon = isoDate(mondayOf(new Date(v.visit_date + 'T00:00:00')));
+    const idx = weekIdx.get(mon);
+    if (idx !== undefined) {
+      const arr = flagsByStore.get(v.store_id) ?? new Array(weeks.length).fill(false);
+      arr[idx] = true;
+      flagsByStore.set(v.store_id, arr);
+    }
+  }
+
+  const covStores: CoverageStore[] = stores.map((s) => ({
+    id: s.id,
+    name: s.name,
+    chain: s.chain ?? '—',
+    market: s.market,
+    tier: s.tier,
+    weeks: flagsByStore.get(s.id) ?? new Array(weeks.length).fill(false),
+    last_visit_date: lastByStore.get(s.id) ?? null,
+  }));
+
+  return {
+    weeks: weeks.map((w) => w.start),
+    stores: covStores,
+    total: covStores.length,
+    ever_visited: covStores.filter((s) => s.last_visit_date !== null).length,
+    asof: todayISO,
+  };
+}
+
+// ─── Statistics: planned-vs-executed per CM ───────────────────────────────────
+
+export interface ExecutionRow {
+  telegram_id: number;
+  full_name: string;
+  market: 'SG' | 'MY' | 'TH' | 'HK';
+  planned: number;            // plans with planned_date in window
+  fulfilled: number;          // of those, how many have been consumed
+  executed: number;           // locked visits logged in window
+}
+
+export interface ExecutionGrid {
+  rows: ExecutionRow[];
+  total_planned: number;
+  total_executed: number;
+  range: { from: string; to: string };
+}
+
+// Planned-vs-executed for the week. visit_plans is empty during the pilot, so
+// total_planned is 0 and the view renders its empty state; the table lights up
+// automatically once CMs start logging Friday plans.
+export async function getExecutionGrid(fromISO: string, toISO: string): Promise<ExecutionGrid> {
+  const { data: cmsRaw } = await supabase
+    .from('cms')
+    .select('telegram_id, full_name, role, market, is_active')
+    .eq('is_active', true);
+  const payrollCms = ((cmsRaw ?? []) as {
+    telegram_id: number; full_name: string; role: string;
+    market: 'SG' | 'MY' | 'TH' | 'HK'; is_active: boolean;
+  }[]).filter((c) => c.role === 'cm' || c.role === 'cmic');
+
+  const { data: plansRaw } = await supabase
+    .from('visit_plans')
+    .select('cm_telegram_id, consumed_at')
+    .gte('planned_date', fromISO)
+    .lte('planned_date', toISO);
+  const plans = (plansRaw ?? []) as { cm_telegram_id: number; consumed_at: string | null }[];
+
+  const { data: visRaw } = await supabase
+    .from('visits')
+    .select('cm_telegram_id')
+    .eq('is_locked', true)
+    .gte('visit_date', fromISO)
+    .lte('visit_date', toISO);
+  const vis = (visRaw ?? []) as { cm_telegram_id: number }[];
+
+  const plannedBy = new Map<number, number>();
+  const fulfilledBy = new Map<number, number>();
+  for (const p of plans) {
+    plannedBy.set(p.cm_telegram_id, (plannedBy.get(p.cm_telegram_id) ?? 0) + 1);
+    if (p.consumed_at) fulfilledBy.set(p.cm_telegram_id, (fulfilledBy.get(p.cm_telegram_id) ?? 0) + 1);
+  }
+  const execBy = new Map<number, number>();
+  for (const v of vis) execBy.set(v.cm_telegram_id, (execBy.get(v.cm_telegram_id) ?? 0) + 1);
+
+  const rows: ExecutionRow[] = payrollCms
+    .map((c) => ({
+      telegram_id: c.telegram_id,
+      full_name: c.full_name,
+      market: c.market,
+      planned: plannedBy.get(c.telegram_id) ?? 0,
+      fulfilled: fulfilledBy.get(c.telegram_id) ?? 0,
+      executed: execBy.get(c.telegram_id) ?? 0,
+    }))
+    .sort((a, b) => a.market.localeCompare(b.market) || a.full_name.localeCompare(b.full_name));
+
+  return {
+    rows,
+    total_planned: plans.length,
+    total_executed: vis.length,
+    range: { from: fromISO, to: toISO },
+  };
+}
+
 // ─── Admin tab: people management ────────────────────────────────────────────
 
 export type AdminRole = 'cm' | 'cmic' | 'am' | 'admin';
