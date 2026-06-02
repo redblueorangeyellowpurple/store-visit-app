@@ -39,7 +39,18 @@ app.get('/health', (_req, res) => {
 app.use(
   `/webhook/${config.telegram.webhookSecret}`,
   express.json(),
-  webhookCallback(bot, 'express', { secretToken: config.telegram.webhookSecret }),
+  // grammY's default webhook timeout is 10s and THROWS on expiry, which makes
+  // Telegram retry the same update. A slow photo upload on a poor connection
+  // (e.g. an overseas CM) keeps the in-flow 10s awaitPhotoUpload wait busy right
+  // as that 10s webhook timeout fires — the update never gets a 200, Telegram
+  // retries, the conversation replays into the same wait, and that one CM is
+  // frozen until redeploy. 'return' sends a 200 instead of throwing (no retry
+  // storm), and 60s gives slow handlers room to finish inside the window.
+  webhookCallback(bot, 'express', {
+    secretToken: config.telegram.webhookSecret,
+    onTimeout: 'return',
+    timeoutMilliseconds: 60_000,
+  }),
 );
 
 // Start server and set webhook
