@@ -4,8 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const BASE_TABS = [
-  { href: "/",       label: "Dashboard"     },
-  { href: "/visits", label: "Store Updates" },
+  { href: "/",           label: "Reports"       },
+  { href: "/statistics", label: "Statistics"    },
+  { href: "/visits",     label: "Store Updates" },
+  { href: "/staff",      label: "Staff & Allies" },
 ];
 
 const ADMIN_TAB = { href: "/admin", label: "Admin" };
