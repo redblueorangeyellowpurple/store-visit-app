@@ -580,10 +580,31 @@ export interface StoreInfo {
   tier: 'T1' | 'T2' | 'T3' | 'T4' | null;
 }
 
+export interface PhotoComment {
+  id: string;
+  body: string;
+  author_name: string | null;
+  created_at: string;
+}
+
+export interface PhotoAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  note: string;
+  author_name: string | null;
+  created_at: string;
+}
+
 export interface PhotoItem {
   id: string;
   url: string;
   section_key: string | null;
+  grade: number | null;
+  comments: PhotoComment[];
+  annotations: PhotoAnnotation[];
 }
 
 export interface StoreVisitSummary {
@@ -689,11 +710,11 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   const ids = visitRows.map((v: any) => v.id);
   const { data: photoRows } = await supabase
     .from('visit_photos')
-    .select('id, visit_id, storage_path, section_key')
+    .select('id, visit_id, storage_path, section_key, review_grade')
     .in('visit_id', ids)
     .order('created_at');
 
-  type PhotoMeta = { id: string; path: string; section_key: string | null };
+  type PhotoMeta = { id: string; path: string; section_key: string | null; grade: number | null };
   const metaByVisit = new Map<string, PhotoMeta[]>();
 
   for (const p of photoRows ?? []) {
@@ -701,21 +722,54 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
     const row = p as any;
     const vid = row.visit_id as string;
     const list = metaByVisit.get(vid) ?? [];
-    list.push({ id: row.id as string, path: row.storage_path as string, section_key: row.section_key ?? null });
+    list.push({ id: row.id as string, path: row.storage_path as string, section_key: row.section_key ?? null, grade: row.review_grade ?? null });
     metaByVisit.set(vid, list);
   }
 
   // Sign all paths once. 1h TTL so a long review/grading session doesn't 403 mid-way.
-  const allPaths = [...metaByVisit.values()].flat().map((m) => m.path);
+  const allMeta = [...metaByVisit.values()].flat();
+  const allPaths = allMeta.map((m) => m.path);
   const signedUrls = await signPhotoUrls(allPaths, 3600);
   const signedMap = new Map<string, string>();
   allPaths.forEach((p, i) => { if (signedUrls[i]) signedMap.set(p, signedUrls[i]); });
+
+  // Review data (comments + box annotations) for every photo in one round-trip each.
+  const photoIds = allMeta.map((m) => m.id);
+  const commentsByPhoto = new Map<string, PhotoComment[]>();
+  const annotationsByPhoto = new Map<string, PhotoAnnotation[]>();
+  if (photoIds.length > 0) {
+    const [cRes, aRes] = await Promise.all([
+      supabase.from('photo_comments')
+        .select('id, photo_id, body, author_name, created_at')
+        .in('photo_id', photoIds).order('created_at'),
+      supabase.from('photo_annotations')
+        .select('id, photo_id, x, y, w, h, note, author_name, created_at')
+        .in('photo_id', photoIds).order('created_at'),
+    ]);
+    for (const r of (cRes.data ?? []) as Array<PhotoComment & { photo_id: string }>) {
+      const list = commentsByPhoto.get(r.photo_id) ?? [];
+      list.push({ id: r.id, body: r.body, author_name: r.author_name, created_at: r.created_at });
+      commentsByPhoto.set(r.photo_id, list);
+    }
+    for (const r of (aRes.data ?? []) as Array<PhotoAnnotation & { photo_id: string }>) {
+      const list = annotationsByPhoto.get(r.photo_id) ?? [];
+      list.push({ id: r.id, x: r.x, y: r.y, w: r.w, h: r.h, note: r.note, author_name: r.author_name, created_at: r.created_at });
+      annotationsByPhoto.set(r.photo_id, list);
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visits: StoreVisitSummary[] = visitRows.map((v: any) => {
     const meta = metaByVisit.get(v.id) ?? [];
     const photos: PhotoItem[] = meta
-      .map((m) => ({ id: m.id, url: signedMap.get(m.path) ?? '', section_key: m.section_key }))
+      .map((m) => ({
+        id: m.id,
+        url: signedMap.get(m.path) ?? '',
+        section_key: m.section_key,
+        grade: m.grade,
+        comments: commentsByPhoto.get(m.id) ?? [],
+        annotations: annotationsByPhoto.get(m.id) ?? [],
+      }))
       .filter((p) => p.url);
     return {
       id: v.id,
@@ -1454,5 +1508,57 @@ export interface UpdateStorePatch {
 export async function updateStore(id: string, patch: UpdateStorePatch): Promise<boolean> {
   const { error } = await supabase.from('stores').update(patch).eq('id', id);
   if (error) console.error('updateStore error:', error);
+  return !error;
+}
+
+// ─── Display Review: photo comments, box annotations, grade ───────────────────
+
+interface Author { telegram_id: number; name: string }
+
+export async function addPhotoComment(photoId: string, body: string, author: Author): Promise<PhotoComment | null> {
+  const { data, error } = await supabase
+    .from('photo_comments')
+    .insert({ photo_id: photoId, body, author_telegram_id: author.telegram_id, author_name: author.name })
+    .select('id, body, author_name, created_at')
+    .single();
+  if (error) { console.error('addPhotoComment error:', error); return null; }
+  return data as PhotoComment;
+}
+
+export async function deletePhotoComment(commentId: string): Promise<boolean> {
+  const { error } = await supabase.from('photo_comments').delete().eq('id', commentId);
+  if (error) console.error('deletePhotoComment error:', error);
+  return !error;
+}
+
+export interface AnnotationInput { x: number; y: number; w: number; h: number; note: string }
+
+export async function addPhotoAnnotation(photoId: string, a: AnnotationInput, author: Author): Promise<PhotoAnnotation | null> {
+  const { data, error } = await supabase
+    .from('photo_annotations')
+    .insert({ photo_id: photoId, x: a.x, y: a.y, w: a.w, h: a.h, note: a.note, author_telegram_id: author.telegram_id, author_name: author.name })
+    .select('id, x, y, w, h, note, author_name, created_at')
+    .single();
+  if (error) { console.error('addPhotoAnnotation error:', error); return null; }
+  return data as PhotoAnnotation;
+}
+
+export interface AnnotationPatch { note?: string; x?: number; y?: number; w?: number; h?: number }
+
+export async function updatePhotoAnnotation(annotationId: string, patch: AnnotationPatch): Promise<boolean> {
+  const { error } = await supabase.from('photo_annotations').update(patch).eq('id', annotationId);
+  if (error) console.error('updatePhotoAnnotation error:', error);
+  return !error;
+}
+
+export async function deletePhotoAnnotation(annotationId: string): Promise<boolean> {
+  const { error } = await supabase.from('photo_annotations').delete().eq('id', annotationId);
+  if (error) console.error('deletePhotoAnnotation error:', error);
+  return !error;
+}
+
+export async function setPhotoGrade(photoId: string, grade: number | null): Promise<boolean> {
+  const { error } = await supabase.from('visit_photos').update({ review_grade: grade }).eq('id', photoId);
+  if (error) console.error('setPhotoGrade error:', error);
   return !error;
 }
