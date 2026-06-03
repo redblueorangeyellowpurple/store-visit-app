@@ -64,6 +64,36 @@ export function createBot(): Bot<BotContext> {
 
   bot.command('dashboard', handleDashboard);
 
+  // Stranded-resume nudge. After a restart (redeploy/crash) the live conversation
+  // is gone but the DB draft persists — so a CM mid-visit taps a "dead keyboard"
+  // and gets silence. Detect their open draft and re-surface Resume / Start-fresh.
+  // Debounced per-user so a photo album or rapid taps fire only one nudge.
+  // Returns true if the input belonged to a stranded visit (caller should stop).
+  const lastResumeNudge = new Map<number, number>();
+  async function nudgeResumeIfStranded(ctx: BotContext): Promise<boolean> {
+    const telegramId = ctx.from?.id ?? 0;
+    if (!telegramId) return false;
+    const active = ctx.conversation.active();
+    if (Object.values(active).some((n) => n > 0)) return false; // live flow has it
+    const draft = await getDraftVisit(telegramId);
+    if (!draft) return false;
+    const now = Date.now();
+    if (now - (lastResumeNudge.get(telegramId) ?? 0) < 10_000) return true; // just nudged
+    lastResumeNudge.set(telegramId, now);
+    // Neutral wording — this also covers an intentional /cancel pause, not just
+    // a restart. Mirrors the /visit resume prompt (see startVisitFlow).
+    await ctx.reply(
+      `You have an open visit at *${draft.store_name}*.\nResume or start fresh?`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard()
+          .text('▶️ Resume', `visit:resume:${draft.id}`)
+          .text('🆕 Start fresh', `visit:discard:${draft.id}`),
+      },
+    );
+    return true;
+  }
+
   async function startVisitFlow(ctx: BotContext): Promise<void> {
     const user = requireAuth(ctx);
     if (!user || !ctx.from) return;
@@ -121,7 +151,12 @@ export function createBot(): Bot<BotContext> {
   // conversation is active because the flow handles uploads via external().
   bot.on('message:photo', async (ctx) => {
     const telegramId = ctx.from?.id ?? 0;
-    if (!isCollecting(telegramId)) return;
+    if (!isCollecting(telegramId)) {
+      // No in-memory collection — likely a restart mid-visit. Don't drop the
+      // photo silently; offer to resume the persisted draft.
+      await nudgeResumeIfStranded(ctx);
+      return;
+    }
     const active = ctx.conversation.active();
     if (Object.values(active).some(n => n > 0)) return;
     const p = ctx.message?.photo;
@@ -132,6 +167,14 @@ export function createBot(): Bot<BotContext> {
         ctx.message?.media_group_id,
       );
     }
+  });
+
+  // Stranded prompt taps (Skip / Back) after a restart — the conversation that
+  // owned them is gone, so they fall through to here. Acknowledge and offer to
+  // resume. (When a flow is live, the conversation consumes these first.)
+  bot.callbackQuery(/^prompt:(skip|back):/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    await nudgeResumeIfStranded(ctx);
   });
 
   // Edit mode: CM resends filled template (notes) or comment (grade-comment)
@@ -170,6 +213,16 @@ export function createBot(): Bot<BotContext> {
         await ctx.reply("Something went wrong — give it another try 🙏");
       }
     }
+  });
+
+  // Stranded free-text after a restart — a CM typing their answer into a flow
+  // that's no longer live. Quick-access buttons (🏪/🔗) and commands are handled
+  // above; anything left from a CM with an open draft gets a resume nudge.
+  bot.on(['message:text', 'message:caption'], async (ctx, next) => {
+    const text = ctx.message?.text ?? ctx.message?.caption ?? '';
+    if (text.startsWith('/')) return next(); // let command handlers run
+    const nudged = await nudgeResumeIfStranded(ctx);
+    if (!nudged) return next();
   });
 
   // View full last visit — fired from the pre-visit context block
