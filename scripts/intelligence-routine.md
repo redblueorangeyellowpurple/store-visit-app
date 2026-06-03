@@ -20,7 +20,7 @@ If unclear: yesterday, no force, broadcast on.
 
 ## Env — read `/Users/wilsontan/Claude/tc-store-visit-app_v2/tc-sva-bot/.env.routine`
 
-- `TELEGRAM_BOT_TOKEN`, `SUPABASE_PROJECT_ID`, `DASHBOARD_URL`, `HEARTBEAT_CHAT_ID`
+- `TELEGRAM_BOT_TOKEN`, `SUPABASE_PROJECT_ID`, `DASHBOARD_URL`, `HEARTBEAT_CHAT_ID`, `MINIAPP_DEEPLINK`
 
 All DB ops use `mcp__supabase__execute_sql` with `project_id: SUPABASE_PROJECT_ID`.
 
@@ -207,10 +207,10 @@ curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" 
        "link_preview_options": {"is_disabled": true},
        "reply_markup": {"inline_keyboard": [[
          {"text": "📊 Dashboard", "url": "<DASHBOARD_URL>/intelligence"},
-         {"text": "📱 Open in App", "url": "<DASHBOARD_URL>/intelligence"}
+         {"text": "📱 Open in App", "url": "<MINIAPP_DEEPLINK>?startapp=intel"}
        ]]}}'
 ```
-> Button labels are intentionally editable here. "Open in App" will repoint to the mini app intelligence view once it ships.
+> Button labels are intentionally editable here. "Dashboard" opens the desktop web view; "Open in App" deep-links into the mini app intelligence view (`m/intel`) via the `startapp=intel` param.
 
 If catch-up dates were also processed, prepend one line to the broadcast: `(also caught up: <dates>)`.
 

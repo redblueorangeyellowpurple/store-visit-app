@@ -25,6 +25,10 @@ export default function MiniappRoot() {
 
       if (param) {
         let m: RegExpExecArray | null;
+        if (/^intel$/i.test(param)) {
+          router.replace("/m/intel");
+          return;
+        }
         if ((m = VISIT_TRAINING.exec(param))) {
           router.replace(`/m/visit/${m[1]}#training`);
           return;
