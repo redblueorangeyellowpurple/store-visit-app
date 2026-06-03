@@ -429,12 +429,14 @@ body {
   min-width: 0; flex: 1 1 auto; max-width: 780px; cursor: default;
 }
 .review-imgwrap {
-  position: relative; max-height: 80vh; max-width: 100%;
+  position: relative; width: fit-content; max-width: 100%;
   border-radius: 10px; overflow: hidden; user-select: none;
   box-shadow: 0 20px 60px rgba(0,0,0,0.4);
   cursor: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='30'%20height='30'%20viewBox='0%200%2030%2030'%3E%3Crect%20x='6'%20y='6'%20width='18'%20height='18'%20rx='3'%20fill='none'%20stroke='black'%20stroke-width='3.5'%20stroke-dasharray='4%203'/%3E%3Crect%20x='6'%20y='6'%20width='18'%20height='18'%20rx='3'%20fill='none'%20stroke='white'%20stroke-width='1.6'%20stroke-dasharray='4%203'/%3E%3C/svg%3E") 15 15, crosshair;
 }
-.review-img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+/* img sizes itself (native aspect-preserving) within both caps; wrapper shrink-wraps it
+   so annotation %s map 1:1 to the image — no object-fit letterboxing. */
+.review-img { display: block; max-width: 100%; max-height: 80vh; width: auto; height: auto; pointer-events: none; }
 .review-hint {
   position: absolute; bottom: 10px; left: 0; right: 0; text-align: center;
   font-size: 12px; font-weight: 600; color: #fff; pointer-events: none;

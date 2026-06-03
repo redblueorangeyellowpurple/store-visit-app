@@ -104,7 +104,6 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   const [activeAnn,   setActiveAnn]   = useState<string | null>(null);
   const [composer,    setComposer]    = useState<{ id: string; isNew: boolean; left: number; top: number; text: string } | null>(null);
   const [commentInput, setCommentInput] = useState("");
-  const [aspect,      setAspect]      = useState<number | null>(null);
   const [showReport,  setShowReport]  = useState(false);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -144,7 +143,7 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   }, [allPhotos.length]);
 
   // Reset transient review UI when the open photo changes.
-  useEffect(() => { setActiveAnn(null); setComposer(null); setAspect(null); }, [lightboxIdx]);
+  useEffect(() => { setActiveAnn(null); setComposer(null); }, [lightboxIdx]);
 
   const pct = useCallback((e: { clientX: number; clientY: number }) => {
     const r = wrapRef.current!.getBoundingClientRect();
@@ -454,12 +453,9 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
           <button className="lb-nav lb-prev" onClick={e => { e.stopPropagation(); nav(-1); }} aria-label="Previous">‹</button>
 
           <div className="review-stage" onClick={e => e.stopPropagation()}>
-            <div className="review-imgwrap" ref={wrapRef} onMouseDown={onBgDown} style={{ aspectRatio: aspect ?? 1.333 }}>
+            <div className="review-imgwrap" ref={wrapRef} onMouseDown={onBgDown}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={active.url} alt="Photo" className="review-img" draggable={false}
-                onLoad={e => { const t = e.currentTarget; if (t.naturalHeight) setAspect(t.naturalWidth / t.naturalHeight); }}
-              />
+              <img src={active.url} alt="Photo" className="review-img" draggable={false} />
               {review.annotations.map((a, i) => (
                 <div
                   key={a.id}
