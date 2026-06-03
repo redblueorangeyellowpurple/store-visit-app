@@ -33,6 +33,14 @@ export function initPhotoCollection(api: Api): void {
   botApi = api;
 }
 
+// The bot.api singleton, for side-effects that must outlive the conversation
+// (e.g. the team broadcast fired after a visit is logged). ctx.api throws once
+// a conversation has exited; this doesn't. Undefined only if startup skipped
+// initPhotoCollection.
+export function getBotApi(): Api | undefined {
+  return botApi;
+}
+
 export function startPhotoCollection(
   telegramId: number,
   visitId: string,

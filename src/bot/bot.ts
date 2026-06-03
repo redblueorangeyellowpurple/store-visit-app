@@ -29,6 +29,20 @@ import { sendVisitDetails } from './visit-details.js';
 
 export function createBot(): Bot<BotContext> {
   const bot = new Bot<BotContext>(config.telegram.botToken);
+
+  // Bound every Telegram API call (sends, message edits, getFile, group
+  // broadcasts) so a stalled request can't hang a handler and hold a
+  // conversation lock until redeploy. Aborts after 30s — under the 60s webhook
+  // window, far above a healthy call.
+  bot.api.config.use((prev, method, payload, signal) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+    // grammY types `signal` via the abort-controller polyfill; cast Node's
+    // native AbortSignal across the (runtime-identical) type boundary.
+    return prev(method, payload, controller.signal as unknown as typeof signal).finally(() => clearTimeout(timer));
+  });
+
   initPhotoCollection(bot.api);
 
   bot.use(groupGuardMiddleware);

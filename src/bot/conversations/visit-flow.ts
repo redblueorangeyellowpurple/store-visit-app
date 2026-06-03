@@ -47,6 +47,7 @@ import {
   hasPendingUploads,
   adjustSavedCount,
   discardPhotoCollection,
+  getBotApi,
 } from '../photo-collection.js';
 import { sendVisitDetails } from '../visit-details.js';
 import { broadcastVisitLocked } from '../../notifications/visit-broadcast.js';
@@ -284,6 +285,9 @@ export async function visitFlow(
     // the photo upload bug.
     let stores: Awaited<ReturnType<typeof getStoresForCM>>;
     let lastVisits: Awaited<ReturnType<typeof getLastVisitDatePerStore>>;
+    // Show "typing…" so the CM sees the bot is working while the store list
+    // loads — the first thing they wait on, and the most network-sensitive.
+    await ctx.replyWithChatAction('typing').catch(() => {});
     try {
       [stores, lastVisits] = await conversation.external(async () =>
         withTimeout(
@@ -882,12 +886,13 @@ export async function visitFlow(
 
   await conversation.external(() => setActiveSection(telegramId, null));
 
-  // ── Finalize: lock + broadcast first so the CM gets a response immediately,
-  //    then drain the photo queue separately.
+  // ── Finalize: lock first so the CM gets a response immediately, then drain
+  //    the photo queue and fire the team broadcast separately (see below).
+  // "typing…" covers the gap while the lock round-trips.
+  await ctx.replyWithChatAction('typing').catch(() => {});
   const [trainedCount, photosPending] = await conversation.external(async () => {
     await lockVisit(createdVisitId);
     if (plan) await consumePlan(plan.id);
-    await broadcastVisitLocked(createdVisitId, ctx.api).catch(() => {});
     return [
       await countTrainedStaff(createdVisitId),
       hasPendingUploads(createdVisitId),
@@ -932,6 +937,16 @@ export async function visitFlow(
       { parse_mode: 'Markdown', reply_markup: buildDoneKeyboard(createdVisitId) },
     ).catch(() => {});
   }
+
+  // Team broadcast fires AFTER the CM's confirmation so a slow group send can
+  // never hold up their submit (the freeze CMs hit when submitting with photos
+  // still uploading on a weak connection). Uses the bot.api singleton, not
+  // ctx.api, so it survives the conversation exit; wrapped in external so a
+  // replay can't re-fire it and double-post to the group.
+  await conversation.external(() => {
+    const api = getBotApi();
+    if (api) void broadcastVisitLocked(createdVisitId, api).catch(() => {});
+  });
 
   // Restore the quick-access reply keyboard hidden at the start of the flow.
   await ctx.reply('_Ready for your next visit 👇_', {

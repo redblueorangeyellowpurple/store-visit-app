@@ -49,6 +49,8 @@ Both services live in the same Railway project but as **separate services**:
 
 Each service has its own `railway.toml` — the bot's at repo root, the miniapp's at `miniapp/railway.toml`. Without the second toml, Railway leaks the bot's `startCommand` to the miniapp service.
 
+**Webhook + I/O timeouts:** `webhookCallback` is configured `onTimeout: 'return'` + `timeoutMilliseconds: 60_000` (grammY's 10s default throws on expiry → Telegram retry-storm → per-CM freeze on slow connections). All I/O is timeout-bounded at the client layer — 30s on the Supabase client (`db/client.ts` `global.fetch` wrapper) and 30s on every Telegram call (`bot.ts` `bot.api.config.use` transformer). Keep any in-flow wait below the 60s webhook window. See `grammy-webhook-timeout-freeze` insight.
+
 ---
 
 ## Key Files
@@ -66,9 +68,12 @@ Each service has its own `railway.toml` — the bot's at repo root, the miniapp'
 - `miniapp/src/lib/supabase.ts` — lazy-init Supabase client (Proxy)
 - `miniapp/src/lib/miniapp-auth.ts` — Telegram `initData` HMAC verify
 - `miniapp/src/lib/queries.ts` — portfolio, store timeline, full visit + signed URLs
-- `miniapp/src/app/(miniapp)/m/*` — three pages: portfolio, store/[id], visit/[id]
-- `miniapp/src/app/api/m/*` — whoami, portfolio, store/[id], visit/[id]
+- `miniapp/src/app/(miniapp)/m/*` — portfolio, store/[id], visit/[id], **intel** (daily intelligence view, reached via `?startapp=intel`)
+- `miniapp/src/app/api/m/*` — whoami, portfolio, store/[id], visit/[id], **intelligence** (latest/selected brief, gated to leadership roles or `is_intelligence_recipient`)
 - `miniapp/src/app/health/route.ts` — Railway healthcheck
+
+### Intelligence routine
+- `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → Signals → Alerts. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]].
 
 ---
 
