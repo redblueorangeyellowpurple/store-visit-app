@@ -1650,6 +1650,14 @@ table.payroll-grid tbody tr:last-child td { border-bottom: none; }
 }
 .vdp-title { font-size: 18px; font-weight: 800; color: var(--color-ink-900); letter-spacing: -0.01em; line-height: 1.2; }
 .vdp-sub { font-size: 12px; color: var(--color-ink-400); margin-top: 3px; }
+.vdp-review-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 11px; padding: 7px 12px; border-radius: 8px;
+  background: var(--color-tc-500); color: #fff;
+  font-size: 12.5px; font-weight: 700; text-decoration: none;
+  transition: background 0.15s;
+}
+.vdp-review-link:hover { background: var(--color-tc-600); }
 .vdp-close {
   padding: 3px 8px; border-radius: 7px; border: 1px solid var(--color-border);
   background: var(--color-ink-50); cursor: pointer; font-size: 13px;

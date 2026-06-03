@@ -73,6 +73,14 @@ export function StoreDetailPanel({
           </div>
           <button className="vdp-close" onClick={onClose}>✕</button>
         </div>
+        <a
+          href={`/visits/store/${storeId}`}
+          target="_blank"
+          rel="noreferrer"
+          className="vdp-review-link"
+        >
+          🖼️ Open photo review →
+        </a>
       </div>
 
       {/* Single scrollable body — no tabs */}
