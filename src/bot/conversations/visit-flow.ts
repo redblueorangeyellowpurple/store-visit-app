@@ -335,14 +335,14 @@ export async function visitFlow(
       const data = update.callbackQuery.data ?? '';
 
       if (data === 'cancel') {
-        await update.answerCallbackQuery();
+        await update.answerCallbackQuery().catch(() => {});
         await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
         return;
       }
 
       if (data.startsWith('page:')) {
         page = parseInt(data.replace('page:', ''), 10);
-        await update.answerCallbackQuery();
+        await update.answerCallbackQuery().catch(() => {});
         await update.editMessageReplyMarkup({
           reply_markup: buildStorePicker(stores, lastVisits, page),
         });
@@ -350,7 +350,7 @@ export async function visitFlow(
       }
 
       if (data === 'search:stores') {
-        await update.answerCallbackQuery();
+        await update.answerCallbackQuery().catch(() => {});
         // Edit the "Which store did you visit?" message in place — Wilson
         // 2026-05-26: tapping "Other store" should "change the current message"
         // rather than stack a new one.
@@ -377,14 +377,14 @@ export async function visitFlow(
             const d = upd.callbackQuery.data ?? '';
 
             if (d === 'cancel') {
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               await ctx.reply("👋 No worries — come back whenever you're ready.", { reply_markup: QUICK_ACCESS_KEYBOARD });
               return;
             }
 
             if (d === 'search:back') {
               // Back from country picker → return to the assigned-store picker.
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               await upd.editMessageText('Which store did you visit?', {
                 reply_markup: buildStorePicker(stores, lastVisits, page),
               });
@@ -392,7 +392,7 @@ export async function visitFlow(
             }
 
             if (d === 'country-back') {
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               selectedMarket = null;
               selectedChain = null;
               await upd.editMessageText(
@@ -406,7 +406,7 @@ export async function visitFlow(
               const market = d.slice('country:'.length);
               selectedMarket = market;
               selectedChain = null;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               const channels = await conversation.external(() => getChannelsInMarket(market));
               if (channels.length === 0) {
                 await upd.editMessageText(
@@ -433,7 +433,7 @@ export async function visitFlow(
               const market = rest.slice(0, sep);
               const pageNum = parseInt(rest.slice(sep + 1), 10);
               selectedMarket = market;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               const channels = await conversation.external(() => getChannelsInMarket(market));
               await upd.editMessageReplyMarkup({
                 reply_markup: buildChannelPicker(market, channels, pageNum),
@@ -445,7 +445,7 @@ export async function visitFlow(
               const market = d.slice('channel-back:'.length);
               selectedMarket = market;
               selectedChain = null;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               const channels = await conversation.external(() => getChannelsInMarket(market));
               await upd.editMessageText(
                 `${countryLabel(market)} · *Pick a channel*\n\n_Tap a channel to see its stores · or type to search ${countryLabel(market)}_`,
@@ -461,7 +461,7 @@ export async function visitFlow(
               const chain = rest.slice(sep + 1);
               selectedMarket = market;
               selectedChain = chain;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               const channelStores = await conversation.external(() =>
                 getStoresByMarketAndChain(market, chain),
               );
@@ -481,7 +481,7 @@ export async function visitFlow(
               const pageNum = parseInt(rest.slice(lastSep + 1), 10);
               selectedMarket = market;
               selectedChain = chain;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               const channelStores = await conversation.external(() =>
                 getStoresByMarketAndChain(market, chain),
               );
@@ -496,7 +496,7 @@ export async function visitFlow(
               const found = await conversation.external(() => getStoreById(storeId));
               if (!found) continue otherStoreLoop;
               storeName = found.name;
-              await upd.answerCallbackQuery();
+              await upd.answerCallbackQuery().catch(() => {});
               break storeLoop;
             }
 
@@ -549,7 +549,7 @@ export async function visitFlow(
           if (!fetched) continue;
           storeName = fetched.name;
         }
-        await update.answerCallbackQuery();
+        await update.answerCallbackQuery().catch(() => {});
         break;
       }
     }
@@ -655,12 +655,12 @@ export async function visitFlow(
       if (upd.callbackQuery) {
         const data = upd.callbackQuery.data ?? '';
         if (data === `prompt:skip:${p.key}`) {
-          await upd.answerCallbackQuery('Skipped');
+          await upd.answerCallbackQuery('Skipped').catch(() => {});
           resolved = 'skip';
           break promptWait;
         }
         if (data === `prompt:back:${p.key}`) {
-          await upd.answerCallbackQuery('Going back');
+          await upd.answerCallbackQuery('Going back').catch(() => {});
           resolved = 'back';
           break promptWait;
         }
@@ -790,7 +790,7 @@ export async function visitFlow(
         // buttons from prior message edits and against double-tap races
         // (the second tap finds nothing to splice and exits cleanly).
         if (!openItems.some(item => item.id === id)) {
-          await upd.answerCallbackQuery('Already closed');
+          await upd.answerCallbackQuery('Already closed').catch(() => {});
           continue;
         }
         // Splice + increment SYNCHRONOUSLY before any await so a rapid second
@@ -800,7 +800,7 @@ export async function visitFlow(
         const lastPage = Math.max(0, Math.ceil(openItems.length / FOLLOW_UP_PAGE_SIZE) - 1);
         followUpPage = Math.min(followUpPage, lastPage);
         await conversation.external(() => markFollowUpDone(id, createdVisitId));
-        await upd.answerCallbackQuery('Closed ✓');
+        await upd.answerCallbackQuery('Closed ✓').catch(() => {});
         const newText = buildFollowUpText(openItems, followUpPage);
         const newKb = buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage });
         await conversation.external(async () => {
@@ -819,7 +819,7 @@ export async function visitFlow(
         const n = parseInt(data.slice('followup:page:'.length), 10);
         const lastPage = Math.max(0, Math.ceil(openItems.length / FOLLOW_UP_PAGE_SIZE) - 1);
         followUpPage = Math.max(0, Math.min(n, lastPage));
-        await upd.answerCallbackQuery();
+        await upd.answerCallbackQuery().catch(() => {});
         const newText = buildFollowUpText(openItems, followUpPage);
         const newKb = buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage });
         await conversation.external(async () => {
@@ -850,7 +850,7 @@ export async function visitFlow(
         answers[target.key] = null;
         hasNavigatedBack = true;
         i = PROMPTS.length - 1;
-        await upd.answerCallbackQuery('Going back');
+        await upd.answerCallbackQuery('Going back').catch(() => {});
         continue mainFlow;
       }
       if (data === 'followup:done') {
@@ -863,7 +863,7 @@ export async function visitFlow(
         followUpsAdded = items.length;
         await upd.answerCallbackQuery(
           followUpsAdded ? `${followUpsAdded} saved` : 'Done',
-        );
+        ).catch(() => {});
         break followUpLoop;
       }
       await upd.answerCallbackQuery().catch(() => {});
