@@ -110,7 +110,7 @@ export default function VisitsPage() {
   const [dateTo,         setDateTo]         = useState("");
   const [tree,           setTree]           = useState<BrowseTree | null>(null);
   const [selection,      setSelection]      = useState<Selection>({ type: "all" });
-  const [openMarkets,    setOpenMarkets]    = useState<Set<string>>(new Set(["SG"]));
+  const [openMarkets,    setOpenMarkets]    = useState<Set<string>>(new Set());
   const [openChains,     setOpenChains]     = useState<Set<string>>(new Set());
   const [focusSections,  setFocusSections]  = useState<Set<SectionKey>>(new Set());
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
