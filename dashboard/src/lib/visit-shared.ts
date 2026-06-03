@@ -3,7 +3,7 @@
 // and the dashboard's reused StoreDetailPanel/CMDetailPanel/StaffDetailPanel.
 // Keep this React-free so it imports cleanly into any client component.
 
-import { StoreVisitSummary, TrainedStaffItem, FollowUpItem } from "@/lib/queries";
+import { StoreVisitSummary, TrainedStaffItem, FollowUpItem, PhotoItem } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ export interface VisitRow {
   buzz_plan: string | null;
   photo_count: number;
   photo_urls: string[];
+  photos: PhotoItem[];
   edited_at: string | null;
   training_count: number;
   follow_up_count: number;

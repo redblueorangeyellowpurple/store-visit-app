@@ -5,8 +5,9 @@ import NavBar from "@/components/NavBar";
 import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import RefreshControl from "@/components/RefreshControl";
-import { CMOption } from "@/lib/queries";
+import { CMOption, PhotoItem } from "@/lib/queries";
 import { StoreDetailPanel, CMDetailPanel, StaffDetailPanel } from "@/components/DetailPanels";
+import FeedPhotoLightbox from "@/components/FeedPhotoLightbox";
 import {
   VisitRow, DetailView, SectionKey, SECTIONS, TEXT_SECTION_KEYS, TIER_STYLE, fmtDate,
 } from "@/lib/visit-shared";
@@ -113,7 +114,7 @@ export default function VisitsPage() {
   const [openChains,     setOpenChains]     = useState<Set<string>>(new Set());
   const [focusSections,  setFocusSections]  = useState<Set<SectionKey>>(new Set());
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
-  const [lightbox,       setLightbox]       = useState<string | null>(null);
+  const [lightbox,       setLightbox]       = useState<{ photos: PhotoItem[]; index: number; context: string } | null>(null);
   const [detail,         setDetail]         = useState<DetailView>(null);
   const [detailWidth,    setDetailWidth]    = useState(400);
   const [noteSlug,       setNoteSlug]       = useState<string | null>(null);
@@ -695,13 +696,14 @@ export default function VisitsPage() {
       {/* Memory note drawer — overlays the store/CM/staff panel */}
       <MemoryNoteDrawer slug={noteSlug} onClose={() => setNoteSlug(null)} />
 
-      {/* Lightbox */}
+      {/* Photo lightbox — flip with ‹ › / ←→, comment per photo */}
       {lightbox && (
-        <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="Photo" className="lightbox-img" />
-          <button className="lightbox-close" onClick={() => setLightbox(null)}>Close</button>
-        </div>
+        <FeedPhotoLightbox
+          photos={lightbox.photos}
+          startIndex={lightbox.index}
+          context={lightbox.context}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   );
@@ -717,7 +719,7 @@ function VisitCard({
   showPhotos: boolean;
   isExpanded: boolean;
   onToggle: () => void;
-  onPhoto: (url: string) => void;
+  onPhoto: (lb: { photos: PhotoItem[]; index: number; context: string }) => void;
   onOpenStore?: (storeId: string, storeName: string) => void;
   onOpenCM?: (telegramId: number, name: string, market: string) => void;
   onOpenStaff?: (staffId: string, staffName: string, storeName: string) => void;
@@ -787,13 +789,24 @@ function VisitCard({
       {/* Card body */}
       {isExpanded && (
         <div className="visit-detail">
-          {showPhotos && v.photo_urls.length > 0 && (
+          {showPhotos && v.photos.length > 0 && (
             <div className="photo-strip-wrap">
               <div className="photo-strip">
-                {v.photo_urls.map((url, i) => (
-                  <button key={i} className="photo-thumb" onClick={() => onPhoto(url)}>
+                {v.photos.map((p, i) => (
+                  <button
+                    key={p.id}
+                    className="photo-thumb"
+                    onClick={() => onPhoto({
+                      photos: v.photos,
+                      index: i,
+                      context: `${v.store_name} · ${v.cm_name} · ${fmtDate(v.visit_date)}`,
+                    })}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`Photo ${i + 1}`} />
+                    <img src={p.url} alt={`Photo ${i + 1}`} />
+                    {p.comments.length > 0 && (
+                      <span className="photo-cmt-badge">💬 {p.comments.length}</span>
+                    )}
                   </button>
                 ))}
               </div>

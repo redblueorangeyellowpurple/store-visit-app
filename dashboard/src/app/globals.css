@@ -327,6 +327,7 @@ body {
 }
 .photo-strip::-webkit-scrollbar { display: none; }
 .photo-thumb {
+  position: relative;
   flex-shrink: 0; width: 160px; height: 160px;
   border-radius: 12px; overflow: hidden;
   border: none; padding: 0; cursor: pointer;
@@ -335,6 +336,11 @@ body {
 }
 .photo-thumb:hover { opacity: 0.85; }
 .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-cmt-badge {
+  position: absolute; top: 6px; right: 6px;
+  font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+  background: rgba(0,0,0,0.62); color: #fff; pointer-events: none;
+}
 
 /* ── Gallery grid (store detail page) ───────────────────── */
 .gallery-toggle-btn {

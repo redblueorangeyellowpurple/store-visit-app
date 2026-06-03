@@ -31,6 +31,7 @@ export interface VisitRow {
   training: string | null;
   photo_count: number;
   photo_urls: string[];
+  photos: PhotoItem[];
   sections_filled: number;
   edited_at: string | null;
   training_count: number;
@@ -208,6 +209,7 @@ export async function getVisitsFeed(opts: {
       training: row.training,
       photo_count: 0,
       photo_urls: [],
+      photos: [],
       sections_filled: countSections(row),
       edited_at: row.edited_at,
       training_count: 0,
@@ -220,28 +222,69 @@ export async function getVisitsFeed(opts: {
   if (visits.length > 0) {
     const ids = visits.map((v) => v.id);
 
-    // Photos
-    const { data: photos } = await supabase
+    // Photos — full PhotoItem (id + section + grade + comments + annotations) so the
+    // feed lightbox can navigate + comment, same shape the store reviewer uses.
+    const { data: photoRows } = await supabase
       .from("visit_photos")
-      .select("visit_id, storage_path")
+      .select("id, visit_id, storage_path, section_key, review_grade")
       .in("visit_id", ids)
       .order("created_at");
-    const pathsByVisit = new Map<string, string[]>();
-    for (const p of photos ?? []) {
+    type PhotoMeta = { id: string; path: string; section_key: string | null; grade: number | null };
+    const metaByVisit = new Map<string, PhotoMeta[]>();
+    for (const p of photoRows ?? []) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const row = p as any;
-      const paths = pathsByVisit.get(row.visit_id) ?? [];
-      paths.push(row.storage_path as string);
-      pathsByVisit.set(row.visit_id, paths);
+      const list = metaByVisit.get(row.visit_id) ?? [];
+      list.push({ id: row.id, path: row.storage_path as string, section_key: row.section_key ?? null, grade: row.review_grade ?? null });
+      metaByVisit.set(row.visit_id, list);
     }
-    const allPaths = [...pathsByVisit.values()].flat();
-    const signed = await signPhotoUrls(allPaths);
+
+    const allMeta = [...metaByVisit.values()].flat();
+    const allPaths = allMeta.map((m) => m.path);
+    // 1h TTL so a long review session doesn't 403 mid-way.
+    const signed = await signPhotoUrls(allPaths, 3600);
     const signedMap = new Map<string, string>();
     allPaths.forEach((p, i) => { if (signed[i]) signedMap.set(p, signed[i]); });
+
+    const photoIds = allMeta.map((m) => m.id);
+    const commentsByPhoto = new Map<string, PhotoComment[]>();
+    const annotationsByPhoto = new Map<string, PhotoAnnotation[]>();
+    if (photoIds.length > 0) {
+      const [cRes, aRes] = await Promise.all([
+        supabase.from("photo_comments")
+          .select("id, photo_id, body, author_name, created_at")
+          .in("photo_id", photoIds).order("created_at"),
+        supabase.from("photo_annotations")
+          .select("id, photo_id, x, y, w, h, note, author_name, created_at")
+          .in("photo_id", photoIds).order("created_at"),
+      ]);
+      for (const r of (cRes.data ?? []) as Array<PhotoComment & { photo_id: string }>) {
+        const list = commentsByPhoto.get(r.photo_id) ?? [];
+        list.push({ id: r.id, body: r.body, author_name: r.author_name, created_at: r.created_at });
+        commentsByPhoto.set(r.photo_id, list);
+      }
+      for (const r of (aRes.data ?? []) as Array<PhotoAnnotation & { photo_id: string }>) {
+        const list = annotationsByPhoto.get(r.photo_id) ?? [];
+        list.push({ id: r.id, x: r.x, y: r.y, w: r.w, h: r.h, note: r.note, author_name: r.author_name, created_at: r.created_at });
+        annotationsByPhoto.set(r.photo_id, list);
+      }
+    }
+
     for (const v of visits) {
-      const paths = pathsByVisit.get(v.id) ?? [];
-      v.photo_count = paths.length;
-      v.photo_urls = paths.map((p) => signedMap.get(p) ?? "").filter(Boolean);
+      const meta = metaByVisit.get(v.id) ?? [];
+      const photos: PhotoItem[] = meta
+        .map((m) => ({
+          id: m.id,
+          url: signedMap.get(m.path) ?? "",
+          section_key: m.section_key,
+          grade: m.grade,
+          comments: commentsByPhoto.get(m.id) ?? [],
+          annotations: annotationsByPhoto.get(m.id) ?? [],
+        }))
+        .filter((p) => p.url);
+      v.photo_count = photos.length;
+      v.photo_urls = photos.map((p) => p.url);
+      v.photos = photos;
     }
 
     // Trained staff (rich — name + products)
