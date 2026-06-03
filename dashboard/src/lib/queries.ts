@@ -580,6 +580,12 @@ export interface StoreInfo {
   tier: 'T1' | 'T2' | 'T3' | 'T4' | null;
 }
 
+export interface PhotoItem {
+  id: string;
+  url: string;
+  section_key: string | null;
+}
+
 export interface StoreVisitSummary {
   id: string;
   visit_date: string;
@@ -595,6 +601,7 @@ export interface StoreVisitSummary {
   photo_count: number;
   thumb_urls: string[];
   photo_urls: string[];
+  photos: PhotoItem[];
 }
 
 export interface StoreMemoryNote {
@@ -682,49 +689,52 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   const ids = visitRows.map((v: any) => v.id);
   const { data: photoRows } = await supabase
     .from('visit_photos')
-    .select('visit_id, storage_path')
+    .select('id, visit_id, storage_path, section_key')
     .in('visit_id', ids)
     .order('created_at');
 
-  const allPathsByVisit = new Map<string, string[]>();
-  const thumbPathsByVisit = new Map<string, string[]>();
-  const countByVisit = new Map<string, number>();
+  type PhotoMeta = { id: string; path: string; section_key: string | null };
+  const metaByVisit = new Map<string, PhotoMeta[]>();
 
   for (const p of photoRows ?? []) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row = p as any;
     const vid = row.visit_id as string;
-    const path = row.storage_path as string;
-    countByVisit.set(vid, (countByVisit.get(vid) ?? 0) + 1);
-    const all = allPathsByVisit.get(vid) ?? [];
-    all.push(path);
-    allPathsByVisit.set(vid, all);
-    const thumbs = thumbPathsByVisit.get(vid) ?? [];
-    if (thumbs.length < 3) { thumbs.push(path); thumbPathsByVisit.set(vid, thumbs); }
+    const list = metaByVisit.get(vid) ?? [];
+    list.push({ id: row.id as string, path: row.storage_path as string, section_key: row.section_key ?? null });
+    metaByVisit.set(vid, list);
   }
 
-  const allPaths = [...allPathsByVisit.values()].flat();
-  const signedUrls = await signPhotoUrls(allPaths);
+  // Sign all paths once. 1h TTL so a long review/grading session doesn't 403 mid-way.
+  const allPaths = [...metaByVisit.values()].flat().map((m) => m.path);
+  const signedUrls = await signPhotoUrls(allPaths, 3600);
   const signedMap = new Map<string, string>();
   allPaths.forEach((p, i) => { if (signedUrls[i]) signedMap.set(p, signedUrls[i]); });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const visits: StoreVisitSummary[] = visitRows.map((v: any) => ({
-    id: v.id,
-    visit_date: v.visit_date,
-    cm_telegram_id: v.cm_telegram_id as number,
-    cm_name: v.cms?.nickname ?? v.cms?.full_name ?? 'Unknown',
-    good_news: v.good_news ?? null,
-    competitors: v.competitors ?? null,
-    display_stock: v.display_stock ?? null,
-    follow_up: v.follow_up ?? null,
-    buzz_plan: v.buzz_plan ?? null,
-    training: v.training ?? null,
-    people_training: v.people_training ?? null,
-    photo_count: countByVisit.get(v.id) ?? 0,
-    thumb_urls: (thumbPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
-    photo_urls: (allPathsByVisit.get(v.id) ?? []).map((p) => signedMap.get(p) ?? '').filter(Boolean),
-  }));
+  const visits: StoreVisitSummary[] = visitRows.map((v: any) => {
+    const meta = metaByVisit.get(v.id) ?? [];
+    const photos: PhotoItem[] = meta
+      .map((m) => ({ id: m.id, url: signedMap.get(m.path) ?? '', section_key: m.section_key }))
+      .filter((p) => p.url);
+    return {
+      id: v.id,
+      visit_date: v.visit_date,
+      cm_telegram_id: v.cm_telegram_id as number,
+      cm_name: v.cms?.nickname ?? v.cms?.full_name ?? 'Unknown',
+      good_news: v.good_news ?? null,
+      competitors: v.competitors ?? null,
+      display_stock: v.display_stock ?? null,
+      follow_up: v.follow_up ?? null,
+      buzz_plan: v.buzz_plan ?? null,
+      training: v.training ?? null,
+      people_training: v.people_training ?? null,
+      photo_count: meta.length,
+      thumb_urls: photos.slice(0, 3).map((p) => p.url),
+      photo_urls: photos.map((p) => p.url),
+      photos,
+    };
+  });
 
   return { store, visits, memory_notes, staff, open_tasks };
 }

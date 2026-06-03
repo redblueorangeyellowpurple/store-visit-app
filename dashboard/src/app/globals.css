@@ -345,16 +345,32 @@ body {
 }
 .gallery-toggle-btn:hover { border-color: var(--color-tc-500); color: var(--color-tc-600); }
 
+.gallery-week { margin-bottom: 22px; }
+.gallery-week-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 4px 0 10px;
+}
+.gallery-week-title { font-size: 13px; font-weight: 700; color: var(--color-ink-500); }
+.gallery-week-count { font-size: 12px; color: var(--color-ink-300); }
+
 .photo-gallery-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px;
 }
 .gallery-cell {
+  position: relative;
   aspect-ratio: 1; overflow: hidden; border-radius: 6px;
   background: var(--color-ink-100); border: none; padding: 0; cursor: pointer;
   transition: opacity 0.15s;
 }
 .gallery-cell:hover { opacity: 0.85; }
 .gallery-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-tag {
+  position: absolute; top: 6px; left: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 2px 7px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+  backdrop-filter: blur(2px); pointer-events: none;
+}
 
 /* ── Lightbox ────────────────────────────────────────────── */
 .lightbox-overlay {
@@ -364,9 +380,29 @@ body {
   cursor: pointer;
 }
 .lightbox-img {
-  max-width: 100%; max-height: 90vh; object-fit: contain;
+  max-width: 100%; max-height: 82vh; object-fit: contain;
   border-radius: 8px;
 }
+.lb-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 100%; cursor: default;
+}
+.lb-context {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 13px; color: rgba(255, 255, 255, 0.85);
+}
+.lb-count { font-weight: 700; color: #fff; }
+.lb-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 201;
+  width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); color: #fff;
+  font-size: 26px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.lb-nav:hover { background: rgba(255, 255, 255, 0.26); }
+.lb-prev { left: 20px; }
+.lb-next { right: 20px; }
 .lightbox-close {
   position: absolute; top: 16px; right: 20px;
   background: rgba(255,255,255,0.12); border: none;

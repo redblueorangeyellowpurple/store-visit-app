@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 
@@ -10,6 +10,12 @@ interface StoreInfo {
   chain: string;
   market: string;
   tier: "T1" | "T2" | "T3" | "T4" | null;
+}
+
+interface PhotoItem {
+  id: string;
+  url: string;
+  section_key: string | null;
 }
 
 interface StoreVisit {
@@ -24,6 +30,14 @@ interface StoreVisit {
   photo_count: number;
   thumb_urls: string[];
   photo_urls: string[];
+  photos: PhotoItem[];
+}
+
+// A photo flattened across visits, carrying the context the lightbox/gallery needs.
+interface FlatPhoto extends PhotoItem {
+  visit_id: string;
+  visit_date: string;
+  cm_name: string;
 }
 
 interface User { first_name: string; username?: string }
@@ -43,8 +57,37 @@ const SECTIONS = [
   { key: "buzz_plan",     label: "Buzz Plan",             icon: "⚡", iconBg: "var(--color-section-purple-bg)", color: "#5B2DB5" },
 ] as const;
 
+// Photo section badge labels (visit_photos.section_key values).
+const SECTION_TAG: Record<string, string> = {
+  display_stock: "Display",
+  competitor: "Competitor",
+  good_news: "Good News",
+  people_training: "Training",
+  follow_up: "Follow-up",
+};
+
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
+
+function mondayOf(iso: string): Date {
+  const d = new Date(iso + "T00:00:00");
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay();
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return d;
+}
+
+function weekLabel(mon: Date): string {
+  const end = new Date(mon); end.setDate(mon.getDate() + 6);
+  const day = (x: Date) => x.getDate();
+  const mo  = (x: Date) => x.toLocaleDateString("en-GB", { month: "short" });
+  const sameMonth = mon.getMonth() === end.getMonth();
+  return sameMonth
+    ? `${day(mon)}–${day(end)} ${mo(end)} ${end.getFullYear()}`
+    : `${day(mon)} ${mo(mon)} – ${day(end)} ${mo(end)} ${end.getFullYear()}`;
 }
 
 export default function StoreDashboardPage({ params }: { params: Promise<{ id: string }> }) {
@@ -55,7 +98,7 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   const [visits,      setVisits]      = useState<StoreVisit[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [galleryMode, setGalleryMode] = useState(false);
-  const [lightbox,    setLightbox]    = useState<string | null>(null);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d) setUser(d); });
@@ -71,12 +114,46 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
       });
   }, [id]);
 
+  // Flat, newest-first photo list — drives both the gallery and the lightbox.
+  const allPhotos: FlatPhoto[] = visits.flatMap(v =>
+    v.photos.map(p => ({ ...p, visit_id: v.id, visit_date: v.visit_date, cm_name: v.cm_name })),
+  );
+
+  const closeLb = useCallback(() => setLightboxIdx(null), []);
+  const nav = useCallback((delta: number) => {
+    setLightboxIdx(i => (i === null ? i : (i + delta + allPhotos.length) % allPhotos.length));
+  }, [allPhotos.length]);
+
+  // Keyboard nav — must stay above the `if (!user)` early return (React hook-order rule).
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") nav(-1);
+      else if (e.key === "ArrowRight") nav(1);
+      else if (e.key === "Escape") closeLb();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIdx, nav, closeLb]);
+
   if (!user) return null;
 
   const tier = store?.tier ?? null;
   const ts   = tier ? TIER_STYLE[tier] : TIER_STYLE.T4;
-  const allPhotos = visits.flatMap(v => v.photo_urls.map(url => ({ url, visitDate: v.visit_date })));
   const hasPhotos = allPhotos.length > 0;
+
+  // Group the flat photo list by ISO week (newest week first).
+  const weekGroups: { key: string; label: string; photos: FlatPhoto[] }[] = [];
+  const weekIdx = new Map<string, number>();
+  for (const fp of allPhotos) {
+    const mon = mondayOf(fp.visit_date);
+    const key = isoDate(mon);
+    let gi = weekIdx.get(key);
+    if (gi === undefined) { gi = weekGroups.length; weekIdx.set(key, gi); weekGroups.push({ key, label: weekLabel(mon), photos: [] }); }
+    weekGroups[gi].photos.push(fp);
+  }
+
+  const active = lightboxIdx !== null ? allPhotos[lightboxIdx] : null;
 
   return (
     <div>
@@ -130,7 +207,9 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
                 {/* Section header + gallery toggle */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: "var(--color-ink-300)" }}>
-                    {visits.length} visit{visits.length !== 1 ? "s" : ""}
+                    {galleryMode
+                      ? `${allPhotos.length} photo${allPhotos.length !== 1 ? "s" : ""}`
+                      : `${visits.length} visit${visits.length !== 1 ? "s" : ""}`}
                   </span>
                   {hasPhotos && (
                     <button className="gallery-toggle-btn" onClick={() => setGalleryMode(m => !m)}>
@@ -140,18 +219,31 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 {galleryMode ? (
-                  <div className="photo-gallery-grid">
-                    {allPhotos.map((p, i) => (
-                      <button key={i} className="gallery-cell" onClick={() => setLightbox(p.url)}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.url} alt="" />
-                      </button>
+                  <div>
+                    {weekGroups.map(g => (
+                      <div key={g.key} className="gallery-week">
+                        <div className="gallery-week-head">
+                          <span className="gallery-week-title">{g.label}</span>
+                          <span className="gallery-week-count">{g.photos.length} photo{g.photos.length !== 1 ? "s" : ""}</span>
+                        </div>
+                        <div className="photo-gallery-grid">
+                          {g.photos.map(fp => (
+                            <button key={fp.id} className="gallery-cell" onClick={() => setLightboxIdx(allPhotos.indexOf(fp))}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={fp.url} alt="" />
+                              {fp.section_key && SECTION_TAG[fp.section_key] && (
+                                <span className="photo-tag">{SECTION_TAG[fp.section_key]}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 ) : (
                   <div>
                     {visits.map(v => {
-                      const filledSections = SECTIONS.filter(s => v[s.key]);
+                      const filledSections = SECTIONS.filter(s => v[s.key as keyof StoreVisit]);
                       return (
                         <div key={v.id} className="visit-card">
                           {/* Header */}
@@ -172,30 +264,30 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
 
                           {/* Always-visible body */}
                           <div className="visit-detail">
-                            {v.photo_urls.length > 0 && (
+                            {v.photos.length > 0 && (
                               <div className="photo-strip-wrap">
                                 <div className="photo-strip">
-                                  {v.photo_urls.map((url, i) => (
-                                    <button key={i} className="photo-thumb" onClick={() => setLightbox(url)}>
+                                  {v.photos.map((ph, i) => (
+                                    <button key={ph.id} className="photo-thumb" onClick={() => setLightboxIdx(allPhotos.findIndex(a => a.id === ph.id))}>
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={url} alt={`Photo ${i + 1}`} />
+                                      <img src={ph.url} alt={`Photo ${i + 1}`} />
                                     </button>
                                   ))}
                                 </div>
                               </div>
                             )}
                             {filledSections.length === 0 ? (
-                              <p style={{ fontSize: 13, color: "var(--color-ink-300)", paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
+                              <p style={{ fontSize: 13, color: "var(--color-ink-300)", paddingTop: v.photos.length > 0 ? 8 : 14 }}>
                                 No notes were added for this visit.
                               </p>
                             ) : (
-                              <div className="visit-sections-grid" style={{ paddingTop: v.photo_urls.length > 0 ? 8 : 14 }}>
+                              <div className="visit-sections-grid" style={{ paddingTop: v.photos.length > 0 ? 8 : 14 }}>
                                 {filledSections.map(s => (
                                   <div key={s.key} className="visit-section-card">
                                     <div className="visit-section-label" style={{ color: s.color }}>
                                       {s.icon} {s.label}
                                     </div>
-                                    <p className="visit-section-text">{v[s.key]}</p>
+                                    <p className="visit-section-text">{v[s.key as keyof StoreVisit] as string}</p>
                                   </div>
                                 ))}
                               </div>
@@ -212,11 +304,22 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
-      {lightbox && (
-        <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="Photo" className="lightbox-img" />
-          <button className="lightbox-close" onClick={() => setLightbox(null)}>Close</button>
+      {active && (
+        <div className="lightbox-overlay" onClick={closeLb}>
+          <button className="lb-nav lb-prev" onClick={e => { e.stopPropagation(); nav(-1); }} aria-label="Previous">‹</button>
+          <div className="lb-stage" onClick={e => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={active.url} alt="Photo" className="lightbox-img" />
+            <div className="lb-context">
+              <span className="lb-count">{(lightboxIdx ?? 0) + 1} / {allPhotos.length}</span>
+              <span className="lb-meta">
+                {fmtDate(active.visit_date)} · {active.cm_name}
+                {active.section_key && SECTION_TAG[active.section_key] ? ` · ${SECTION_TAG[active.section_key]}` : ""}
+              </span>
+            </div>
+          </div>
+          <button className="lb-nav lb-next" onClick={e => { e.stopPropagation(); nav(1); }} aria-label="Next">›</button>
+          <button className="lightbox-close" onClick={closeLb}>Close</button>
         </div>
       )}
     </div>
