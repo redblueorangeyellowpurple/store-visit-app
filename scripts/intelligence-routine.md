@@ -120,11 +120,11 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 ### B) `telegram_summary` — DM body (sent with `parse_mode=HTML`, ≤900 chars)
 ```
 <b>📊 Store Visit Daily Report</b>
-<i><Weekday DD Mon YYYY></i>
+<Ddd DD Mon YYYY>
 
 <b>🎯 Execution Summary</b>
-Planned: <P or — (no plans logged)>
-Executed: <N> Visits<( <pct>% )>
+Planned: <P> Visits
+Executed: <N> Visits (<pct>%)
 
 <b>🔔 Signals</b>
 • <one-liner>
@@ -133,7 +133,11 @@ Executed: <N> Visits<( <pct>% )>
 <b>🚨 Alerts</b>
 • <one-liner>
 ```
-Skip any empty section (no "none today" stubs). Plain `•` bullets. No tables.
+- **Date** = short weekday, plain (not italic): `Wed 28 May 2026`.
+- **Planned** line: `Planned: <P> Visits` when plans exist; else `Planned: — (no plans logged)`.
+- **Executed** line: append `(<pct>%)` only when `P>0` (e.g. `Executed: 5 Visits (100%)`); otherwise just `Executed: <N> Visits`.
+- Signals/Alerts = concise one-liners, em-dash for the "so what" (e.g. `TV category softening in SG — units down at 2 stores, pushing attach-sells`).
+- Skip any empty section (no "none today" stubs). Plain `•` bullets. No tables.
 
 ### C) `note_updates` — memory edits. **Per-scope caps: ≤4 theme · ≤4 store · ≤4 person.**
 - `slug` matches `^(store|person|theme|channel):[a-z0-9-]+$`.
