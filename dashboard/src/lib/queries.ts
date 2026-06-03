@@ -1554,6 +1554,58 @@ export async function updateStore(id: string, patch: UpdateStorePatch): Promise<
   return !error;
 }
 
+// ─── Products master (catalogue) ──────────────────────────────────────────────
+
+export interface AdminProductRow {
+  id: string;
+  brand: string;
+  name: string;
+  is_active: boolean;
+}
+
+export async function getAllProducts(): Promise<AdminProductRow[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, brand, name, is_active')
+    .order('brand')
+    .order('name');
+  if (error || !data) {
+    console.error('getAllProducts error:', error);
+    return [];
+  }
+  return data as AdminProductRow[];
+}
+
+export interface CreateProductInput {
+  brand: string;
+  name: string;
+}
+
+export async function createProduct(input: CreateProductInput): Promise<AdminProductRow | null> {
+  const { data, error } = await supabase
+    .from('products')
+    .insert({ brand: input.brand, name: input.name, is_active: true })
+    .select('id, brand, name, is_active')
+    .single();
+  if (error) {
+    console.error('createProduct error:', error);
+    return null;
+  }
+  return data as AdminProductRow;
+}
+
+export interface UpdateProductPatch {
+  brand?: string;
+  name?: string;
+  is_active?: boolean;
+}
+
+export async function updateProduct(id: string, patch: UpdateProductPatch): Promise<boolean> {
+  const { error } = await supabase.from('products').update(patch).eq('id', id);
+  if (error) console.error('updateProduct error:', error);
+  return !error;
+}
+
 // ─── Display Review: photo comments, box annotations, grade ───────────────────
 
 interface Author { telegram_id: number; name: string }

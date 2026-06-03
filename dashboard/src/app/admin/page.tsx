@@ -46,6 +46,13 @@ interface StoreRow {
   is_active: boolean;
 }
 
+interface ProductRow {
+  id: string;
+  brand: string;
+  name: string;
+  is_active: boolean;
+}
+
 interface User { first_name: string; username?: string; role?: string }
 
 const ROLES: Role[] = ["cm", "cmic", "am", "admin"];
@@ -118,6 +125,13 @@ export default function AdminPage() {
   });
   const [addStoreSubmitting, setAddStoreSubmitting] = useState(false);
 
+  // Products
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [productQuery, setProductQuery] = useState("");
+  const [showInactiveProducts, setShowInactiveProducts] = useState(false);
+  const [addProductForm, setAddProductForm] = useState({ brand: "", name: "" });
+  const [addProductSubmitting, setAddProductSubmitting] = useState(false);
+
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setUser(d); });
     reload();
@@ -125,10 +139,11 @@ export default function AdminPage() {
 
   async function reload() {
     setLoading(true);
-    const [pRes, gRes, sRes] = await Promise.all([
+    const [pRes, gRes, sRes, prodRes] = await Promise.all([
       fetch("/api/admin/people"),
       fetch("/api/admin/alert-groups"),
       fetch("/api/admin/stores"),
+      fetch("/api/admin/products"),
     ]);
     if (pRes.ok) {
       const d = await pRes.json();
@@ -158,6 +173,10 @@ export default function AdminPage() {
     if (sRes.ok) {
       const d = await sRes.json();
       setStores(d.stores);
+    }
+    if (prodRes.ok) {
+      const d = await prodRes.json();
+      setProducts(d.products);
     }
     setLoading(false);
   }
@@ -378,6 +397,62 @@ export default function AdminPage() {
       return true;
     });
   }, [stores, storeFilter, storeQuery, showInactive]);
+
+  // ── products ──────────────────────────────────────────────────────────────
+  async function submitAddProduct(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addProductForm.brand.trim() || !addProductForm.name.trim()) {
+      setError("Product brand and name are required");
+      return;
+    }
+    setAddProductSubmitting(true);
+    const res = await fetch("/api/admin/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand: addProductForm.brand.trim(),
+        name: addProductForm.name.trim(),
+      }),
+    });
+    if (res.ok) {
+      await reload();
+      setAddProductForm({ brand: addProductForm.brand, name: "" });
+    } else {
+      const j = await res.json().catch(() => null);
+      setError(j?.error ?? "Add product failed");
+    }
+    setAddProductSubmitting(false);
+  }
+
+  async function patchProduct(id: string, patch: Record<string, unknown>) {
+    setError(null);
+    const prev = products;
+    setSavingKey(`prod:${id}`);
+    setProducts((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const res = await fetch("/api/admin/products", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...patch }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      setError(j?.error ?? "Product update failed");
+      setProducts(prev);
+    }
+    setSavingKey(null);
+  }
+
+  const filteredProducts = useMemo(() => {
+    const q = productQuery.trim().toLowerCase();
+    return products.filter((p) => {
+      if (!showInactiveProducts && !p.is_active) return false;
+      if (q) {
+        const hay = `${p.brand} ${p.name}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [products, productQuery, showInactiveProducts]);
 
   if (!user) return null;
 
@@ -803,6 +878,111 @@ export default function AdminPage() {
                             onClick={() => patchStore(s.id, { is_active: true })}
                           >
                             Reactivate
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ── Products ──────────────────────────────────────────────────────── */}
+        <section className="admin-card">
+          <div className="admin-card-head">
+            <h2 className="admin-card-title">Products</h2>
+            <span className="admin-count">{filteredProducts.length}/{products.length}</span>
+          </div>
+
+          <form className="admin-add-form" onSubmit={submitAddProduct} style={{ marginBottom: 14 }}>
+            <input
+              type="text"
+              placeholder="Brand (e.g. Sonos)"
+              value={addProductForm.brand}
+              onChange={(e) => setAddProductForm((f) => ({ ...f, brand: e.target.value }))}
+              required
+            />
+            <input
+              type="text"
+              placeholder="Name (e.g. Era 300)"
+              value={addProductForm.name}
+              onChange={(e) => setAddProductForm((f) => ({ ...f, name: e.target.value }))}
+              required
+            />
+            <button type="submit" disabled={addProductSubmitting}>
+              {addProductSubmitting ? "Adding…" : "Add product"}
+            </button>
+          </form>
+
+          <div className="admin-store-filters">
+            <input
+              type="text"
+              placeholder="Search brand / name"
+              value={productQuery}
+              onChange={(e) => setProductQuery(e.target.value)}
+            />
+            <label className="admin-checkbox-inline">
+              <input
+                type="checkbox"
+                checked={showInactiveProducts}
+                onChange={(e) => setShowInactiveProducts(e.target.checked)}
+              />
+              Show retired
+            </label>
+          </div>
+
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Brand</th>
+                  <th>Name</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map((p) => {
+                  const saving = savingKey === `prod:${p.id}`;
+                  return (
+                    <tr key={p.id} className={`${saving ? "saving" : ""} ${p.is_active ? "" : "inactive"}`.trim()}>
+                      <td>
+                        <input
+                          type="text"
+                          defaultValue={p.brand}
+                          disabled={saving}
+                          onBlur={(e) => { if (e.target.value !== p.brand) patchProduct(p.id, { brand: e.target.value }); }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          defaultValue={p.name}
+                          disabled={saving}
+                          onBlur={(e) => { if (e.target.value !== p.name) patchProduct(p.id, { name: e.target.value }); }}
+                        />
+                      </td>
+                      <td>
+                        {p.is_active ? (
+                          <button
+                            className="admin-mini-btn admin-mini-btn--reject"
+                            disabled={saving}
+                            onClick={() => {
+                              if (confirm(`Retire ${p.brand} ${p.name}? It won't show in the picker for new logs.`)) {
+                                patchProduct(p.id, { is_active: false });
+                              }
+                            }}
+                          >
+                            Retire
+                          </button>
+                        ) : (
+                          <button
+                            className="admin-mini-btn"
+                            disabled={saving}
+                            onClick={() => patchProduct(p.id, { is_active: true })}
+                          >
+                            Restore
                           </button>
                         )}
                       </td>
