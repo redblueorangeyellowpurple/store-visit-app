@@ -12,9 +12,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
 import StoreVisitDrawer from "@/components/StoreVisitDrawer";
 import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
-import ChannelManagersSection from "@/components/ChannelManagersSection";
 
-// Allow <details> and <summary> HTML tags through the sanitizer
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
@@ -28,8 +26,6 @@ interface ReportSummary {
   version: number;
   edited_by_human: boolean;
   model: string | null;
-  prompt_tokens: number | null;
-  completion_tokens: number | null;
   stats: Record<string, unknown>;
   created_at: string;
 }
@@ -52,8 +48,6 @@ interface NoteSummary {
 }
 
 type ScopeFilter = "all" | "theme" | "store" | "person" | "channel";
-type TierFilter = "all" | "short" | "long";
-type SortBy = "recent" | "updated" | "alpha";
 
 const SCOPE_TABS: { value: ScopeFilter; label: string; icon: string }[] = [
   { value: "all", label: "All", icon: "✦" },
@@ -63,58 +57,94 @@ const SCOPE_TABS: { value: ScopeFilter; label: string; icon: string }[] = [
   { value: "channel", label: "Channels", icon: "🔗" },
 ];
 
-const TIER_TABS: { value: TierFilter; label: string }[] = [
-  { value: "all", label: "All tiers" },
-  { value: "short", label: "Short-term" },
-  { value: "long", label: "Long-term" },
-];
+const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
 
-const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: "recent", label: "Recent" },
-  { value: "updated", label: "Most updated" },
-  { value: "alpha", label: "A–Z" },
-];
-
-function fmtDate(iso: string): string {
-  return new Date(iso + (iso.length === 10 ? "T00:00:00" : "")).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
+function fmtWeekday(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 }
-
 function fmtDateShort(iso: string): string {
   return new Date(iso + (iso.length === 10 ? "T00:00:00" : "")).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
+    day: "numeric", month: "short",
   });
 }
-
 function fmtRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const days = Math.floor((now - then) / (1000 * 60 * 60 * 24));
-  if (days === 0) return "today";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return "today";
   if (days === 1) return "1d ago";
   if (days < 14) return `${days}d ago`;
   if (days < 60) return `${Math.floor(days / 7)}w ago`;
   return fmtDateShort(iso);
 }
 
-/**
- * Strip legacy "## 📊 Analytics" sections from stored brief markdown.
- * The Channel Managers React component above the brief now shows this data live.
- * Old stored briefs may still contain the Analytics table — remove it at render time.
- */
-function stripAnalyticsSection(md: string): string {
-  // Matches from ## 📊 Analytics (or ## Analytics) to the next ## / # heading or end of string
-  return md.replace(/\n## (?:📊 )?Analytics[\s\S]*?(?=\n## |\n# |$)/, "");
-}
+// ─── Brief parsing ────────────────────────────────────────────────────────────
+// The stored brief IS the endorsed data ("content is right"). Parse it rather than
+// re-deriving stats live — single source of truth, no engagements-field drift.
 
-function stripBriefTitle(md: string): string {
-  // Remove the leading H1 (e.g. "# 📍 Daily Intelligence Brief — 2026-05-26")
-  // since we render it as the panel header above Channel Managers.
-  return md.replace(/^#[^\n]*\n*/, "");
+interface MdTable { header: string[]; rows: string[][] }
+interface ExecData {
+  planned: string; visited: string; engagements: string;
+  cms: { name: string; market: string; visited: string; engagements: string }[];
+}
+interface Section { kind: "signals" | "alerts" | "threads" | "other"; title: string; body: string }
+
+function splitCells(line: string): string[] {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+}
+function parseTables(block: string): MdTable[] {
+  const tables: MdTable[] = [];
+  let cur: string[] = [];
+  const flush = () => {
+    if (cur.length >= 2) {
+      const header = splitCells(cur[0]);
+      const rows = cur.slice(2).map(splitCells); // skip the --- separator row
+      tables.push({ header, rows });
+    }
+    cur = [];
+  };
+  for (const ln of block.split("\n")) {
+    if (ln.trim().startsWith("|")) cur.push(ln);
+    else flush();
+  }
+  flush();
+  return tables;
+}
+function parseExecution(block: string): ExecData | null {
+  const tables = parseTables(block);
+  if (!tables.length) return null;
+  const totalsT = tables.find((t) => t.header.some((h) => /planned/i.test(h)));
+  const cmT = tables.find((t) => t.header.some((h) => /channel manager/i.test(h))) ?? tables[tables.length - 1];
+  let planned = "—", visited = "—", engagements = "—";
+  if (totalsT?.rows[0]) {
+    const r = totalsT.rows[0]; // | All CMs | planned | executed | engagements |
+    planned = r[1] ?? "—"; visited = r[2] ?? "—"; engagements = r[3] ?? "—";
+  }
+  const cms = (cmT?.rows ?? [])
+    .filter((r) => r[0] && !/all cms/i.test(r[0]))
+    .map((r) => ({ name: r[0], market: r[1] ?? "", visited: r[2] ?? "0", engagements: r[3] ?? "0" }));
+  if (totalsT === undefined && cms.length) {
+    // derive totals from CM rows when no totals table present
+    visited = String(cms.reduce((s, c) => s + (parseInt(c.visited) || 0), 0));
+    engagements = String(cms.reduce((s, c) => s + (parseInt(c.engagements) || 0), 0));
+  }
+  return { planned, visited, engagements, cms };
+}
+function parseBrief(md: string): { exec: ExecData | null; sections: Section[] } {
+  const chunks = md.split(/\n(?=## )/);
+  let exec: ExecData | null = null;
+  const sections: Section[] = [];
+  for (const chunk of chunks) {
+    const nl = chunk.indexOf("\n");
+    const head = (nl === -1 ? chunk : chunk.slice(0, nl)).replace(/^##\s*/, "").trim();
+    const body = nl === -1 ? "" : chunk.slice(nl + 1).trim();
+    if (/execution/i.test(head)) exec = parseExecution(body);
+    else if (/signals/i.test(head)) sections.push({ kind: "signals", title: head, body });
+    else if (/alerts/i.test(head)) sections.push({ kind: "alerts", title: head, body });
+    else if (/threads/i.test(head)) sections.push({ kind: "threads", title: head, body });
+    else if (body) sections.push({ kind: "other", title: head, body });
+  }
+  return { exec, sections };
 }
 
 export default function IntelligencePage() {
@@ -124,10 +154,7 @@ export default function IntelligencePage() {
   const [report, setReport] = useState<ReportFull | null>(null);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
-  const [tier, setTier] = useState<TierFilter>("all");
-  const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [search, setSearch] = useState("");
-  const [touchedOnly, setTouchedOnly] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -139,26 +166,18 @@ export default function IntelligencePage() {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setUser(d));
   }, []);
 
-  // Load report list once
   useEffect(() => {
-    fetch("/api/intelligence/reports")
-      .then((r) => r.json())
-      .then((d) => {
-        setReports(d.reports ?? []);
-        if (d.reports?.[0]) setActiveDate(d.reports[0].report_date);
-      });
+    fetch("/api/intelligence/reports").then((r) => r.json()).then((d) => {
+      setReports(d.reports ?? []);
+      if (d.reports?.[0]) setActiveDate(d.reports[0].report_date);
+    });
   }, []);
 
-  // Load notes once
   const loadNotes = useCallback(() => {
-    fetch("/api/intelligence/notes")
-      .then((r) => r.json())
-      .then((d) => setNotes(d.notes ?? []));
+    fetch("/api/intelligence/notes").then((r) => r.json()).then((d) => setNotes(d.notes ?? []));
   }, []);
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
-  // Silent background refresh — refresh report list + active report + notes.
-  // Hard-paused while editing the brief, mid-save, or a drawer is open.
   const silentRefresh = useCallback(async () => {
     const [reportList, currentReport, noteList] = await Promise.all([
       fetch("/api/intelligence/reports").then((r) => r.ok ? r.json() : null),
@@ -175,47 +194,30 @@ export default function IntelligencePage() {
     paused: editing || saving || drawerStoreId !== null || drawerNoteSlug !== null,
   });
 
-  // Load the active report whenever date changes
   useEffect(() => {
     if (!activeDate) return;
     setLoadingReport(true);
     setEditing(false);
     fetch(`/api/intelligence/reports/${activeDate}`)
       .then((r) => r.json())
-      .then((d) => {
-        setReport(d.report ?? null);
-        setDraft(d.report?.brief_markdown ?? "");
-      })
+      .then((d) => { setReport(d.report ?? null); setDraft(d.report?.brief_markdown ?? ""); })
       .finally(() => setLoadingReport(false));
   }, [activeDate]);
+
+  const parsed = useMemo(() => report ? parseBrief(report.brief_markdown) : null, [report]);
+  const markets = useMemo(() => {
+    const set = new Set((parsed?.exec?.cms ?? []).map((c) => c.market).filter(Boolean));
+    return Array.from(set);
+  }, [parsed]);
 
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
     let out = notes.slice();
     if (scope !== "all") out = out.filter((n) => n.scope === scope);
-    if (tier !== "all") out = out.filter((n) => n.tier === tier);
-    if (touchedOnly && activeDate) {
-      out = out.filter((n) => n.last_touched_at.slice(0, 10) === activeDate);
-    }
-    if (q) {
-      out = out.filter(
-        (n) => n.title.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q),
-      );
-    }
-    if (sortBy === "recent") {
-      out.sort((a, b) => b.last_touched_at.localeCompare(a.last_touched_at));
-    } else if (sortBy === "updated") {
-      out.sort((a, b) => b.version - a.version || b.last_touched_at.localeCompare(a.last_touched_at));
-    } else {
-      out.sort((a, b) => a.title.localeCompare(b.title));
-    }
+    if (q) out = out.filter((n) => n.title.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q));
+    out.sort((a, b) => b.last_touched_at.localeCompare(a.last_touched_at));
     return out;
-  }, [notes, scope, tier, sortBy, search, touchedOnly, activeDate]);
-
-  const touchedCount = useMemo(() => {
-    if (!activeDate) return 0;
-    return notes.filter((n) => n.last_touched_at.slice(0, 10) === activeDate).length;
-  }, [notes, activeDate]);
+  }, [notes, scope, search]);
 
   async function saveEdit() {
     if (!activeDate) return;
@@ -229,372 +231,300 @@ export default function IntelligencePage() {
       const data = await res.json();
       if (res.ok && data.report) {
         setReport(data.report);
-        // refresh list so the version badge updates
         const list = await fetch("/api/intelligence/reports").then((r) => r.json());
         setReports(list.reports ?? []);
         setEditing(false);
-      } else {
-        alert(data.error ?? "Save failed");
-      }
-    } finally {
-      setSaving(false);
-    }
+      } else alert(data.error ?? "Save failed");
+    } finally { setSaving(false); }
   }
+
+  // Link interceptor: /visits/store/[id] → open drawer, styled as a mockup chip.
+  const mdComponents = (alert: boolean) => ({
+    a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
+      const m = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      if (m) {
+        return (
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(m[1])}>
+            {children}
+          </button>
+        );
+      }
+      return <a href={href} {...props}>{children}</a>;
+    },
+  });
+
+  const signals = parsed?.sections.find((s) => s.kind === "signals");
+  const alerts = parsed?.sections.find((s) => s.kind === "alerts");
+  const exec = parsed?.exec;
 
   return (
     <>
       <NavBar user={user as { first_name: string; username?: string }} />
-      <main className="page-content space-y-8">
-        {/* Header */}
-        <header>
-          <div className="flex items-baseline justify-between gap-3 mb-3">
-            <div>
-              <h1 className="text-2xl font-black tracking-tight" style={{ color: "var(--color-ink-900)" }}>
-                Daily Intelligence
-              </h1>
-              <p className="text-[13px] mt-0.5" style={{ color: "var(--color-ink-300)" }}>
-                Lean synthesis of every store visit, with memory that compounds over time
-              </p>
+      <style>{INTEL_CSS}</style>
+      <div className="intel">
+        <div className="wrap">
+          {/* Header */}
+          <header className="head">
+            <div className="head-row">
+              <div>
+                <div className="kicker">📊 SVA Daily Intelligence</div>
+                <h1>{activeDate ? fmtWeekday(activeDate) : "Daily Intelligence"}</h1>
+                <div className="sub">
+                  {exec ? `${exec.visited} visit${exec.visited === "1" ? "" : "s"}` : "—"}
+                  {markets.length ? ` across ${markets.join(" · ")}` : ""}
+                  {report?.created_at ? ` · v${report.version}${report.edited_by_human ? " · edited" : ""}` : ""}
+                </div>
+              </div>
+              <div className="head-actions">
+                <RefreshControl controls={refresh} />
+                {report && !editing && (
+                  <button className="btn-edit" onClick={() => setEditing(true)}>Edit brief</button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <RefreshControl controls={refresh} />
-              {report && !editing && (
-                <button
-                  onClick={() => setEditing(true)}
-                  className="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
-                  style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}
-                >
-                  Edit brief
-                </button>
-              )}
-            </div>
-          </div>
 
-          {/* Date chips */}
-          {reports.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {reports.slice(0, 14).map((r) => {
-                const isActive = r.report_date === activeDate;
-                return (
+            {reports.length > 0 && (
+              <div className="chips datechips">
+                {reports.slice(0, 14).map((r) => (
                   <button
                     key={r.report_date}
+                    className={`datechip${r.report_date === activeDate ? " on" : ""}`}
                     onClick={() => setActiveDate(r.report_date)}
-                    className="rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
-                    style={{
-                      background: isActive ? "var(--color-tc-500)" : "var(--color-ink-50)",
-                      color: isActive ? "#fff" : "var(--color-ink-500)",
-                      fontWeight: isActive ? 700 : 500,
-                    }}
                   >
-                    {fmtDateShort(r.report_date)}
-                    {r.edited_by_human && <span className="ml-1 opacity-75">✎</span>}
+                    {fmtDateShort(r.report_date)}{r.edited_by_human && <span className="ed">✎</span>}
                   </button>
-                );
-              })}
-            </div>
-          )}
-        </header>
-
-        {/* Brief */}
-        <section
-          className="rounded-2xl p-6"
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          {/* Brief metadata — shown above header when report is loaded */}
-          {!loadingReport && report && (
-            <div className="flex items-center gap-2 text-[11px] mb-1" style={{ color: "var(--color-ink-300)" }}>
-              <span>v{report.version}</span>
-              {report.edited_by_human && (
-                <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-tc-50)", color: "var(--color-tc-600)" }}>
-                  ✎ edited
-                </span>
-              )}
-              {report.model && <span>· {report.model}</span>}
-              {report.prompt_tokens && (
-                <span>· {report.prompt_tokens.toLocaleString()} in / {report.completion_tokens?.toLocaleString()} out</span>
-              )}
-            </div>
-          )}
-
-          {/* Panel header — derived from selected date */}
-          {activeDate && (
-            <h2 className="text-xl font-black tracking-tight mb-4" style={{ color: "var(--color-ink-900)" }}>
-              Daily Intelligence — {activeDate}
-            </h2>
-          )}
-
-          {/* Channel Managers — live visit analytics for the selected date */}
-          <ChannelManagersSection
-            date={activeDate}
-            onOpenStore={(id) => setDrawerStoreId(id)}
-          />
-
-          {loadingReport && (
-            <p className="text-[13px]" style={{ color: "var(--color-ink-300)" }}>Loading…</p>
-          )}
-          {!loadingReport && !report && (
-            <div className="py-10 text-center">
-              <p className="text-[13px]" style={{ color: "var(--color-ink-300)" }}>
-                No reports yet. Run <code className="px-1.5 py-0.5 rounded bg-black/5">npm run intelligence</code> to generate the first one.
-              </p>
-            </div>
-          )}
-          {!loadingReport && report && !editing && (
-            <>
-              <hr style={{ borderColor: "var(--color-border)", margin: "1.25rem 0" }} />
-              <div className="markdown-brief">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-                  components={{
-                    // Intercept /visits/store/[id] links → open drawer
-                    a({ href, children, ...props }) {
-                      const match = href?.match(/^\/visits\/store\/([^/?#]+)/);
-                      if (match) {
-                        return (
-                          <button
-                            onClick={() => setDrawerStoreId(match[1])}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              cursor: "pointer",
-                              color: "var(--color-tc-600)",
-                              fontWeight: 600,
-                              fontSize: "inherit",
-                              fontFamily: "inherit",
-                              textDecoration: "underline",
-                              textDecorationStyle: "dotted",
-                            }}
-                          >
-                            {children}
-                          </button>
-                        );
-                      }
-                      return <a href={href} {...props}>{children}</a>;
-                    },
-                  }}
-                >
-                  {stripBriefTitle(stripAnalyticsSection(report.brief_markdown))}
-                </ReactMarkdown>
+                ))}
               </div>
-            </>
+            )}
+          </header>
+
+          {loadingReport && <p className="empty">Loading…</p>}
+          {!loadingReport && !report && (
+            <p className="empty">No reports yet. The routine generates one each morning from locked visits.</p>
           )}
+
+          {/* ── Edit mode ── */}
           {editing && report && (
-            <div className="space-y-3">
+            <div className="card">
               <textarea
+                className="editor"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                rows={Math.min(40, Math.max(20, draft.split("\n").length + 2))}
-                className="w-full font-mono text-[12px] p-4 rounded-xl"
-                style={{
-                  border: "1px solid var(--color-border)",
-                  background: "var(--color-ink-50)",
-                  color: "var(--color-ink-900)",
-                  lineHeight: 1.5,
-                }}
+                rows={Math.min(40, Math.max(18, draft.split("\n").length + 2))}
               />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveEdit}
-                  disabled={saving}
-                  className="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition-colors disabled:opacity-50"
-                  style={{ background: "var(--color-tc-500)" }}
-                >
+              <div className="editbar">
+                <button className="btn-save" onClick={saveEdit} disabled={saving}>
                   {saving ? "Saving…" : "Save as new version"}
                 </button>
-                <button
-                  onClick={() => { setEditing(false); setDraft(report.brief_markdown); }}
-                  className="rounded-lg px-3 py-1.5 text-[12px] font-medium"
-                  style={{ color: "var(--color-ink-500)" }}
-                >
+                <button className="btn-cancel" onClick={() => { setEditing(false); setDraft(report.brief_markdown); }}>
                   Cancel
                 </button>
               </div>
             </div>
           )}
-        </section>
 
-        {/* Memory */}
-        <section>
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-lg font-black tracking-tight" style={{ color: "var(--color-ink-900)" }}>
-              Memory
-            </h2>
-            <p className="text-[11px]" style={{ color: "var(--color-ink-300)" }}>
-              {notes.length} notes · {notes.filter((n) => n.tier === "short").length} active
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {SCOPE_TABS.map((tab) => {
-              const isActive = scope === tab.value;
-              const count = tab.value === "all" ? notes.length : notes.filter((n) => n.scope === tab.value).length;
-              return (
-                <button
-                  key={tab.value}
-                  onClick={() => setScope(tab.value)}
-                  className="rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors"
-                  style={{
-                    background: isActive ? "var(--color-tc-50)" : "transparent",
-                    color: isActive ? "var(--color-tc-600)" : "var(--color-ink-500)",
-                    fontWeight: isActive ? 700 : 500,
-                  }}
-                >
-                  <span className="mr-1">{tab.icon}</span>
-                  {tab.label}
-                  <span className="ml-1.5 opacity-60">{count}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Filter bar: search + sort + tier chips + touched-in-brief toggle */}
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search title or summary…"
-              className="rounded-lg px-3 py-1.5 text-[12px] flex-1 min-w-[180px]"
-              style={{
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-ink-900)",
-              }}
-            />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortBy)}
-              className="rounded-lg px-2 py-1.5 text-[12px] font-medium"
-              style={{
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-ink-700)",
-              }}
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>Sort: {o.label}</option>
-              ))}
-            </select>
-            <div className="flex gap-1">
-              {TIER_TABS.map((t) => {
-                const isActive = tier === t.value;
-                return (
-                  <button
-                    key={t.value}
-                    onClick={() => setTier(t.value)}
-                    className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
-                    style={{
-                      background: isActive ? "var(--color-tc-50)" : "transparent",
-                      color: isActive ? "var(--color-tc-600)" : "var(--color-ink-500)",
-                      fontWeight: isActive ? 700 : 500,
-                      border: "1px solid var(--color-border)",
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-            {activeDate && (
-              <button
-                onClick={() => setTouchedOnly((v) => !v)}
-                disabled={touchedCount === 0}
-                className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40"
-                style={{
-                  background: touchedOnly ? "var(--color-tc-500)" : "transparent",
-                  color: touchedOnly ? "#fff" : "var(--color-ink-500)",
-                  border: "1px solid var(--color-border)",
-                  fontWeight: touchedOnly ? 700 : 500,
-                }}
-                title={`${touchedCount} notes touched by the ${fmtDateShort(activeDate)} brief`}
-              >
-                🔗 Touched in this brief
-                <span className="ml-1 opacity-75">{touchedCount}</span>
-              </button>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            {filteredNotes.map((n) => (
-              <button
-                key={n.slug}
-                onClick={() => setDrawerNoteSlug(n.slug)}
-                className="rounded-xl p-4 transition-all hover:-translate-y-0.5 text-left"
-                style={{
-                  background: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
-                  cursor: "pointer",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                        style={{
-                          background:
-                            n.scope === "theme"
-                              ? "var(--color-section-purple-bg)"
-                              : n.scope === "store"
-                              ? "var(--color-section-green-bg)"
-                              : n.scope === "person"
-                              ? "var(--color-section-blue-bg)"
-                              : "var(--color-ink-50)",
-                          color: "var(--color-ink-700)",
-                        }}
-                      >
-                        {n.scope}
-                      </span>
-                      <span className="text-[13px] font-bold" style={{ color: "var(--color-ink-900)" }}>
-                        {n.title}
-                      </span>
-                      {n.edited_by_human && (
-                        <span className="text-[10px]" style={{ color: "var(--color-tc-600)" }}>✎</span>
-                      )}
-                      {n.tier === "long" && (
-                        <span className="text-[10px]" style={{ color: "var(--color-ink-300)" }}>· long-term</span>
-                      )}
-                    </div>
-                    <p className="text-[12.5px] leading-snug" style={{ color: "var(--color-ink-500)" }}>
-                      {n.summary}
-                    </p>
-                  </div>
-                  <span className="text-[10px] whitespace-nowrap" style={{ color: "var(--color-ink-300)" }}>
-                    {fmtRelative(n.last_touched_at)}
-                  </span>
+          {/* ── Execution summary ── */}
+          {!editing && report && exec && (
+            <div className="card">
+              <h2>Execution summary</h2>
+              <div className="topline">
+                <div className="stat s-plan">
+                  <div className={`n${exec.planned === "—" ? " dim" : ""}`}>{exec.planned}</div>
+                  <div className="l">Planned</div>
                 </div>
-              </button>
-            ))}
-            {filteredNotes.length === 0 && (
-              <p className="text-[13px] text-center py-6" style={{ color: "var(--color-ink-300)" }}>
-                {search || tier !== "all" || touchedOnly
-                  ? "No notes match the current filters."
-                  : `No ${scope === "all" ? "" : scope} notes yet.`}
-              </p>
-            )}
-          </div>
-        </section>
+                <div className="stat s-visit"><div className="n">{exec.visited}</div><div className="l">Visited</div></div>
+                <div className="stat s-eng"><div className="n">{exec.engagements}</div><div className="l">Engagements</div></div>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Channel Manager</th><th>Market</th><th className="num">Visited</th><th className="num">Engagements</th></tr>
+                </thead>
+                <tbody>
+                  {exec.cms.map((c, i) => (
+                    <tr key={i}>
+                      <td>{c.name}</td>
+                      <td><span className="mk">{MARKET_FLAG[c.market] ?? ""} {c.market}</span></td>
+                      <td className="num">{c.visited}</td>
+                      <td className="num">{c.engagements}</td>
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td>All CMs</td>
+                    <td><span className="mk dim">{markets.join(" · ") || "—"}</span></td>
+                    <td className="num">{exec.visited}</td>
+                    <td className="num">{exec.engagements}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="footnote">
+                {exec.planned === "—" ? "No plans logged yet — planned-vs-visited fills in once CMs use the planning flow. " : ""}
+                Engagements = visits with a people/training note.
+              </div>
+            </div>
+          )}
 
+          {/* ── Signals ── */}
+          {!editing && report && (
+            <div className="card">
+              <h2>🔔 Signals <span className="h2-note">— patterns across ≥2 visits</span></h2>
+              {signals?.body ? (
+                <div className="md">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(false)}>
+                    {signals.body}
+                  </ReactMarkdown>
+                </div>
+              ) : <p className="calm">No repeated patterns today.</p>}
+            </div>
+          )}
 
-        <p className="text-[11px] pt-4" style={{ color: "var(--color-ink-300)" }}>
-          {activeDate && fmtDate(activeDate)} · Generated daily from locked store visits
-        </p>
-      </main>
+          {/* ── Alerts (always shown) ── */}
+          {!editing && report && (
+            <div className="card card-emg">
+              <h2 className="emg-h">🚨 Alerts <span className="h2-note">— explicit triggers only</span></h2>
+              {alerts?.body ? (
+                <div className="md">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(true)}>
+                    {alerts.body}
+                  </ReactMarkdown>
+                </div>
+              ) : <p className="calm">No alerts today.</p>}
+            </div>
+          )}
 
-      <StoreVisitDrawer
-        storeId={drawerStoreId}
-        onClose={() => setDrawerStoreId(null)}
-        onOpenNote={(slug) => setDrawerNoteSlug(slug)}
-      />
+          {/* ── Memory ── */}
+          {!editing && (
+            <div className="card mem">
+              <h2>Memory <span className="h2-note">— what the system remembers</span></h2>
+              <div className="chips scopechips">
+                {SCOPE_TABS.map((t) => {
+                  const count = t.value === "all" ? notes.length : notes.filter((n) => n.scope === t.value).length;
+                  return (
+                    <button key={t.value} className={`scopechip${scope === t.value ? " on" : ""}`} onClick={() => setScope(t.value)}>
+                      <span>{t.icon}</span> {t.label} <span className="ct">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                className="memsearch"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search memory…"
+              />
+              <div className="notes">
+                {filteredNotes.map((n) => (
+                  <button key={n.slug} className="note" onClick={() => setDrawerNoteSlug(n.slug)}>
+                    <div className="note-top">
+                      <span className={`scopetag s-${n.scope}`}>{n.scope}</span>
+                      <span className="note-title">{n.title}</span>
+                      {n.edited_by_human && <span className="note-ed">✎</span>}
+                      <span className="note-rel">{fmtRelative(n.last_touched_at)}</span>
+                    </div>
+                    <p className="note-sum">{n.summary}</p>
+                  </button>
+                ))}
+                {filteredNotes.length === 0 && <p className="calm">No notes match.</p>}
+              </div>
+            </div>
+          )}
 
-      <MemoryNoteDrawer
-        slug={drawerNoteSlug}
-        onClose={() => setDrawerNoteSlug(null)}
-      />
+          {activeDate && <p className="gen">{fmtWeekday(activeDate)} · generated daily from locked store visits</p>}
+        </div>
+      </div>
+
+      <StoreVisitDrawer storeId={drawerStoreId} onClose={() => setDrawerStoreId(null)} onOpenNote={(s) => setDrawerNoteSlug(s)} />
+      <MemoryNoteDrawer slug={drawerNoteSlug} onClose={() => setDrawerNoteSlug(null)} />
     </>
   );
 }
+
+// Warm "mockup" palette, scoped to .intel so it never bleeds into other pages.
+const INTEL_CSS = `
+.intel{--bg:#F4F1EA;--card:#FFFFFF;--ink:#2A2A27;--muted:#8A857B;--line:#E7E2D8;
+  --accent:#3E7C7B;--accent-soft:#E7F0EF;--red:#B23A3A;--red-soft:#F7E3E1;
+  background:var(--bg);min-height:100vh;color:var(--ink);
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.intel .wrap{max-width:760px;margin:0 auto;padding:28px 20px 80px;}
+.intel .head{margin-bottom:4px;}
+.intel .head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+.intel .head-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.intel .kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;}
+.intel h1{font-size:28px;font-weight:800;margin:4px 0 0;letter-spacing:-.02em;}
+.intel .sub{color:var(--muted);font-size:13px;margin-top:2px;}
+.intel .btn-edit{background:var(--accent-soft);color:var(--accent);border:none;border-radius:9px;
+  padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;}
+.intel .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:20px 22px;margin-top:18px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.05);}
+.intel .card h2{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;margin:0 0 14px;}
+.intel .h2-note{font-weight:400;text-transform:none;letter-spacing:0;}
+.intel .card-emg{background:#FDF6F4;border-color:#EBD3CD;}
+.intel .emg-h{color:var(--red)!important;}
+.intel .topline{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.intel .stat{flex:1;padding:14px 16px;text-align:center;border-right:1px solid var(--line);}
+.intel .stat:last-child{border-right:none;}
+.intel .s-plan{background:#F1EFE9;} .intel .s-visit{background:var(--accent-soft);} .intel .s-eng{background:#EAF3EC;}
+.intel .stat .n{font-size:28px;font-weight:800;line-height:1;}
+.intel .stat .n.dim{color:var(--muted);font-weight:600;}
+.intel .stat .l{font-size:12px;color:var(--muted);margin-top:5px;}
+.intel table{width:100%;border-collapse:collapse;font-size:14px;}
+.intel th{text-align:center;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;padding:0 0 8px;}
+.intel td{padding:9px 0;border-top:1px solid var(--line);text-align:center;}
+.intel th:first-child,.intel td:first-child{text-align:left;}
+.intel td.num,.intel th.num{font-variant-numeric:tabular-nums;}
+.intel tr.total td{font-weight:800;border-top:2px solid var(--line);}
+.intel .mk{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:6px;
+  background:var(--accent-soft);color:var(--accent);white-space:nowrap;}
+.intel .mk.dim{background:#F0ECE3;color:var(--muted);}
+.intel .footnote{font-size:12px;color:var(--muted);margin-top:12px;}
+.intel .calm{font-size:14px;color:var(--muted);margin:2px 0 0;}
+.intel .md{font-size:15px;color:#3a372f;}
+.intel .md ul{list-style:none;margin:0;padding:0;}
+.intel .md li{padding:12px 0;border-top:1px solid var(--line);line-height:1.5;}
+.intel .md li:first-child{border-top:none;padding-top:2px;}
+.intel .md p{margin:0;}
+.intel .chip{font-size:12.5px;font-weight:600;color:var(--accent);background:var(--accent-soft);
+  border:1px solid transparent;border-radius:20px;padding:2px 11px 2px 9px;cursor:pointer;
+  font-family:inherit;display:inline-flex;align-items:center;gap:4px;transition:.12s;line-height:1.4;vertical-align:baseline;}
+.intel .chip::before{content:"↳";opacity:.6;font-weight:700;}
+.intel .chip:hover{border-color:var(--accent);}
+.intel .chip.emg{color:var(--red);background:var(--red-soft);}
+.intel .chip.emg:hover{border-color:var(--red);}
+.intel .datechips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;}
+.intel .datechip{font-size:11px;font-weight:500;border:none;cursor:pointer;border-radius:20px;
+  padding:4px 11px;background:#EDE9E0;color:var(--muted);font-family:inherit;}
+.intel .datechip.on{background:var(--accent);color:#fff;font-weight:700;}
+.intel .datechip .ed{margin-left:4px;opacity:.8;}
+.intel .editor{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+  padding:14px;border-radius:12px;border:1px solid var(--line);background:#FBFAF6;color:var(--ink);line-height:1.5;}
+.intel .editbar{display:flex;gap:8px;margin-top:10px;}
+.intel .btn-save{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:7px 13px;
+  font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;}
+.intel .btn-save:disabled{opacity:.5;}
+.intel .btn-cancel{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;}
+.intel .empty{color:var(--muted);font-size:14px;padding:24px 0;text-align:center;}
+.intel .scopechips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+.intel .scopechip{font-size:12px;font-weight:500;border:1px solid var(--line);cursor:pointer;border-radius:9px;
+  padding:5px 11px;background:transparent;color:var(--muted);font-family:inherit;}
+.intel .scopechip.on{background:var(--accent-soft);color:var(--accent);font-weight:700;border-color:transparent;}
+.intel .scopechip .ct{opacity:.6;margin-left:3px;}
+.intel .memsearch{width:100%;border:1px solid var(--line);background:#FBFAF6;border-radius:9px;
+  padding:8px 12px;font-size:13px;color:var(--ink);font-family:inherit;margin-bottom:12px;}
+.intel .notes{display:grid;gap:8px;}
+.intel .note{text-align:left;background:#FBFAF6;border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;cursor:pointer;font-family:inherit;transition:.12s;}
+.intel .note:hover{border-color:var(--accent);}
+.intel .note-top{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+.intel .scopetag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  padding:2px 7px;border-radius:20px;background:#F0ECE3;color:#6b665c;}
+.intel .scopetag.s-theme{background:#EDE8FD;color:#5b4bb5;}
+.intel .scopetag.s-store{background:#E7F5EA;color:#2f7a44;}
+.intel .scopetag.s-person{background:#EAF1FD;color:#3a6bb5;}
+.intel .scopetag.s-channel{background:var(--accent-soft);color:var(--accent);}
+.intel .note-title{font-size:13px;font-weight:700;color:var(--ink);}
+.intel .note-ed{font-size:11px;color:var(--accent);}
+.intel .note-rel{margin-left:auto;font-size:10px;color:var(--muted);white-space:nowrap;}
+.intel .note-sum{margin:0;font-size:12.5px;color:var(--muted);line-height:1.4;}
+.intel .gen{font-size:11px;color:var(--muted);text-align:center;margin-top:24px;}
+`;
