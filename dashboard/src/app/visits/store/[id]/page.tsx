@@ -105,6 +105,7 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   const [composer,    setComposer]    = useState<{ id: string; isNew: boolean; left: number; top: number; text: string } | null>(null);
   const [commentInput, setCommentInput] = useState("");
   const [aspect,      setAspect]      = useState<number | null>(null);
+  const [showReport,  setShowReport]  = useState(false);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
@@ -238,6 +239,36 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
     weekGroups[gi].photos.push(fp);
   }
 
+  const hasReview = Object.values(reviews).some(r => r.grade || r.annotations.length || r.comments.length);
+
+  // Build the report: weeks → reviewed photos (only those with a grade, fix, or comment).
+  function buildReport() {
+    return weekGroups.map(g => ({
+      label: g.label,
+      photos: g.photos
+        .map(fp => ({ fp, r: reviews[fp.id] }))
+        .filter(({ r }) => r && (r.grade || r.annotations.length || r.comments.length))
+        .map(({ fp, r }) => ({ fp, grade: r.grade, fixes: r.annotations, comments: r.comments })),
+    })).filter(g => g.photos.length > 0);
+  }
+
+  function copyReportText() {
+    const rep = buildReport();
+    const lines: string[] = [`Display Feedback — ${store?.name ?? ""}`, `Generated ${fmtDate(new Date().toISOString())}`, ""];
+    for (const wk of rep) {
+      lines.push(wk.label);
+      for (const p of wk.photos) {
+        const tag = p.fp.section_key && SECTION_TAG[p.fp.section_key] ? `${SECTION_TAG[p.fp.section_key]} photo` : "Photo";
+        const grade = p.grade ? ` — ${GRADES[p.grade].label}` : "";
+        lines.push(`  • ${tag} (${fmtDate(p.fp.visit_date)}, ${p.fp.cm_name})${grade}`);
+        p.fixes.forEach((f, i) => lines.push(`      ${i + 1}. ${f.note}`));
+        if (p.comments.length) lines.push(`      Notes: ${p.comments.map(c => c.body).join("; ")}`);
+      }
+      lines.push("");
+    }
+    navigator.clipboard?.writeText(lines.join("\n"));
+  }
+
   // ── reviewer actions ──
   function onBgDown(e: React.MouseEvent) {
     if (!active || e.button !== 0) return;
@@ -336,7 +367,10 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
                   <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.6px", color: "var(--color-ink-300)" }}>
                     {galleryMode ? `${allPhotos.length} photo${allPhotos.length !== 1 ? "s" : ""}` : `${visits.length} visit${visits.length !== 1 ? "s" : ""}`}
                   </span>
-                  {hasPhotos && <button className="gallery-toggle-btn" onClick={() => setGalleryMode(m => !m)}>{galleryMode ? "≡ List" : "⊞ Gallery"}</button>}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {hasReview && <button className="gallery-toggle-btn" onClick={() => setShowReport(true)}>📄 Report</button>}
+                    {hasPhotos && <button className="gallery-toggle-btn" onClick={() => setGalleryMode(m => !m)}>{galleryMode ? "≡ List" : "⊞ Gallery"}</button>}
+                  </div>
                 </div>
 
                 {galleryMode ? (
@@ -489,6 +523,42 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
 
           <button className="lb-nav lb-next" onClick={e => { e.stopPropagation(); nav(1); }} aria-label="Next">›</button>
           <button className="lightbox-close" onClick={closeLb}>Close</button>
+        </div>
+      )}
+
+      {showReport && store && (
+        <div className="report-overlay" onClick={() => setShowReport(false)}>
+          <div className="report-doc" onClick={e => e.stopPropagation()}>
+            <div className="report-head">
+              <div>
+                <h3>Display Feedback — {store.name}</h3>
+                <div className="report-meta">{store.chain} · {store.market} · generated {fmtDate(new Date().toISOString())}</div>
+              </div>
+              <div className="report-actions">
+                <button onClick={copyReportText}>Copy as text</button>
+                <button onClick={() => setShowReport(false)}>Close</button>
+              </div>
+            </div>
+            {buildReport().map(wk => (
+              <div key={wk.label} className="report-week">
+                <div className="report-week-label">{wk.label}</div>
+                {wk.photos.map(p => (
+                  <div key={p.fp.id} className="report-item">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.fp.url} alt="" className="report-thumb" />
+                    <div className="report-fix">
+                      <div className="report-fix-head">
+                        {p.fp.section_key && SECTION_TAG[p.fp.section_key] ? SECTION_TAG[p.fp.section_key] : "Photo"} · {fmtDate(p.fp.visit_date)} · {p.fp.cm_name}
+                        {p.grade && <span className={`report-grade ${GRADES[p.grade].cls}`}>{GRADES[p.grade].label}</span>}
+                      </div>
+                      {p.fixes.map((f, i) => <div key={f.id} className="report-line"><b>{i + 1}.</b> {f.note}</div>)}
+                      {p.comments.map(c => <div key={c.id} className="report-line report-cmt">• {c.body}</div>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
