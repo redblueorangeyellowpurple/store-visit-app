@@ -98,7 +98,7 @@ const PROMPTS: PromptDef[] = [
     emoji: '👥',
     question: 'People & Training',
     cue: 'Who did you engage today? Tap below to log each person — an update, and a training if you ran one.',
-    footerHint: '🎓 Tap "Log Engagement" to log each person — Skip when you\'re done',
+    footerHint: '🎓 Tap "Log Engagement" to log each person — "Next →" when you\'re done',
     bullets: [
       'A new store staff you got to know',
       'A training and how they responded',
@@ -163,7 +163,9 @@ function buildPromptKeyboard(
     kb.webApp('🎓 Log Engagement', engageUrl).row();
   }
   if (showBack) kb.text('← Back', `prompt:back:${prompt.key}`);
-  kb.text('Skip', `prompt:skip:${prompt.key}`);
+  // On the engagement step there's nothing to type, so "Skip" reads as "proceed".
+  // Call it "Next →" there; keep "Skip" on the free-text questions.
+  kb.text(prompt.showTrainingButton ? 'Next →' : 'Skip', `prompt:skip:${prompt.key}`);
   return kb;
 }
 
@@ -637,7 +639,7 @@ export async function visitFlow(
     // instead of being saved as the section answer.
     const engageStep = Boolean(p.showTrainingButton && engageUrl);
     const ENGAGE_NUDGE =
-      '🎓 Tap *Log Engagement* above to log who you engaged — then *Skip* to continue.';
+      '🎓 Tap *Log Engagement* above to log who you engaged — then *Next →* to continue.';
 
     promptWait: while (true) {
       const upd = await conversation.wait();
@@ -672,7 +674,7 @@ export async function visitFlow(
       if (upd.callbackQuery) {
         const data = upd.callbackQuery.data ?? '';
         if (data === `prompt:skip:${p.key}`) {
-          await upd.answerCallbackQuery('Skipped').catch(() => {});
+          await upd.answerCallbackQuery(engageStep ? '' : 'Skipped').catch(() => {});
           resolved = 'skip';
           break promptWait;
         }
