@@ -77,10 +77,12 @@ interface PromptDef {
 //   • People & Training  → People (heart of CMs)
 //   • Competitors & Market → Competitor analysis
 //   • Display & Stock     → Market / Store
-// Photos now belong to one place — Display & Stock (Q4) — so only that prompt
-// advertises them, via its footerHint. Q2 uses footerHint for the Log
-// Engagement hint. James, 2026-05-22 SVA feedback: instructions belong inside
-// each question, not in the intro banner.
+// Photos attach to whichever question is active — they're not locked to one
+// step (locking it "sometimes bugs", per Wilson). Display & Stock (Q4) is the
+// natural photo step, so only it advertises photos via its footerHint, but a
+// CM can send photos at any prompt and they save to that section. Q2 uses
+// footerHint for the Log Engagement hint. James, 2026-05-22 SVA feedback:
+// instructions belong inside each question, not in the intro banner.
 const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
@@ -237,12 +239,18 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
   return kb;
 }
 
-function formatPrompt(idx: number, p: PromptDef): string {
+function formatPrompt(idx: number, p: PromptDef, photosUploading = false): string {
   const bullets = p.bullets.map((b) => `_• ${b}_`).join('\n');
-  // Photos belong to Display & Stock (Q4) now, so only that prompt advertises
-  // them — via its footerHint. Other prompts append nothing below the bullets.
+  // Only Display & Stock (Q4) advertises photos via its footerHint, but photos
+  // can land on any question. Other prompts append nothing below the bullets.
   const footer = p.footerHint ? `\n\n_${p.footerHint}_` : '';
+  // When the PREVIOUS question's photos are still uploading, a small top line
+  // reassures the CM they're saving in the background as they keep going. It
+  // appears only while uploads are genuinely in flight (checked at render) and
+  // disappears once they drain — so it can't get stuck reading "loading".
+  const saving = photosUploading ? `_📸 Saving your photos…_\n\n` : '';
   return (
+    saving +
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
     `${p.cue}\n\n${bullets}${footer}`
   );
@@ -623,6 +631,19 @@ export async function visitFlow(
   let followUpsClosed = 0;
   const engageUrl = engageWebAppUrl(createdVisitId);
 
+  // Photos save fire-and-forget, so the CM gets no implicit "it landed" signal.
+  // Acknowledge once per album (not per photo — a 10-photo album = 10 updates)
+  // so they never feel the flow hung. A captioned album's trailing photos
+  // surface at the NEXT step's wait loop, so dedup is keyed function-wide, not
+  // per prompt — otherwise the same album re-acks downstream.
+  const ackedPhotoGroups = new Set<string>();
+  function shouldAckPhoto(mediaGroupId: string | undefined): boolean {
+    if (!mediaGroupId) return true; // single photo — always ack
+    if (ackedPhotoGroups.has(mediaGroupId)) return false;
+    ackedPhotoGroups.add(mediaGroupId);
+    return true;
+  }
+
   mainFlow: while (true) {
   while (i < PROMPTS.length) {
     const p = PROMPTS[i];
@@ -635,14 +656,23 @@ export async function visitFlow(
       continue;
     }
 
-    await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
-    await ctx.reply(formatPrompt(i, p), {
+    // Set the active section AND read whether prior-question photos are still
+    // uploading in one external call (kept together so the recorded value is
+    // deterministic on conversation replay). The flag drives the "Saving…" line.
+    const photosUploading = await conversation.external(() => {
+      setActiveSection(telegramId, sectionKeyForPrompt(p.key));
+      return hasPendingUploads(createdVisitId);
+    });
+    await ctx.reply(formatPrompt(i, p, photosUploading), {
       parse_mode: 'Markdown',
       reply_markup: buildPromptKeyboard(p, i > 0, engageUrl),
     });
 
     let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
     let textValue: string | null = null;
+    // Tracks whether a photo landed on THIS prompt, so the proceed button reads
+    // as "saved", not "Skipped", when the CM photographed then tapped through.
+    let photoSeen = false;
 
     // Engagement step is structured-only: people are logged via the mini-app, not
     // typed in chat. Free text (and photo captions) get nudged toward the button
@@ -659,33 +689,35 @@ export async function visitFlow(
         break;
       }
       if (upd.message?.photo) {
-        // Strict model: photos belong to ONE question — Display & Stock.
-        // Sending one at any other prompt gets a nudge (not a silent save),
-        // so the CM gets instant feedback instead of feeling "stuck" when the
-        // flow doesn't advance. Display & Stock is the last prompt, so "coming
-        // up" is always accurate here.
-        if (p.key !== 'display_stock') {
-          await ctx.reply(
-            '_📸 Photos go with *Display & Stock* — that question is coming up 📦_',
-            { parse_mode: 'Markdown' },
-          );
-          continue;
-        }
+        // Photos attach to whichever section is active — any prompt, not just
+        // Display & Stock. Fire-and-forget: the active section is pinned
+        // synchronously inside handleIncomingPhoto; the flow never blocks on
+        // the upload (that's why it can't truly hang).
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
         const mediaGroupId = upd.message.media_group_id;
-        // Fire-and-forget: section is pinned synchronously at call time;
-        // conversation does not block waiting for the upload to finish.
         await conversation.external(() => {
           void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
         });
+        photoSeen = true;
         const caption = upd.message.caption ?? null;
-        if (caption) {
-          // Captioned album = the update + photos in one batch (Q4's intended
-          // pattern) — the caption becomes the section answer and advances.
+        // A caption is the update + photos in one batch — it becomes the answer
+        // and advances. EXCEPT on the engagement step, which is structured-only:
+        // there a captioned photo must NOT auto-advance (it'd skip People &
+        // Training); the photo still saves, the caption is nudged via the ack.
+        if (caption && !engageStep) {
           textValue = caption;
           resolved = 'text';
           break;
+        }
+        // No advancing caption: acknowledge the photo once per album so the CM
+        // sees it landed (no silent "did it save?" gap), then keep waiting —
+        // they advance with the proceed button or a caption. Never require text.
+        if (shouldAckPhoto(mediaGroupId)) {
+          await ctx.reply(
+            `📸 Got your photos 👍 Tap *${proceedLabel(p)}* when you're done.`,
+            { parse_mode: 'Markdown' },
+          );
         }
         continue;
       }
@@ -695,7 +727,7 @@ export async function visitFlow(
           // No "Skipped" toast on the engagement (Next →) or Display & Stock
           // (✓ Done) steps — there the button means "proceed", not "discard".
           const skipToast =
-            engageStep || p.key === 'display_stock' ? '' : 'Skipped';
+            engageStep || p.key === 'display_stock' || photoSeen ? '' : 'Skipped';
           await upd.answerCallbackQuery(skipToast).catch(() => {});
           resolved = 'skip';
           break promptWait;
@@ -763,7 +795,13 @@ export async function visitFlow(
   }
 
   // ── Follow-up close-out ───────────────────────────────────────────────────
-  await conversation.external(() => setActiveSection(telegramId, 'follow_up'));
+  // Q4's photos are the most likely to still be uploading here — read pending
+  // state alongside the section switch so the follow-up message can show the
+  // same "Saving…" line.
+  const followUpPhotosUploading = await conversation.external(() => {
+    setActiveSection(telegramId, 'follow_up');
+    return hasPendingUploads(createdVisitId);
+  });
 
   // Fetch all open follow-ups for this store, then exclude tasks created
   // earlier in the same visit (don't let the CM close tasks they just added).
@@ -790,8 +828,9 @@ export async function visitFlow(
     );
   }
 
+  const followUpSaving = followUpPhotosUploading ? `_📸 Saving your photos…_\n\n` : '';
   const followUpMsg = await ctx.reply(
-    buildFollowUpText(openItems, followUpPage),
+    followUpSaving + buildFollowUpText(openItems, followUpPage),
     {
       parse_mode: 'Markdown',
       reply_markup: buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage }),
@@ -821,12 +860,21 @@ export async function visitFlow(
       return;
     }
     if (upd.message?.photo) {
-      // Strict model: photos belong to Display & Stock only. At the follow-up
-      // step that prompt is behind them, so point them back to it.
-      await ctx.reply(
-        '_📸 Photos belong to *Display & Stock* — tap ← Back to add them there._',
-        { parse_mode: 'Markdown' },
-      );
+      // Photos at the follow-up step attach to the active 'follow_up' section
+      // (set above). Same fire-and-forget save + once-per-album ack as the
+      // prompts — never reject, never require text.
+      const arr = upd.message.photo;
+      const fileId = arr[arr.length - 1].file_id;
+      const mediaGroupId = upd.message.media_group_id;
+      await conversation.external(() => {
+        void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
+      });
+      if (shouldAckPhoto(mediaGroupId)) {
+        await ctx.reply(
+          "📸 Got your photos 👍 Tap *✓ Submit* when you're done.",
+          { parse_mode: 'Markdown' },
+        );
+      }
       continue;
     }
     if (upd.callbackQuery) {
