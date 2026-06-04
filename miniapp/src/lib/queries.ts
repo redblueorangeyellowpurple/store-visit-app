@@ -146,6 +146,8 @@ export interface FullVisit extends VisitSummary {
   trained_staff: VisitTrainedStaff[];
   engaged_people: VisitEngagedPerson[];
   viewer_is_lead: boolean;
+  // When the CM marked the AM review feedback as seen (migration 023). null = unseen.
+  review_ack_at: string | null;
 }
 
 export async function getPortfolioForCM(
@@ -758,7 +760,23 @@ export async function getFullVisitForCM(
     trained_staff: trainedStaff,
     engaged_people: engagedPeople,
     viewer_is_lead: viewerIsLead,
+    review_ack_at: (v.review_ack_at as string | null) ?? null,
   };
+}
+
+// Records that the CM has seen the AM review feedback on a visit. Returns the
+// ack timestamp on success (ISO string), or null on failure. Auth is enforced
+// by the caller (route) via getFullVisitForCM before this runs.
+export async function acknowledgeVisitReview(
+  visitId: string,
+  telegramId: number,
+): Promise<string | null> {
+  const at = new Date().toISOString();
+  const { error } = await supabase
+    .from("visits")
+    .update({ review_ack_at: at, review_ack_by: telegramId })
+    .eq("id", visitId);
+  return error ? null : at;
 }
 
 // Server-side CSV split (mirrors the editor's parseProductsCsv). Used to

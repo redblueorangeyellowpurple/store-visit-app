@@ -78,6 +78,7 @@ interface FullVisit {
   engaged_people: EngagedPersonRow[];
   viewer_is_lead: boolean;
   follow_ups: FollowUpRow[];
+  review_ack_at: string | null;
 }
 
 const GRADE_STYLES: Record<1 | 2 | 3, { label: string; pill: string }> = {
@@ -178,6 +179,7 @@ export default function VisitPage({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [acking, setAcking] = useState(false);
   useSwipeBack();
 
   useEffect(() => {
@@ -255,6 +257,22 @@ export default function VisitPage({
     if (fresh.ok) setData(await fresh.json());
   }
 
+  // CM taps "Mark as seen" on the AM feedback banner → record the ack, then
+  // refetch so review_ack_at reflects the saved state.
+  async function acknowledgeReview() {
+    if (!initData || acking) return;
+    setAcking(true);
+    try {
+      const res = await fetch(`/api/m/visit/${id}/ack-review`, {
+        method: "POST",
+        headers: { Authorization: `tma ${initData}` },
+      });
+      if (res.ok) await refetchVisit();
+    } finally {
+      setAcking(false);
+    }
+  }
+
   if (error) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
@@ -304,6 +322,16 @@ export default function VisitPage({
   // "Other photos") opens the same flat photoUrls array at the right index.
   const lightboxIndexByPath = new Map<string, number>();
   photosWithSection.forEach((p, i) => lightboxIndexByPath.set(p.storage_path, i));
+
+  // AM review feedback rollup for the banner (boxed fixes + comments across all
+  // photos on this visit). hasFeedback gates the whole banner.
+  const fixCount = photosWithSection.reduce((n, p) => n + p.annotations.length, 0);
+  const commentCount = photosWithSection.reduce((n, p) => n + p.comments.length, 0);
+  const hasFeedback = fixCount + commentCount > 0;
+  const feedbackSummary = [
+    fixCount > 0 ? `${fixCount} boxed fix${fixCount !== 1 ? "es" : ""}` : null,
+    commentCount > 0 ? `${commentCount} comment${commentCount !== 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(" · ");
 
   // Group photos by photoSection enum value. Anything not matching a known
   // section (NULL or legacy values like 'staff') falls into "other".
@@ -408,6 +436,35 @@ export default function VisitPage({
           </div>
         </div>
       </header>
+
+      {/* AM feedback banner — only when there's review feedback to see. Drives
+          discoverability (open a flagged photo) + lets the CM mark it seen. */}
+      {hasFeedback && (
+        <div className="mx-3.5 mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3.5">
+          {visit.review_ack_at ? (
+            <p className="flex items-center gap-2 text-[13px] font-semibold text-amber-700">
+              <span>✓</span> You&apos;ve seen this feedback
+            </p>
+          ) : (
+            <>
+              <p className="text-[13px] font-extrabold text-amber-800">
+                ⬚ Your AM reviewed this visit
+              </p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-amber-700">
+                {feedbackSummary} — open a flagged photo (amber badge) to see what to fix.
+              </p>
+              <button
+                type="button"
+                onClick={acknowledgeReview}
+                disabled={acking}
+                className="mt-2.5 rounded-full bg-amber-500 px-4 py-1.5 text-[13px] font-bold text-white disabled:opacity-50"
+              >
+                {acking ? "Saving…" : "Mark as seen"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Sections — each card includes its text + inline photos for that section */}
       <div className="space-y-2 px-3.5 mt-4">

@@ -746,6 +746,9 @@ function VisitCard({
   const showFollowUps = (focusSections.size === 0 || focusSections.has("follow_ups")) && v.follow_up_count > 0;
   const hasContent    = textSections.length > 0 || showEngagements || showFollowUps || v.photo_count > 0;
 
+  // AM review feedback left on this visit's photos, and whether the CM has seen it.
+  const hasFeedback = v.photos.some(p => p.annotations.length > 0 || p.comments.length > 0);
+
   return (
     <div className="visit-card" id={`visit-${v.id}`}>
       {/* Card header */}
@@ -780,6 +783,15 @@ function VisitCard({
             )}
             {v.edited_at && (
               <><span className="visit-meta-item">·</span><span className="visit-meta-item" style={{ color: "var(--color-ink-300)" }}>edited</span></>
+            )}
+            {hasFeedback && (
+              <><span className="visit-meta-item">·</span>
+                <span
+                  className="visit-meta-item"
+                  style={{ color: v.review_ack_at ? "var(--color-emerald-600, #059669)" : "var(--color-ink-300)" }}
+                  title={v.review_ack_at ? `CM saw feedback on ${fmtDate(v.review_ack_at.slice(0, 10))}` : "CM hasn't opened the feedback yet"}
+                >{v.review_ack_at ? "✓ seen" : "◷ unseen"}</span>
+              </>
             )}
           </div>
         </div>

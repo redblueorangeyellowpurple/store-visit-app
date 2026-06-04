@@ -40,6 +40,8 @@ export interface VisitRow {
   follow_up_count: number;
   engaged_people: EngagedPersonItem[];
   follow_up_items: FollowUpItem[];
+  // When the CM marked this visit's review feedback as seen (migration 023). null = unseen.
+  review_ack_at: string | null;
 }
 
 export interface StaffRow {
@@ -218,6 +220,7 @@ export async function getVisitsFeed(opts: {
       follow_up_count: 0,
       engaged_people: [],
       follow_up_items: [],
+      review_ack_at: row.review_ack_at ?? null,
     };
   });
 
