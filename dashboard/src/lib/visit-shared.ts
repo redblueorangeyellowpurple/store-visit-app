@@ -3,7 +3,7 @@
 // and the dashboard's reused StoreDetailPanel/CMDetailPanel/StaffDetailPanel.
 // Keep this React-free so it imports cleanly into any client component.
 
-import { StoreVisitSummary, TrainedStaffItem, FollowUpItem, PhotoItem } from "@/lib/queries";
+import { StoreVisitSummary, EngagedPersonItem, FollowUpItem, PhotoItem } from "@/lib/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,9 +26,9 @@ export interface VisitRow {
   photo_urls: string[];
   photos: PhotoItem[];
   edited_at: string | null;
-  training_count: number;
+  engagement_count: number;
   follow_up_count: number;
-  trained_staff: TrainedStaffItem[];
+  engaged_people: EngagedPersonItem[];
   follow_up_items: FollowUpItem[];
 }
 
@@ -47,7 +47,7 @@ export const SECTIONS = [
   { key: "display_stock", label: "Display & Stock",    icon: "📦", iconBg: "var(--color-section-green-bg)",  color: "var(--color-tier-t2-fg)" },
   { key: "follow_up",     label: "Follow Up",          icon: "📌", iconBg: "var(--color-section-pink-bg)",   color: "#C0185A" },
   { key: "buzz_plan",     label: "Buzz Plan",          icon: "⚡", iconBg: "var(--color-section-purple-bg)", color: "#5B2DB5" },
-  { key: "trainings",     label: "Trainings",          icon: "🎓", iconBg: "var(--color-section-green-bg)",  color: "var(--color-tier-t2-fg)" },
+  { key: "trainings",     label: "Engagements",        icon: "👥", iconBg: "var(--color-section-green-bg)",  color: "var(--color-tier-t2-fg)" },
   { key: "follow_ups",    label: "Follow-ups",         icon: "📌", iconBg: "var(--color-section-pink-bg)",   color: "#C0185A" },
 ] as const;
 

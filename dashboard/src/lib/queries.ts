@@ -1,9 +1,11 @@
 import { supabase } from "./supabase";
 
-export interface TrainedStaffItem {
-  id: string;
+export interface EngagedPersonItem {
+  id: string;                 // staff id ("" for free-typed people with no staff row)
   name: string;
-  products: string | null;
+  update_text: string | null; // the free-text note logged about this person
+  was_trained: boolean;       // true if a product/training was recorded for them
+  products: string | null;    // CSV of products they were trained on (if any)
 }
 
 export interface FollowUpItem {
@@ -34,9 +36,9 @@ export interface VisitRow {
   photos: PhotoItem[];
   sections_filled: number;
   edited_at: string | null;
-  training_count: number;
+  engagement_count: number;
   follow_up_count: number;
-  trained_staff: TrainedStaffItem[];
+  engaged_people: EngagedPersonItem[];
   follow_up_items: FollowUpItem[];
 }
 
@@ -212,9 +214,9 @@ export async function getVisitsFeed(opts: {
       photos: [],
       sections_filled: countSections(row),
       edited_at: row.edited_at,
-      training_count: 0,
+      engagement_count: 0,
       follow_up_count: 0,
-      trained_staff: [],
+      engaged_people: [],
       follow_up_items: [],
     };
   });
@@ -287,24 +289,61 @@ export async function getVisitsFeed(opts: {
       v.photos = photos;
     }
 
-    // Trained staff (rich — name + products)
+    // Engaged people (ALL people logged on the visit — not only those trained).
+    // Mirrors the bot's getVisitEngagements: every visit_staff row, enriched
+    // with the per-person update + trainings (from engagement_trainings, with a
+    // CSV fallback for legacy rows). "Trained" becomes a per-person badge, not
+    // a filter — an engagement with no training is still shown.
     const { data: staffRows, error: staffErr } = await supabase
       .from("visit_staff")
-      .select("visit_id, was_trained, products_trained_on, staff(id, name)")
-      .in("visit_id", ids)
-      .eq("was_trained", true);
+      .select("id, visit_id, person_name, update_text, was_trained, products_trained_on, staff(id, name)")
+      .in("visit_id", ids);
     if (!staffErr && staffRows) {
-      type StaffLink = { visit_id: string; products_trained_on: string | null; staff: { id: string; name: string } | null };
-      const byVisit = new Map<string, TrainedStaffItem[]>();
-      for (const r of staffRows as unknown as StaffLink[]) {
+      type StaffLink = {
+        id: string;
+        visit_id: string;
+        person_name: string | null;
+        update_text: string | null;
+        was_trained: boolean | null;
+        products_trained_on: string | null;
+        staff: { id: string; name: string } | null;
+      };
+      const rows = staffRows as unknown as StaffLink[];
+
+      // Per-person trainings from the child table (newer engagement model).
+      const vsIds = rows.map((r) => r.id);
+      const trainingsByPerson = new Map<string, string[]>();
+      if (vsIds.length > 0) {
+        const { data: etRows } = await supabase
+          .from("engagement_trainings")
+          .select("visit_staff_id, product_name")
+          .in("visit_staff_id", vsIds);
+        for (const t of (etRows ?? []) as { visit_staff_id: string; product_name: string }[]) {
+          const arr = trainingsByPerson.get(t.visit_staff_id) ?? [];
+          arr.push(t.product_name);
+          trainingsByPerson.set(t.visit_staff_id, arr);
+        }
+      }
+
+      const byVisit = new Map<string, EngagedPersonItem[]>();
+      for (const r of rows) {
+        const trainings = trainingsByPerson.get(r.id) ?? [];
+        const products = trainings.length > 0 ? trainings.join(", ") : (r.products_trained_on ?? null);
+        const wasTrained = Boolean(r.was_trained) || trainings.length > 0 || Boolean(r.products_trained_on);
         const list = byVisit.get(r.visit_id) ?? [];
-        list.push({ id: r.staff?.id ?? "", name: r.staff?.name ?? "Unknown", products: r.products_trained_on });
+        list.push({
+          id: r.staff?.id ?? "",
+          name: r.person_name ?? r.staff?.name ?? "Unknown",
+          update_text: r.update_text ?? null,
+          was_trained: wasTrained,
+          products,
+        });
         byVisit.set(r.visit_id, list);
       }
       for (const v of visits) {
-        const items = byVisit.get(v.id) ?? [];
-        v.trained_staff = items;
-        v.training_count = items.length;
+        const items = (byVisit.get(v.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+        v.engaged_people = items;
+        v.engagement_count = items.length;
       }
     }
 

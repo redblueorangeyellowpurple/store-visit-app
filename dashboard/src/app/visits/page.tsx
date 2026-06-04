@@ -91,7 +91,7 @@ function daysSince(dateStr: string): number {
 }
 
 function visitMatchesSection(v: VisitRow, key: SectionKey): boolean {
-  if (key === "trainings")  return v.training_count > 0;
+  if (key === "trainings")  return v.engagement_count > 0;
   if (key === "follow_ups") return v.follow_up_count > 0;
   return !!v[key as keyof VisitRow];
 }
@@ -742,9 +742,9 @@ function VisitCard({
       return false;                                                                 // focus is trainings/follow_ups only
     });
 
-  const showTrainings = (focusSections.size === 0 || focusSections.has("trainings")) && v.training_count > 0;
+  const showEngagements = (focusSections.size === 0 || focusSections.has("trainings")) && v.engagement_count > 0;
   const showFollowUps = (focusSections.size === 0 || focusSections.has("follow_ups")) && v.follow_up_count > 0;
-  const hasContent    = textSections.length > 0 || showTrainings || showFollowUps || v.photo_count > 0;
+  const hasContent    = textSections.length > 0 || showEngagements || showFollowUps || v.photo_count > 0;
 
   return (
     <div className="visit-card" id={`visit-${v.id}`}>
@@ -772,8 +772,8 @@ function VisitCard({
             {v.photo_count > 0 && (
               <><span className="visit-meta-item">·</span><span className="visit-meta-item">📸 {v.photo_count}</span></>
             )}
-            {v.training_count > 0 && (
-              <><span className="visit-meta-item">·</span><span className="visit-meta-item">🎓 {v.training_count} trained</span></>
+            {v.engagement_count > 0 && (
+              <><span className="visit-meta-item">·</span><span className="visit-meta-item">👥 {v.engagement_count} engaged</span></>
             )}
             {v.follow_up_count > 0 && (
               <><span className="visit-meta-item">·</span><span className="visit-meta-item">📌 {v.follow_up_count} follow-up{v.follow_up_count !== 1 ? "s" : ""}</span></>
@@ -826,23 +826,26 @@ function VisitCard({
                 </div>
               ))}
 
-              {showTrainings && (
+              {showEngagements && (
                 <div className="visit-section-card">
-                  <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>🎓 Engagements</div>
+                  <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>👥 Engagements</div>
                   <div className="sc-staff-list">
-                    {v.trained_staff.map((ts, i) => (
+                    {v.engaged_people.map((p, i) => (
                       <div key={i} className="sc-staff-row">
-                        <span className="pill-trained">Trained</span>
+                        {p.was_trained
+                          ? <span className="pill-trained">Trained</span>
+                          : <span className="pill-engaged">Engaged</span>}
                         <div>
-                          {ts.id && onOpenStaff ? (
+                          {p.id && onOpenStaff ? (
                             <button
                               className="visit-cm-link sc-staff-name"
-                              onClick={(e) => { e.stopPropagation(); onOpenStaff(ts.id, ts.name, v.store_name); }}
-                            >{ts.name}</button>
+                              onClick={(e) => { e.stopPropagation(); onOpenStaff(p.id, p.name, v.store_name); }}
+                            >{p.name}</button>
                           ) : (
-                            <div className="sc-staff-name">{ts.name}</div>
+                            <div className="sc-staff-name">{p.name}</div>
                           )}
-                          {ts.products && <div className="sc-staff-products">{ts.products}</div>}
+                          {p.update_text && <div className="sc-staff-update">{p.update_text}</div>}
+                          {p.products && <div className="sc-staff-products">🎓 {p.products}</div>}
                         </div>
                       </div>
                     ))}
