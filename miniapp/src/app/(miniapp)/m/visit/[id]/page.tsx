@@ -23,7 +23,28 @@ interface FollowUpRow {
   closed_at: string | null;
 }
 
+// AM review feedback, surfaced read-only to the CM (sva.photo_comments +
+// sva.photo_annotations). Boxed fixes are positioned in % of the image.
+interface PhotoComment {
+  id: string;
+  body: string;
+  author_name: string | null;
+  created_at: string;
+}
+
+interface PhotoAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  note: string;
+  author_name: string | null;
+  created_at: string;
+}
+
 interface PhotoWithSection {
+  id: string;
   storage_path: string;
   section_key:
     | 'good_news'
@@ -33,6 +54,8 @@ interface PhotoWithSection {
     | 'follow_up'
     | null;
   url: string | null;
+  comments: PhotoComment[];
+  annotations: PhotoAnnotation[];
 }
 
 interface FullVisit {
@@ -428,6 +451,7 @@ export default function VisitPage({
                       const idx = lightboxIndexByPath.get(p.storage_path) ?? 0;
                       const url = p.url;
                       if (!url) return null;
+                      const fb = p.annotations.length + p.comments.length;
                       return (
                         <button
                           key={p.storage_path}
@@ -443,6 +467,11 @@ export default function VisitPage({
                             sizes="80px"
                             unoptimized
                           />
+                          {fb > 0 && (
+                            <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-black shadow">
+                              {fb}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -514,6 +543,7 @@ export default function VisitPage({
                 const idx = lightboxIndexByPath.get(p.storage_path) ?? 0;
                 const url = p.url;
                 if (!url) return null;
+                const fb = p.annotations.length + p.comments.length;
                 return (
                   <button
                     key={p.storage_path}
@@ -529,6 +559,11 @@ export default function VisitPage({
                       sizes="80px"
                       unoptimized
                     />
+                    {fb > 0 && (
+                      <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-black shadow">
+                        {fb}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -707,31 +742,95 @@ export default function VisitPage({
         </>
       )}
 
-      {/* Lightbox */}
-      {lightboxIndex !== null && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setLightboxIndex(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
-        >
-          <Image
-            src={photoUrls[lightboxIndex]}
-            alt={`Photo ${lightboxIndex + 1}`}
-            width={1200}
-            height={1200}
-            className="max-h-full max-w-full object-contain"
-            unoptimized
-          />
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
-            className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white"
+      {/* Lightbox — photo + read-only AM review feedback (boxed fixes + comments) */}
+      {lightboxIndex !== null && (() => {
+        const active = photosWithSection[lightboxIndex];
+        const anns = active?.annotations ?? [];
+        const comments = active?.comments ?? [];
+        const hasFeedback = anns.length > 0 || comments.length > 0;
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setLightboxIndex(null)}
+            className="fixed inset-0 z-50 flex flex-col bg-black/90"
           >
-            Close
-          </button>
-        </div>
-      )}
+            {/* Image + box overlay. A plain <img> in an inline-block wrapper so the
+                wrapper shrink-wraps the rendered photo and the % boxes align. */}
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden p-4">
+              <div className="relative inline-block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoUrls[lightboxIndex]}
+                  alt={`Photo ${lightboxIndex + 1}`}
+                  draggable={false}
+                  className={`block max-w-full object-contain ${hasFeedback ? "max-h-[62vh]" : "max-h-[88vh]"}`}
+                />
+                {anns.map((a, i) => (
+                  <div
+                    key={a.id}
+                    className="pointer-events-none absolute rounded-sm border-2 border-amber-400 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                    style={{ left: `${a.x}%`, top: `${a.y}%`, width: `${a.w}%`, height: `${a.h}%` }}
+                  >
+                    <span className="absolute -left-2.5 -top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-black">
+                      {i + 1}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
+                className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Read-only feedback panel — only shown when there's feedback to read. */}
+            {hasFeedback && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="max-h-[34vh] space-y-3 overflow-y-auto rounded-t-2xl bg-white px-4 pb-5 pt-3"
+              >
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600">
+                  ⬚ AM Feedback
+                </p>
+                {anns.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {anns.map((a, i) => (
+                      <li key={a.id} className="flex items-start gap-2">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[11px] font-bold text-black">
+                          {i + 1}
+                        </span>
+                        <p className="text-[13px] leading-relaxed text-ink-700">
+                          {a.note || <em className="text-ink-300">No note</em>}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {comments.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {comments.map((c) => (
+                      <li key={c.id} className="flex items-start gap-2">
+                        <span className="mt-0.5 shrink-0 text-ink-300">💬</span>
+                        <div className="min-w-0">
+                          <p className="text-[13px] leading-relaxed text-ink-700">{c.body}</p>
+                          <p className="text-[11px] text-ink-300">
+                            {c.author_name ?? "—"}
+                            {c.created_at ? ` · ${fmtDate(c.created_at.slice(0, 10))}` : ""}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </main>
   );
 }

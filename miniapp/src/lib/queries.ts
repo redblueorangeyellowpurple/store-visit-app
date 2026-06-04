@@ -90,6 +90,27 @@ export interface VisitFollowUpRow {
   assigned_to_name: string | null;
 }
 
+// Review feedback left by an AM/admin in the dashboard lightbox. Read-only on
+// the CM side — the miniapp surfaces it so the CM actually sees the comments and
+// boxed fixes (sva.photo_comments + sva.photo_annotations, migration 018).
+export interface PhotoComment {
+  id: string;
+  body: string;
+  author_name: string | null;
+  created_at: string;
+}
+
+export interface PhotoAnnotation {
+  id: string;
+  x: number; // % of image width (0–100), top-left corner
+  y: number; // % of image height
+  w: number; // % of image width
+  h: number; // % of image height
+  note: string;
+  author_name: string | null;
+  created_at: string;
+}
+
 export interface VisitPhotoRow {
   id: string;
   storage_path: string;
@@ -100,6 +121,8 @@ export interface VisitPhotoRow {
     | 'display_stock'
     | 'follow_up'
     | null;
+  comments: PhotoComment[];
+  annotations: PhotoAnnotation[];
 }
 
 export type PhotoSectionKey = NonNullable<VisitPhotoRow['section_key']>;
@@ -576,12 +599,46 @@ export async function getFullVisitForCM(
     .eq("visit_id", visitId)
     .order("created_at");
 
+  // Pull AM review feedback (comments + boxed fixes) for these photos so the CM
+  // viewer can render it read-only. One batched query each, keyed by photo_id.
+  const photoIds = ((photos ?? []) as { id: string }[]).map((p) => p.id);
+  const commentsByPhoto = new Map<string, PhotoComment[]>();
+  const annotationsByPhoto = new Map<string, PhotoAnnotation[]>();
+  if (photoIds.length > 0) {
+    const [{ data: cRows }, { data: aRows }] = await Promise.all([
+      supabase
+        .from("photo_comments")
+        .select("id, photo_id, body, author_name, created_at")
+        .in("photo_id", photoIds)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("photo_annotations")
+        .select("id, photo_id, x, y, w, h, note, author_name, created_at")
+        .in("photo_id", photoIds)
+        .order("created_at", { ascending: true }),
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (cRows ?? []) as any[]) {
+      const arr = commentsByPhoto.get(r.photo_id) ?? [];
+      arr.push({ id: r.id, body: r.body, author_name: r.author_name ?? null, created_at: r.created_at });
+      commentsByPhoto.set(r.photo_id, arr);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (aRows ?? []) as any[]) {
+      const arr = annotationsByPhoto.get(r.photo_id) ?? [];
+      arr.push({ id: r.id, x: r.x, y: r.y, w: r.w, h: r.h, note: r.note, author_name: r.author_name ?? null, created_at: r.created_at });
+      annotationsByPhoto.set(r.photo_id, arr);
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const photoRows: VisitPhotoRow[] = ((photos ?? []) as any[])
     .map((p) => ({
       id: p.id as string,
       storage_path: p.storage_path as string,
       section_key: (p.section_key as VisitPhotoRow["section_key"]) ?? null,
+      comments: commentsByPhoto.get(p.id as string) ?? [],
+      annotations: annotationsByPhoto.get(p.id as string) ?? [],
     }))
     .filter((p) => Boolean(p.storage_path));
 

@@ -36,6 +36,8 @@ export async function GET(
     storage_path: p.storage_path,
     section_key: p.section_key,
     url: signedUrls[i] ?? null,
+    comments: p.comments,
+    annotations: p.annotations,
   }));
   const canEditCoCMs = visit.viewer_is_lead || cm.role !== "cm";
   const canEditTraining = visit.viewer_is_lead || cm.role !== "cm";
