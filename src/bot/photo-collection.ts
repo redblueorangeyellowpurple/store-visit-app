@@ -10,13 +10,6 @@ interface PhotoCollection {
   sections: number;
   currentSectionKey: SectionKey | null;
   savedCount: number;
-  // Live "📸 N photos added" reassurance counter. receivedCount bumps the
-  // instant a photo arrives (before the upload finishes) so an impatient CM
-  // sees immediate feedback and is less likely to /cancel mid-upload. The edit
-  // is debounced (statusTimer) so a 10-photo album is one edit, not ten.
-  receivedCount: number;
-  statusMessageId?: number;
-  statusTimer?: ReturnType<typeof setTimeout>;
   // In-flight upload promises. awaitPhotoUpload drains these before returning
   // the final count so fire-and-forget uploads from the visit flow don't race
   // against the lock step.
@@ -64,49 +57,9 @@ export function startPhotoCollection(
     sections,
     currentSectionKey: null,
     savedCount: 0,
-    receivedCount: 0,
     pendingUploads: new Set(),
     albumSections: new Map(),
   });
-}
-
-// Debounced live counter. Resets a 1.5s timer on each photo so a burst (album)
-// produces a single edit. Sends the status message on first photo, edits it
-// after. All Telegram calls are best-effort — a failed edit never blocks uploads.
-function scheduleStatusUpdate(c: PhotoCollection): void {
-  if (c.statusTimer) clearTimeout(c.statusTimer);
-  c.statusTimer = setTimeout(() => {
-    void (async () => {
-      if (!botApi) return;
-      const n = c.receivedCount;
-      const label = `📸 ${n} photo${n === 1 ? '' : 's'} added`;
-      try {
-        if (c.statusMessageId == null) {
-          const msg = await botApi.sendMessage(c.chatId, label);
-          c.statusMessageId = msg.message_id;
-        } else {
-          await botApi.editMessageText(c.chatId, c.statusMessageId, label);
-        }
-      } catch {
-        // best-effort — ignore (message deleted, rate-limit, etc.)
-      }
-    })();
-  }, 1500);
-}
-
-// Removes the live counter message at finalize/cancel so it doesn't linger
-// next to the flow's own "saving photos" indicator. Clears any pending timer.
-function clearStatusMessage(c: PhotoCollection): void {
-  if (c.statusTimer) {
-    clearTimeout(c.statusTimer);
-    c.statusTimer = undefined;
-  }
-  if (botApi && c.statusMessageId != null) {
-    const id = c.statusMessageId;
-    const chatId = c.chatId;
-    c.statusMessageId = undefined;
-    void botApi.deleteMessage(chatId, id).catch(() => {});
-  }
 }
 
 export function isCollecting(telegramId: number): boolean {
@@ -131,10 +84,6 @@ export async function handleIncomingPhoto(
     console.error('[photos] botApi not initialized — call initPhotoCollection(bot.api) at startup');
     return;
   }
-
-  // Live counter bumps immediately (before the upload) for instant feedback.
-  c.receivedCount++;
-  scheduleStatusUpdate(c);
 
   // Resolve the section before the network hops so trailing album photos
   // don't race against an in-flight section change.
@@ -197,8 +146,6 @@ export function adjustSavedCount(telegramId: number, delta: number): void {
 // (deleteVisit cascades); this just clears the in-memory collection so the
 // next /visit doesn't inherit stale state.
 export function discardPhotoCollection(telegramId: number): void {
-  const c = collections.get(telegramId);
-  if (c) clearStatusMessage(c);
   collections.delete(telegramId);
 }
 
@@ -214,7 +161,6 @@ export function hasPendingUploads(visitId: string): boolean {
 export async function awaitPhotoUpload(visitId: string): Promise<number> {
   for (const [telegramId, c] of collections) {
     if (c.visitId === visitId) {
-      clearStatusMessage(c);
       if (c.pendingUploads.size > 0) {
         await Promise.race([
           Promise.allSettled([...c.pendingUploads]),

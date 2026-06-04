@@ -77,10 +77,10 @@ interface PromptDef {
 //   • People & Training  → People (heart of CMs)
 //   • Competitors & Market → Competitor analysis
 //   • Display & Stock     → Market / Store
-// formatPrompt appends a standardised "Add a photo at any time" italic line
-// at the bottom of every prompt. Per-question footerHint sits above it for
-// extras (currently just Log Training on Q2). James, 2026-05-22 SVA feedback:
-// instructions belong inside each question, not in the intro banner.
+// Photos now belong to one place — Display & Stock (Q4) — so only that prompt
+// advertises them, via its footerHint. Q2 uses footerHint for the Log
+// Engagement hint. James, 2026-05-22 SVA feedback: instructions belong inside
+// each question, not in the intro banner.
 const PROMPTS: PromptDef[] = [
   {
     key: 'good_news',
@@ -121,7 +121,8 @@ const PROMPTS: PromptDef[] = [
     key: 'display_stock',
     emoji: '📦',
     question: 'Display & Stock',
-    cue: 'How is our brand experience in store? Take photos of the layout!',
+    cue: 'How is our brand experience in store? Snap the layout and tell us what you see.',
+    footerHint: '📸 Send your photos + update together in one batch (up to 10), then tap ✓ Done',
     bullets: [
       'Demo units spoilt or missing',
       'Displays that need refreshing or changing',
@@ -163,10 +164,19 @@ function buildPromptKeyboard(
     kb.webApp('🎓 Log Engagement', engageUrl).row();
   }
   if (showBack) kb.text('← Back', `prompt:back:${prompt.key}`);
-  // On the engagement step there's nothing to type, so "Skip" reads as "proceed".
-  // Call it "Next →" there; keep "Skip" on the free-text questions.
-  kb.text(prompt.showTrainingButton ? 'Next →' : 'Skip', `prompt:skip:${prompt.key}`);
+  // The proceed button's label changes by step. Engagement (Q2) has nothing to
+  // type → "Next →". Display & Stock (Q4) is the photo step where the CM usually
+  // HAS something to send, so "Skip" reads wrong — call it "✓ Done" so it reads
+  // as "I'm finished here, move on" (photos already saved fire-and-forget).
+  // Free-text questions keep "Skip".
+  kb.text(proceedLabel(prompt), `prompt:skip:${prompt.key}`);
   return kb;
+}
+
+function proceedLabel(prompt: PromptDef): string {
+  if (prompt.showTrainingButton) return 'Next →';
+  if (prompt.key === 'display_stock') return '✓ Done';
+  return 'Skip';
 }
 
 // 5-per-page is the sweet spot for thumb-reachable buttons before pagination
@@ -229,12 +239,12 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
 
 function formatPrompt(idx: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `_• ${b}_`).join('\n');
-  const footerLines: string[] = [];
-  if (p.footerHint) footerLines.push(`_${p.footerHint}_`);
-  footerLines.push('_📸 Add a photo at any time!_');
+  // Photos belong to Display & Stock (Q4) now, so only that prompt advertises
+  // them — via its footerHint. Other prompts append nothing below the bullets.
+  const footer = p.footerHint ? `\n\n_${p.footerHint}_` : '';
   return (
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
-    `${p.cue}\n\n${bullets}\n\n${footerLines.join('\n')}`
+    `${p.cue}\n\n${bullets}${footer}`
   );
 }
 
@@ -649,6 +659,16 @@ export async function visitFlow(
         break;
       }
       if (upd.message?.photo) {
+        // Q2 (engagement) is people-logging only — don't save photos to the
+        // people_training section. Point the CM at Display & Stock, where
+        // photos belong, and drop this one (they'll resend at Q4).
+        if (engageStep) {
+          await ctx.reply(
+            '_📸 Save photos for *Display & Stock* — that question is coming up 📦_',
+            { parse_mode: 'Markdown' },
+          );
+          continue;
+        }
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
         const mediaGroupId = upd.message.media_group_id;
@@ -659,12 +679,8 @@ export async function visitFlow(
         });
         const caption = upd.message.caption ?? null;
         if (caption) {
-          // Photo still uploads above; the caption is ignored on the engagement
-          // step (no free text) — nudge toward the button instead.
-          if (engageStep) {
-            await ctx.reply(ENGAGE_NUDGE, { parse_mode: 'Markdown' });
-            continue;
-          }
+          // Captioned album = the update + photos in one batch (Q4's intended
+          // pattern) — the caption becomes the section answer and advances.
           textValue = caption;
           resolved = 'text';
           break;
@@ -674,7 +690,11 @@ export async function visitFlow(
       if (upd.callbackQuery) {
         const data = upd.callbackQuery.data ?? '';
         if (data === `prompt:skip:${p.key}`) {
-          await upd.answerCallbackQuery(engageStep ? '' : 'Skipped').catch(() => {});
+          // No "Skipped" toast on the engagement (Next →) or Display & Stock
+          // (✓ Done) steps — there the button means "proceed", not "discard".
+          const skipToast =
+            engageStep || p.key === 'display_stock' ? '' : 'Skipped';
+          await upd.answerCallbackQuery(skipToast).catch(() => {});
           resolved = 'skip';
           break promptWait;
         }
