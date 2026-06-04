@@ -3,5 +3,8 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "node dist/index.js"
+# Window for the FIRST successful /health after a deploy. 5s was too tight —
+# a slightly slow cold start (Node boot + setWebhook on startup) intermittently
+# missed it and the deploy was marked failed even though the build was fine.
 healthcheckPath = "/health"
-healthcheckTimeout = 5
+healthcheckTimeout = 120
