@@ -659,12 +659,14 @@ export async function visitFlow(
         break;
       }
       if (upd.message?.photo) {
-        // Q2 (engagement) is people-logging only — don't save photos to the
-        // people_training section. Point the CM at Display & Stock, where
-        // photos belong, and drop this one (they'll resend at Q4).
-        if (engageStep) {
+        // Strict model: photos belong to ONE question — Display & Stock.
+        // Sending one at any other prompt gets a nudge (not a silent save),
+        // so the CM gets instant feedback instead of feeling "stuck" when the
+        // flow doesn't advance. Display & Stock is the last prompt, so "coming
+        // up" is always accurate here.
+        if (p.key !== 'display_stock') {
           await ctx.reply(
-            '_📸 Save photos for *Display & Stock* — that question is coming up 📦_',
+            '_📸 Photos go with *Display & Stock* — that question is coming up 📦_',
             { parse_mode: 'Markdown' },
           );
           continue;
@@ -819,12 +821,12 @@ export async function visitFlow(
       return;
     }
     if (upd.message?.photo) {
-      const arr = upd.message.photo;
-      const fileId = arr[arr.length - 1].file_id;
-      const mediaGroupId = upd.message.media_group_id;
-      await conversation.external(() => {
-        void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
-      });
+      // Strict model: photos belong to Display & Stock only. At the follow-up
+      // step that prompt is behind them, so point them back to it.
+      await ctx.reply(
+        '_📸 Photos belong to *Display & Stock* — tap ← Back to add them there._',
+        { parse_mode: 'Markdown' },
+      );
       continue;
     }
     if (upd.callbackQuery) {
