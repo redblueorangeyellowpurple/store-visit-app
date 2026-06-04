@@ -302,3 +302,8 @@ export function sgtTodayISO(): string {
   const sgt = new Date(Date.now() + 8 * 60 * 60 * 1000);
   return sgt.toISOString().slice(0, 10);
 }
+
+export function sgtYesterdayISO(): string {
+  const sgt = new Date(Date.now() + 8 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000);
+  return sgt.toISOString().slice(0, 10);
+}

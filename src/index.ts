@@ -3,8 +3,14 @@ import { webhookCallback } from 'grammy';
 import { config } from './config.js';
 import { createBot } from './bot/bot.js';
 import { getJoinRequestAdmins, listAlertGroups } from './db/queries/alert-groups.js';
+import { registerRecapCron } from './cron/recap-cron.js';
 
 const bot = createBot();
+// Daily per-CM recap scheduler. No-op unless RECAP_CRON_ENABLED=true; even when
+// scheduled, it sends nothing until the dashboard master switch is on with
+// recipients chosen. createBot() has already run initPhotoCollection(bot.api),
+// so the bot.api singleton the cron sends through is ready.
+registerRecapCron();
 const app = express();
 
 async function startupHealthCheck(): Promise<void> {
