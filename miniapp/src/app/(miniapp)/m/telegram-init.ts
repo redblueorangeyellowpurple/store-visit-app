@@ -8,6 +8,10 @@ declare global {
         initDataUnsafe?: { start_param?: string };
         ready?: () => void;
         expand?: () => void;
+        close?: () => void;
+        // Only fires when the app was opened from a reply-keyboard web_app
+        // button; sends a web_app_data message to the bot and closes the app.
+        sendData?: (data: string) => void;
         BackButton?: { show: () => void; hide: () => void; onClick: (cb: () => void) => void };
       };
     };

@@ -358,12 +358,25 @@ export default function EngagementEditor({
         body: JSON.stringify(payload),
       });
       if (res.ok) {
+        if (handoffMode) {
+          // Signal the bot's visit-flow to advance, then the app auto-closes.
+          // sendData only works because the app was opened from a reply-keyboard
+          // web_app button. Saved already via the PATCH above — payload is just
+          // the signal.
+          window.Telegram?.WebApp?.sendData?.(JSON.stringify({ action: "done" }));
+          return;
+        }
         onSaved();
         onClose();
       }
     } finally {
       setSaving(false);
     }
+  }
+
+  // Handoff "Skip" — advance the bot without logging anyone.
+  function handoffSkip() {
+    window.Telegram?.WebApp?.sendData?.(JSON.stringify({ action: "skip" }));
   }
 
   if (!open) return null;
@@ -509,7 +522,7 @@ export default function EngagementEditor({
 
       <div className="flex gap-2 px-5 py-3 border-t border-ink-100 bg-white shrink-0">
         <button
-          onClick={onClose}
+          onClick={handoffMode ? handoffSkip : onClose}
           className="rounded-xl py-3 px-4 text-sm font-bold bg-ink-100 text-ink-500"
         >
           {handoffMode ? "Skip" : "Cancel"}

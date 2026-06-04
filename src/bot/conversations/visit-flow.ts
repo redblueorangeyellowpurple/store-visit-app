@@ -1,5 +1,5 @@
 import { Conversation } from '@grammyjs/conversations';
-import { InlineKeyboard } from 'grammy';
+import { InlineKeyboard, Keyboard } from 'grammy';
 import { BotContext } from '../middleware/auth.js';
 import { QUICK_ACCESS_KEYBOARD } from '../commands/start.js';
 import { getStoresForCM } from '../../db/queries/stores.js';
@@ -96,13 +96,13 @@ const PROMPTS: PromptDef[] = [
   {
     key: 'people_training',
     emoji: '👥',
-    question: 'People & Training',
-    cue: 'Who did you engage today — how was the engagement, did you execute the buzz plan, and what did you train them on?',
-    footerHint: '🎓 Tap "Log Training" below to capture training details',
+    question: 'People & Engagements',
+    cue: 'Who did you engage today? Tap below to log each person — an update, and a training if you ran one.',
+    footerHint: '📱 Tap "Log people & engagements" to open the app, then Next to continue',
     bullets: [
-      'A new store staff that you got to know',
-      'A staff training with good response',
-      'A person complained/championed us',
+      'A new store staff you got to know',
+      'A training and how they responded',
+      'Someone who complained or championed us',
     ],
     showTrainingButton: true,
   },
@@ -161,6 +161,28 @@ function buildPromptKeyboard(
     if (link) kb.row().url('🎓 Log Training', link);
   }
   return kb;
+}
+
+// ── Seamless engagement hand-off (people/training step) ─────────────────────
+// A reply-keyboard web_app button is the ONLY launch method from which the mini
+// app can call Telegram.WebApp.sendData() back to the bot. The CM logs people +
+// engagements in the app, taps Next/Skip, the app sendData()s, and the wait loop
+// below catches the web_app_data message and advances the flow — no manual
+// return to chat. Falls back to the inline deep-link button if MINIAPP_URL is
+// unset. The reply keyboard's Skip/Back are matched by exact label.
+const ENGAGE_SKIP_LABEL = '⏭ Skip — no one to log';
+const ENGAGE_BACK_LABEL = '← Back';
+
+function engageWebAppUrl(visitId: string): string | null {
+  if (!config.miniapp.url) return null;
+  return `${config.miniapp.url.replace(/\/$/, '')}/m/visit/${visitId}/engage`;
+}
+
+function buildEngagementReplyKeyboard(url: string, showBack: boolean): Keyboard {
+  const kb = new Keyboard().webApp('📱 Log people & engagements', url).row();
+  kb.text(ENGAGE_SKIP_LABEL);
+  if (showBack) kb.text(ENGAGE_BACK_LABEL);
+  return kb.resized();
 }
 
 // 5-per-page is the sweet spot for thumb-reachable buttons before pagination
@@ -620,9 +642,15 @@ export async function visitFlow(
 
     await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
 
+    // People/training step uses the reply-keyboard web_app hand-off when the
+    // mini app URL is configured; everything else keeps the inline keyboard.
+    const engageUrl = p.showTrainingButton ? engageWebAppUrl(createdVisitId) : null;
+    const isEngagementStep = engageUrl !== null;
     await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
-      reply_markup: buildPromptKeyboard(createdVisitId, p, i > 0),
+      reply_markup: engageUrl
+        ? buildEngagementReplyKeyboard(engageUrl, i > 0)
+        : buildPromptKeyboard(createdVisitId, p, i > 0),
     });
 
     let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
@@ -635,6 +663,21 @@ export async function visitFlow(
         resolved = 'cancel';
         break;
       }
+      // Hand-off: the mini app signalled (done or skip). Engagements are already
+      // saved via the API — the payload is just the advance signal.
+      if (upd.message?.web_app_data) {
+        resolved = 'skip';
+        break;
+      }
+      // Reply-keyboard buttons on the engagement step arrive as plain text.
+      if (isEngagementStep) {
+        const label = upd.message?.text ?? null;
+        if (label === ENGAGE_SKIP_LABEL) { resolved = 'skip'; break; }
+        if (label === ENGAGE_BACK_LABEL) { resolved = 'back'; break; }
+        // App-only step: ignore stray text/photos captions so nothing is saved
+        // as a legacy people_training note. (Photos still attach below.)
+        if (label) continue;
+      }
       if (upd.message?.photo) {
         const arr = upd.message.photo;
         const fileId = arr[arr.length - 1].file_id;
@@ -644,7 +687,9 @@ export async function visitFlow(
         await conversation.external(() => {
           void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
         });
-        const caption = upd.message.caption ?? null;
+        // On the app-only engagement step, attach the photo but never treat its
+        // caption as the answer — engagements live in the mini app now.
+        const caption = isEngagementStep ? null : (upd.message.caption ?? null);
         if (caption) {
           textValue = caption;
           resolved = 'text';
@@ -675,6 +720,14 @@ export async function visitFlow(
         resolved = 'text';
         break;
       }
+    }
+
+    // The engagement reply keyboard is persistent + message-independent — clear
+    // it before the next step's inline keyboard. (Cancel sends its own keyboard.)
+    if (isEngagementStep && resolved !== 'cancel') {
+      await ctx.reply(resolved === 'back' ? '↩️ Going back…' : '✓ Logged — continuing.', {
+        reply_markup: { remove_keyboard: true },
+      });
     }
 
     if (resolved === 'cancel') {
