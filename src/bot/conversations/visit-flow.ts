@@ -239,18 +239,14 @@ function buildDoneKeyboard(visitId: string): InlineKeyboard {
   return kb;
 }
 
-function formatPrompt(idx: number, p: PromptDef, photosUploading = false): string {
+function formatPrompt(idx: number, p: PromptDef): string {
   const bullets = p.bullets.map((b) => `_• ${b}_`).join('\n');
   // Only Display & Stock (Q4) advertises photos via its footerHint, but photos
   // can land on any question. Other prompts append nothing below the bullets.
   const footer = p.footerHint ? `\n\n_${p.footerHint}_` : '';
-  // When the PREVIOUS question's photos are still uploading, a small top line
-  // reassures the CM they're saving in the background as they keep going. It
-  // appears only while uploads are genuinely in flight (checked at render) and
-  // disappears once they drain — so it can't get stuck reading "loading".
-  const saving = photosUploading ? `_📸 Saving your photos…_\n\n` : '';
+  // Photo "saving…/saved" status rides its own per-batch message now (see
+  // photo-collection.ts), so the question text no longer carries it.
   return (
-    saving +
     `*Q${idx + 1}*  ${p.emoji}  *${p.question}*\n\n` +
     `${p.cue}\n\n${bullets}${footer}`
   );
@@ -631,18 +627,10 @@ export async function visitFlow(
   let followUpsClosed = 0;
   const engageUrl = engageWebAppUrl(createdVisitId);
 
-  // Photos save fire-and-forget, so the CM gets no implicit "it landed" signal.
-  // Acknowledge once per album (not per photo — a 10-photo album = 10 updates)
-  // so they never feel the flow hung. A captioned album's trailing photos
-  // surface at the NEXT step's wait loop, so dedup is keyed function-wide, not
-  // per prompt — otherwise the same album re-acks downstream.
-  const ackedPhotoGroups = new Set<string>();
-  function shouldAckPhoto(mediaGroupId: string | undefined): boolean {
-    if (!mediaGroupId) return true; // single photo — always ack
-    if (ackedPhotoGroups.has(mediaGroupId)) return false;
-    ackedPhotoGroups.add(mediaGroupId);
-    return true;
-  }
+  // Photo acknowledgement lives in photo-collection.ts: each batch posts one
+  // "📸 Saving N photos…" message that edits to "✓ N photos saved" once its
+  // uploads settle. The conversation only kicks off the upload (below) — it
+  // never sends its own per-photo ack.
 
   mainFlow: while (true) {
   while (i < PROMPTS.length) {
@@ -656,14 +644,12 @@ export async function visitFlow(
       continue;
     }
 
-    // Set the active section AND read whether prior-question photos are still
-    // uploading in one external call (kept together so the recorded value is
-    // deterministic on conversation replay). The flag drives the "Saving…" line.
-    const photosUploading = await conversation.external(() => {
+    // Pin photos arriving at this prompt to its section (replay-safe via
+    // external). Photo save-status is shown by the per-batch message, not here.
+    await conversation.external(() => {
       setActiveSection(telegramId, sectionKeyForPrompt(p.key));
-      return hasPendingUploads(createdVisitId);
     });
-    await ctx.reply(formatPrompt(i, p, photosUploading), {
+    await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
       reply_markup: buildPromptKeyboard(p, i > 0, engageUrl),
     });
@@ -710,15 +696,9 @@ export async function visitFlow(
           resolved = 'text';
           break;
         }
-        // No advancing caption: acknowledge the photo once per album so the CM
-        // sees it landed (no silent "did it save?" gap), then keep waiting —
-        // they advance with the proceed button or a caption. Never require text.
-        if (shouldAckPhoto(mediaGroupId)) {
-          await ctx.reply(
-            `📸 Got your photos 👍 Tap *${proceedLabel(p)}* when you're done.`,
-            { parse_mode: 'Markdown' },
-          );
-        }
+        // No advancing caption: the batch's saving→saved message (from
+        // photo-collection) is the CM's "it landed" signal. Keep waiting — they
+        // advance with the visible proceed button or a caption. Never require text.
         continue;
       }
       if (upd.callbackQuery) {
@@ -795,12 +775,10 @@ export async function visitFlow(
   }
 
   // ── Follow-up close-out ───────────────────────────────────────────────────
-  // Q4's photos are the most likely to still be uploading here — read pending
-  // state alongside the section switch so the follow-up message can show the
-  // same "Saving…" line.
-  const followUpPhotosUploading = await conversation.external(() => {
+  // Pin any photos sent here to the 'follow_up' section. Save-status shows via
+  // the per-batch message, not on this screen.
+  await conversation.external(() => {
     setActiveSection(telegramId, 'follow_up');
-    return hasPendingUploads(createdVisitId);
   });
 
   // Fetch all open follow-ups for this store, then exclude tasks created
@@ -828,9 +806,8 @@ export async function visitFlow(
     );
   }
 
-  const followUpSaving = followUpPhotosUploading ? `_📸 Saving your photos…_\n\n` : '';
   const followUpMsg = await ctx.reply(
-    followUpSaving + buildFollowUpText(openItems, followUpPage),
+    buildFollowUpText(openItems, followUpPage),
     {
       parse_mode: 'Markdown',
       reply_markup: buildFollowUpKeyboard({ visitId: createdVisitId, openItems, page: followUpPage }),
@@ -861,20 +838,16 @@ export async function visitFlow(
     }
     if (upd.message?.photo) {
       // Photos at the follow-up step attach to the active 'follow_up' section
-      // (set above). Same fire-and-forget save + once-per-album ack as the
-      // prompts — never reject, never require text.
+      // (set above). Fire-and-forget save; the per-batch saving→saved message
+      // is the ack — never reject, never require text.
       const arr = upd.message.photo;
       const fileId = arr[arr.length - 1].file_id;
       const mediaGroupId = upd.message.media_group_id;
       await conversation.external(() => {
         void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
       });
-      if (shouldAckPhoto(mediaGroupId)) {
-        await ctx.reply(
-          "📸 Got your photos 👍 Tap *✓ Submit* when you're done.",
-          { parse_mode: 'Markdown' },
-        );
-      }
+      // The batch saving→saved message (photo-collection) is the ack; the ✓
+      // Submit button stays visible for when they're done.
       continue;
     }
     if (upd.callbackQuery) {
