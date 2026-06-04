@@ -34,7 +34,8 @@ export async function PATCH(req: NextRequest) {
   }
   if (Object.keys(patch).length === 0) return Response.json({ error: "Nothing to update" }, { status: 400 });
   const ok = await updatePhotoAnnotation(b.annotationId, patch);
-  return Response.json({ ok });
+  if (!ok) return Response.json({ error: "Failed to update annotation" }, { status: 500 });
+  return Response.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -43,5 +44,6 @@ export async function DELETE(req: NextRequest) {
   const { annotationId } = await req.json().catch(() => ({}));
   if (!annotationId) return Response.json({ error: "Missing annotationId" }, { status: 400 });
   const ok = await deletePhotoAnnotation(annotationId);
-  return Response.json({ ok });
+  if (!ok) return Response.json({ error: "Failed to delete annotation" }, { status: 500 });
+  return Response.json({ ok: true });
 }

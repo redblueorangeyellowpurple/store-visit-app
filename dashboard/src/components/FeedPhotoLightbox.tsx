@@ -23,6 +23,13 @@ function api(url: string, method: string, body: unknown) {
   return fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
+// Fire a write, and if it didn't actually persist (non-2xx or network error)
+// undo the optimistic UI change and tell the reviewer. Keeps the on-screen state
+// honest with the database — a failed save never masquerades as success.
+function persistOrRevert(p: Promise<Response>, revert: () => void, msg: string) {
+  p.then((res) => { if (!res.ok) { revert(); alert(msg); } }).catch(() => { revert(); alert(msg); });
+}
+
 export default function FeedPhotoLightbox({
   photos,
   startIndex,
@@ -138,7 +145,12 @@ export default function FeedPhotoLightbox({
       if (!box || box.w < 2 || box.h < 2) { setAnns(photo.id, (arr) => arr.filter((a) => a.id !== d.id)); setActiveAnn(null); return; }
       setComposer({ id: d.id, isNew: true, text: "" });
     } else if (box && !box.id.startsWith("tmp-")) {
-      api(`/api/photos/${photo.id}/annotations`, "PATCH", { annotationId: box.id, x: box.x, y: box.y, w: box.w, h: box.h });
+      const pid = photo.id, id = box.id, orig = d.orig;
+      persistOrRevert(
+        api(`/api/photos/${pid}/annotations`, "PATCH", { annotationId: id, x: box.x, y: box.y, w: box.w, h: box.h }),
+        () => setAnns(pid, (arr) => arr.map((a) => a.id === id ? { ...a, ...orig } : a)),
+        "Couldn't save that change — please try again.",
+      );
     }
   }
 
@@ -161,8 +173,14 @@ export default function FeedPhotoLightbox({
         setActiveAnn(saved.id);
       }
     } else {
-      api(`/api/photos/${photo.id}/annotations`, "PATCH", { annotationId: composer.id, note: text });
-      setAnns(photo.id, (arr) => arr.map((a) => a.id === composer.id ? { ...a, note: text } : a));
+      const pid = photo.id, cid = composer.id;
+      const prev = local[idx].annotations.find((a) => a.id === cid)?.note ?? "";
+      setAnns(pid, (arr) => arr.map((a) => a.id === cid ? { ...a, note: text } : a));
+      persistOrRevert(
+        api(`/api/photos/${pid}/annotations`, "PATCH", { annotationId: cid, note: text }),
+        () => setAnns(pid, (arr) => arr.map((a) => a.id === cid ? { ...a, note: prev } : a)),
+        "Couldn't save the note — please try again.",
+      );
     }
     setComposer(null);
   }
@@ -173,9 +191,17 @@ export default function FeedPhotoLightbox({
   }
   function deleteAnn(annId: string) {
     if (!photo) return;
-    if (!annId.startsWith("tmp-")) api(`/api/photos/${photo.id}/annotations`, "DELETE", { annotationId: annId });
-    setAnns(photo.id, (arr) => arr.filter((a) => a.id !== annId));
+    const pid = photo.id;
+    const removed = local[idx].annotations.find((a) => a.id === annId) ?? null;
+    setAnns(pid, (arr) => arr.filter((a) => a.id !== annId));
     setActiveAnn(null); setComposer(null);
+    if (!annId.startsWith("tmp-")) {
+      persistOrRevert(
+        api(`/api/photos/${pid}/annotations`, "DELETE", { annotationId: annId }),
+        () => { if (removed) setAnns(pid, (arr) => [...arr, removed]); },
+        "Couldn't delete that box — please try again.",
+      );
+    }
   }
 
   // ── comments ──
@@ -194,10 +220,16 @@ export default function FeedPhotoLightbox({
       setBusy(false);
     }
   }
-  async function delComment(commentId: string) {
+  function delComment(commentId: string) {
     if (!photo) return;
-    setLocal((prev) => prev.map((p) => p.id === photo.id ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) } : p));
-    await api(`/api/photos/${photo.id}/comments`, "DELETE", { commentId });
+    const pid = photo.id;
+    const removed = photo.comments.find((c) => c.id === commentId) ?? null;
+    setLocal((prev) => prev.map((p) => p.id === pid ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) } : p));
+    persistOrRevert(
+      api(`/api/photos/${pid}/comments`, "DELETE", { commentId }),
+      () => { if (removed) setLocal((prev) => prev.map((p) => p.id === pid ? { ...p, comments: [...p.comments, removed] } : p)); },
+      "Couldn't delete that comment — please try again.",
+    );
   }
 
   if (!photo) return null;

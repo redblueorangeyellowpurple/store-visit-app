@@ -25,5 +25,6 @@ export async function DELETE(req: NextRequest) {
   const { commentId } = await req.json().catch(() => ({}));
   if (!commentId) return Response.json({ error: "Missing commentId" }, { status: 400 });
   const ok = await deletePhotoComment(commentId);
-  return Response.json({ ok });
+  if (!ok) return Response.json({ error: "Failed to delete comment" }, { status: 500 });
+  return Response.json({ ok: true });
 }

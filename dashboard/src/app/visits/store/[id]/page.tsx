@@ -90,6 +90,11 @@ const clamp = (n: number) => Math.max(0, Math.min(100, n));
 function api(url: string, method: string, body: unknown) {
   return fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
+// Undo the optimistic change + warn if a write didn't actually persist, so the
+// on-screen review stays honest with the database.
+function persistOrRevert(p: Promise<Response>, revert: () => void, msg: string) {
+  p.then((res) => { if (!res.ok) { revert(); alert(msg); } }).catch(() => { revert(); alert(msg); });
+}
 
 export default function StoreDashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -169,9 +174,17 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
 
   const deleteAnn = useCallback((annId: string) => {
     if (!active) return;
-    if (!annId.startsWith("tmp-")) api(`/api/photos/${active.id}/annotations`, "DELETE", { annotationId: annId });
-    setAnns(active.id, arr => arr.filter(a => a.id !== annId));
+    const pid = active.id;
+    const removed = reviewsRef.current[pid]?.annotations.find(a => a.id === annId) ?? null;
+    setAnns(pid, arr => arr.filter(a => a.id !== annId));
     setActiveAnn(null); setComposer(null);
+    if (!annId.startsWith("tmp-")) {
+      persistOrRevert(
+        api(`/api/photos/${pid}/annotations`, "DELETE", { annotationId: annId }),
+        () => { if (removed) setAnns(pid, arr => [...arr, removed]); },
+        "Couldn't delete that box — please try again.",
+      );
+    }
   }, [active, setAnns]);
 
   // Global drag handlers for draw / move / resize.
@@ -199,7 +212,12 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
         if (!box || box.w < 2 || box.h < 2) { setAnns(active.id, arr => arr.filter(a => a.id !== d.id)); setActiveAnn(null); return; }
         openComposer(d.id, true);
       } else if (box && !box.id.startsWith("tmp-")) {
-        api(`/api/photos/${active.id}/annotations`, "PATCH", { annotationId: box.id, x: box.x, y: box.y, w: box.w, h: box.h });
+        const pid = active.id, id = box.id, orig = d.orig;
+        persistOrRevert(
+          api(`/api/photos/${pid}/annotations`, "PATCH", { annotationId: id, x: box.x, y: box.y, w: box.w, h: box.h }),
+          () => setAnns(pid, arr => arr.map(a => a.id === id ? { ...a, ...orig } : a)),
+          "Couldn't save that change — please try again.",
+        );
       }
     }
     window.addEventListener("mousemove", onMove);
@@ -301,8 +319,14 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
         setActiveAnn(saved.id);
       }
     } else {
-      api(`/api/photos/${active.id}/annotations`, "PATCH", { annotationId: composer.id, note: text });
-      setAnns(active.id, arr => arr.map(a => a.id === composer.id ? { ...a, note: text } : a));
+      const pid = active.id, cid = composer.id;
+      const prev = reviewsRef.current[pid]?.annotations.find(a => a.id === cid)?.note ?? "";
+      setAnns(pid, arr => arr.map(a => a.id === cid ? { ...a, note: text } : a));
+      persistOrRevert(
+        api(`/api/photos/${pid}/annotations`, "PATCH", { annotationId: cid, note: text }),
+        () => setAnns(pid, arr => arr.map(a => a.id === cid ? { ...a, note: prev } : a)),
+        "Couldn't save the note — please try again.",
+      );
     }
     setComposer(null);
   }
@@ -312,9 +336,15 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   }
   function setGrade(n: number) {
     if (!active) return;
+    const pid = active.id;
+    const prev = review?.grade ?? null;
     const next = review?.grade === n ? null : n;
-    setReviews(rs => ({ ...rs, [active.id]: { ...rs[active.id], grade: next } }));
-    api(`/api/photos/${active.id}/grade`, "PATCH", { grade: next });
+    setReviews(rs => ({ ...rs, [pid]: { ...rs[pid], grade: next } }));
+    persistOrRevert(
+      api(`/api/photos/${pid}/grade`, "PATCH", { grade: next }),
+      () => setReviews(rs => ({ ...rs, [pid]: { ...rs[pid], grade: prev } })),
+      "Couldn't save the grade — please try again.",
+    );
   }
   async function addComment() {
     if (!active) return;
@@ -328,8 +358,14 @@ export default function StoreDashboardPage({ params }: { params: Promise<{ id: s
   }
   function deleteComment(cid: string) {
     if (!active) return;
-    api(`/api/photos/${active.id}/comments`, "DELETE", { commentId: cid });
-    setReviews(rs => ({ ...rs, [active.id]: { ...rs[active.id], comments: (rs[active.id]?.comments ?? []).filter(c => c.id !== cid) } }));
+    const pid = active.id;
+    const removed = reviewsRef.current[pid]?.comments.find(c => c.id === cid) ?? null;
+    setReviews(rs => ({ ...rs, [pid]: { ...rs[pid], comments: (rs[pid]?.comments ?? []).filter(c => c.id !== cid) } }));
+    persistOrRevert(
+      api(`/api/photos/${pid}/comments`, "DELETE", { commentId: cid }),
+      () => { if (removed) setReviews(rs => ({ ...rs, [pid]: { ...rs[pid], comments: [...(rs[pid]?.comments ?? []), removed] } })); },
+      "Couldn't delete that comment — please try again.",
+    );
   }
 
   return (

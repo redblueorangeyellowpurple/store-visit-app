@@ -11,5 +11,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return Response.json({ error: "Invalid grade" }, { status: 400 });
   }
   const ok = await setPhotoGrade(id, grade);
-  return Response.json({ ok });
+  if (!ok) return Response.json({ error: "Failed to set grade" }, { status: 500 });
+  return Response.json({ ok: true });
 }
