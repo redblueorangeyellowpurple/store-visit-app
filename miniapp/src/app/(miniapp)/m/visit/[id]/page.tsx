@@ -6,19 +6,12 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { initTelegram } from "../../telegram-init";
 import { useSwipeBack } from "@/lib/useSwipeBack";
-import TrainingEditor, { parseProductsCsv } from "@/components/TrainingEditor";
+import EngagementEditor, { type EngagedPersonRow } from "@/components/EngagementEditor";
 
 interface VisitCM {
   telegram_id: number;
   role: 'lead' | 'co';
   name: string;
-}
-
-interface TrainedStaff {
-  staff_id: string;
-  name: string;
-  products: string | null;
-  response: string | null;
 }
 
 interface FollowUpRow {
@@ -59,7 +52,7 @@ interface FullVisit {
   grade: 1 | 2 | 3 | null;
   grade_comments: string | null;
   cms: VisitCM[];
-  trained_staff: TrainedStaff[];
+  engaged_people: EngagedPersonRow[];
   viewer_is_lead: boolean;
   follow_ups: FollowUpRow[];
 }
@@ -280,7 +273,7 @@ export default function VisitPage({
   const photosWithSection: PhotoWithSection[] = data.photos ?? [];
   const lead = visit.cms.find((c) => c.role === 'lead');
   const cos = visit.cms.filter((c) => c.role === 'co');
-  const trainedStaff = visit.trained_staff ?? [];
+  const engagedPeople = visit.engaged_people ?? [];
   const followUps = visit.follow_ups ?? [];
   const openFollowUps = followUps.filter((f) => f.status === 'open');
 
@@ -544,17 +537,17 @@ export default function VisitPage({
         )}
       </div>
 
-      {/* Trained Staff */}
-      {(trainedStaff.length > 0 || canEditTraining) && (
+      {/* People & engagements */}
+      {(engagedPeople.length > 0 || canEditTraining) && (
         <div className="px-3.5 mt-2">
           <div className="rounded-[18px] border border-ink-100 bg-white p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-section-teal-bg)] text-sm">
-                  🎓
+                  👥
                 </span>
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-[var(--color-section-teal-fg)]">
-                  Trained Staff
+                  People &amp; engagements
                 </span>
               </div>
               {canEditTraining && (
@@ -562,54 +555,58 @@ export default function VisitPage({
                   onClick={() => setEditingTraining(true)}
                   className="rounded-full bg-[var(--color-section-teal-bg)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--color-section-teal-fg)]"
                 >
-                  {trainedStaff.length > 0 ? "Edit details" : "+ Add training"}
+                  {engagedPeople.length > 0 ? "Edit" : "+ Add people"}
                 </button>
               )}
             </div>
-            {trainedStaff.length === 0 ? (
-              <p className="text-[12px] italic text-ink-300">No staff trained yet.</p>
+            {engagedPeople.length === 0 ? (
+              <p className="text-[12px] italic text-ink-300">No one logged yet.</p>
             ) : (
               <ul className="space-y-2">
-                {trainedStaff.map((s) => {
-                  const products = parseProductsCsv(s.products);
-                  return (
-                    <li key={s.staff_id} className="rounded-xl border border-ink-100 px-3 py-2.5">
-                      <p className="text-[13px] font-bold text-ink-700">{s.name}</p>
-                      {products.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {products.map((p) => (
-                            <span
-                              key={p}
-                              className="rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-semibold"
-                            >
-                              {p}
+                {engagedPeople.map((person) => (
+                  <li key={person.id} className="rounded-xl border border-ink-100 px-3 py-2.5">
+                    <p className="text-[13px] font-bold text-ink-700">{person.name}</p>
+                    {person.update_text && (
+                      <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">
+                        {person.update_text}
+                      </p>
+                    )}
+                    {person.trainings.length > 0 && (
+                      <div className="mt-2 space-y-1.5">
+                        {person.trainings.map((t, i) => (
+                          <div key={i} className="rounded-lg bg-[var(--color-ink-50)] px-2.5 py-1.5">
+                            <span className="inline-block rounded-full bg-[var(--color-tc-50)] text-[var(--color-tc-600)] border border-[var(--color-tc-100)] px-2 py-0.5 text-[11px] font-semibold">
+                              🎓 {t.product_name}
                             </span>
-                          ))}
-                        </div>
-                      )}
-                      {s.response ? (
-                        <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">{s.response}</p>
-                      ) : products.length === 0 ? (
-                        <p className="mt-1 text-[12px] italic text-ink-300">No training details yet</p>
-                      ) : null}
-                    </li>
-                  );
-                })}
+                            {t.response && (
+                              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-500">
+                                {t.response}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!person.update_text && person.trainings.length === 0 && (
+                      <p className="mt-1 text-[12px] italic text-ink-300">No details yet</p>
+                    )}
+                  </li>
+                ))}
               </ul>
             )}
           </div>
         </div>
       )}
 
-      {/* Training editor (shared component — also used by /edit page) */}
+      {/* Engagement editor (shared component — also used by /edit page) */}
       {initData && (
-        <TrainingEditor
+        <EngagementEditor
           open={editingTraining}
           onClose={() => setEditingTraining(false)}
           onSaved={() => { refetchVisit().catch(() => {}); }}
           visitId={id}
           initData={initData}
-          trainedStaff={trainedStaff}
+          people={engagedPeople}
         />
       )}
 

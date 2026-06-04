@@ -61,6 +61,23 @@ export interface VisitTrainedStaff {
   response: string | null;
 }
 
+// New engagement model (mig 021). A person engaged on a visit — known store
+// staff or a free-typed name — plus a free-text update and zero or more
+// per-product trainings each with their own response.
+export interface VisitEngagementTraining {
+  product_id: string | null;
+  product_name: string;
+  response: string | null;
+}
+
+export interface VisitEngagedPerson {
+  id: string;
+  staff_id: string | null;
+  name: string;
+  update_text: string | null;
+  trainings: VisitEngagementTraining[];
+}
+
 export interface VisitFollowUpRow {
   id: string;
   title: string;
@@ -104,6 +121,7 @@ export interface FullVisit extends VisitSummary {
   grade_comments: string | null;
   cms: { telegram_id: number; name: string; role: 'lead' | 'co' }[];
   trained_staff: VisitTrainedStaff[];
+  engaged_people: VisitEngagedPerson[];
   viewer_is_lead: boolean;
 }
 
@@ -590,17 +608,68 @@ export async function getFullVisitForCM(
 
   const viewerIsLead = cms.find((c) => c.role === 'lead')?.telegram_id === telegramId;
 
+  // All people engaged on this visit (new model). No was_trained filter — a
+  // person may just have been spoken to. Old back-compat columns are still read
+  // so bot-written rows (which only set products_trained_on/training_response)
+  // render correctly even before they carry engagement_trainings child rows.
   const { data: vsRows } = await supabase
     .from("visit_staff")
-    .select("staff_id, products_trained_on, training_response, was_trained, staff(name)")
-    .eq("visit_id", visitId)
-    .eq("was_trained", true);
+    .select("id, staff_id, person_name, update_text, products_trained_on, training_response, was_trained, staff(name)")
+    .eq("visit_id", visitId);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trainedStaff: VisitTrainedStaff[] = ((vsRows ?? []) as any[])
+  const vsList = (vsRows ?? []) as any[];
+  const vsIds = vsList.map((r) => r.id as string);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let etRows: any[] = [];
+  if (vsIds.length > 0) {
+    const { data } = await supabase
+      .from("engagement_trainings")
+      .select("visit_staff_id, product_id, product_name, response")
+      .in("visit_staff_id", vsIds);
+    etRows = data ?? [];
+  }
+  const trainingsByPerson = new Map<string, VisitEngagementTraining[]>();
+  for (const t of etRows) {
+    const arr = trainingsByPerson.get(t.visit_staff_id as string) ?? [];
+    arr.push({
+      product_id: (t.product_id as string | null) ?? null,
+      product_name: t.product_name as string,
+      response: (t.response as string | null) ?? null,
+    });
+    trainingsByPerson.set(t.visit_staff_id as string, arr);
+  }
+
+  const engagedPeople: VisitEngagedPerson[] = vsList
+    .map((r) => {
+      const name = (r.person_name as string | null) ?? (r.staff?.name as string | null) ?? "Unknown";
+      // Child rows win; otherwise synthesize from the old CSV so legacy/bot rows
+      // still show their products (no per-product response available there).
+      let trainings = trainingsByPerson.get(r.id as string) ?? [];
+      if (trainings.length === 0) {
+        trainings = parseProductsCsvServer(r.products_trained_on as string | null).map((p) => ({
+          product_id: null,
+          product_name: p,
+          response: null,
+        }));
+      }
+      return {
+        id: r.id as string,
+        staff_id: (r.staff_id as string | null) ?? null,
+        name,
+        update_text: (r.update_text as string | null) ?? (r.training_response as string | null) ?? null,
+        trainings,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Derived back-compat shape for any reader still on trained_staff.
+  const trainedStaff: VisitTrainedStaff[] = vsList
+    .filter((r) => r.was_trained)
     .map((r) => ({
-      staff_id: r.staff_id as string,
-      name: (r.staff?.name as string | null) ?? "Unknown",
+      staff_id: (r.staff_id as string | null) ?? "",
+      name: (r.person_name as string | null) ?? (r.staff?.name as string | null) ?? "Unknown",
       products: (r.products_trained_on as string | null) ?? null,
       response: (r.training_response as string | null) ?? null,
     }))
@@ -630,8 +699,19 @@ export async function getFullVisitForCM(
     grade_comments: v.grade_comments ?? null,
     cms,
     trained_staff: trainedStaff,
+    engaged_people: engagedPeople,
     viewer_is_lead: viewerIsLead,
   };
+}
+
+// Server-side CSV split (mirrors the editor's parseProductsCsv). Used to
+// synthesize trainings for legacy/bot rows that only have the old CSV column.
+function parseProductsCsvServer(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 // ─── Visit follow-ups (mini-app side) ──────────────────────────────────────
@@ -953,33 +1033,66 @@ export async function getStoreStaffForVisit(visitId: string): Promise<StoreStaff
   return (data ?? []).map((s) => ({ id: s.id as string, name: s.name as string }));
 }
 
-export async function setVisitTrainedStaff(
+export interface EngagementPersonInput {
+  staff_id: string | null;
+  person_name: string | null;
+  update_text: string | null;
+  trainings: Array<{ product_id: string | null; product_name: string; response: string | null }>;
+}
+
+// Replace the full engagement set for a visit (new model, mig 021). Deletes all
+// visit_staff rows for the visit (cascades engagement_trainings) then re-inserts
+// each person + their trainings. Dual-writes the old columns (was_trained,
+// products_trained_on CSV, training_response) so legacy readers/analytics still
+// work during the transition.
+export async function setVisitEngagements(
   visitId: string,
-  trained: Array<{ staff_id: string; products: string | null; response: string | null }>,
+  people: EngagementPersonInput[],
 ): Promise<boolean> {
-  // Delete existing trained rows for this visit, then insert the new set.
   const { error: delErr } = await supabase
     .from("visit_staff")
     .delete()
     .eq("visit_id", visitId);
   if (delErr) {
-    console.error("setVisitTrainedStaff delete error:", delErr);
+    console.error("setVisitEngagements delete error:", delErr);
     return false;
   }
 
-  if (trained.length === 0) return true;
+  if (people.length === 0) return true;
 
-  const rows = trained.map((t) => ({
-    visit_id: visitId,
-    staff_id: t.staff_id,
-    was_trained: true,
-    products_trained_on: t.products && t.products.trim() ? t.products.trim() : null,
-    training_response: t.response && t.response.trim() ? t.response.trim() : null,
-  }));
-  const { error: insErr } = await supabase.from("visit_staff").insert(rows);
-  if (insErr) {
-    console.error("setVisitTrainedStaff insert error:", insErr);
-    return false;
+  for (const p of people) {
+    const productCsv = p.trainings.map((t) => t.product_name).filter(Boolean).join(", ");
+    const { data: inserted, error: insErr } = await supabase
+      .from("visit_staff")
+      .insert({
+        visit_id: visitId,
+        staff_id: p.staff_id,
+        person_name: p.staff_id ? null : p.person_name,
+        update_text: p.update_text,
+        was_trained: p.trainings.length > 0,
+        products_trained_on: productCsv || null,
+        training_response: p.update_text, // dual-write for old readers
+      })
+      .select("id")
+      .single();
+    if (insErr || !inserted) {
+      console.error("setVisitEngagements person insert error:", insErr);
+      return false;
+    }
+
+    if (p.trainings.length > 0) {
+      const trainingRows = p.trainings.map((t) => ({
+        visit_staff_id: inserted.id as string,
+        product_id: t.product_id,
+        product_name: t.product_name,
+        response: t.response,
+      }));
+      const { error: tErr } = await supabase.from("engagement_trainings").insert(trainingRows);
+      if (tErr) {
+        console.error("setVisitEngagements trainings insert error:", tErr);
+        return false;
+      }
+    }
   }
   return true;
 }
