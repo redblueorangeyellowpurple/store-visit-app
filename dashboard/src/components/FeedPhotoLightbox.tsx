@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { PhotoItem, PhotoComment, PhotoAnnotation } from "@/lib/queries";
 import { fmtDate } from "@/lib/visit-shared";
 
@@ -48,6 +48,8 @@ export default function FeedPhotoLightbox({
   const [busy, setBusy] = useState(false);
   const [activeAnn, setActiveAnn] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ id: string; isNew: boolean; text: string } | null>(null);
+  // Viewport coords for the compact composer popover, anchored to the active box.
+  const [composerPos, setComposerPos] = useState<{ left: number; top: number } | null>(null);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
@@ -62,6 +64,34 @@ export default function FeedPhotoLightbox({
 
   // Reset transient annotation UI when the open photo changes.
   useEffect(() => { setActiveAnn(null); setComposer(null); }, [idx]);
+
+  // Position the "Mark a fix" composer as a compact popover anchored just under
+  // the active box (flipping above it near the image bottom), clamped to the
+  // viewport. It renders fixed at overlay level — NOT inside .review-imgwrap,
+  // which is overflow:hidden and would clip it. Recomputes only when the boxed
+  // target changes (not on every keystroke) and on resize.
+  useLayoutEffect(() => {
+    if (!composer) { setComposerPos(null); return; }
+    const composerId = composer.id;
+    function place() {
+      const wrap = wrapRef.current; if (!wrap) return;
+      const box = local[idx]?.annotations.find((a) => a.id === composerId);
+      if (!box) return;
+      const r = wrap.getBoundingClientRect();
+      const W = 266, H = 160, GAP = 8, M = 8; // W/H mirror the .ann-composer box
+      const boxTop = r.top + (box.y / 100) * r.height;
+      const boxBottom = r.top + ((box.y + box.h) / 100) * r.height;
+      const boxLeft = r.left + (box.x / 100) * r.width;
+      const left = Math.max(M, Math.min(boxLeft, window.innerWidth - W - M));
+      const fitsBelow = boxBottom + GAP + H <= window.innerHeight;
+      const top = fitsBelow ? boxBottom + GAP : Math.max(M, boxTop - GAP - H);
+      setComposerPos({ left, top });
+    }
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composer?.id, idx]);
 
   // Keyboard: ←/→ navigate, Esc closes (or deselects a box first), ⌫ deletes the
   // selected box. Skip nav while typing in an input/textarea.
@@ -329,10 +359,11 @@ export default function FeedPhotoLightbox({
         <button className="lb-nav lb-next" onClick={(e) => { e.stopPropagation(); go(1); }}>›</button>
       )}
 
-      {composer && (
+      {composer && composerPos && (
         <div
           className="ann-composer"
-          style={{ left: 16, right: 16, bottom: 16, top: "auto", width: "auto" }}
+          style={{ left: composerPos.left, top: composerPos.top }}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="ann-composer-head">⬚ Mark a fix</div>
