@@ -632,6 +632,13 @@ export async function visitFlow(
     let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
     let textValue: string | null = null;
 
+    // Engagement step is structured-only: people are logged via the mini-app, not
+    // typed in chat. Free text (and photo captions) get nudged toward the button
+    // instead of being saved as the section answer.
+    const engageStep = Boolean(p.showTrainingButton && engageUrl);
+    const ENGAGE_NUDGE =
+      '🎓 Tap *Log Engagement* above to log who you engaged — then *Skip* to continue.';
+
     promptWait: while (true) {
       const upd = await conversation.wait();
 
@@ -650,6 +657,12 @@ export async function visitFlow(
         });
         const caption = upd.message.caption ?? null;
         if (caption) {
+          // Photo still uploads above; the caption is ignored on the engagement
+          // step (no free text) — nudge toward the button instead.
+          if (engageStep) {
+            await ctx.reply(ENGAGE_NUDGE, { parse_mode: 'Markdown' });
+            continue;
+          }
           textValue = caption;
           resolved = 'text';
           break;
@@ -676,6 +689,10 @@ export async function visitFlow(
       }
       const text = upd.message?.caption ?? upd.message?.text ?? null;
       if (text) {
+        if (engageStep) {
+          await ctx.reply(ENGAGE_NUDGE, { parse_mode: 'Markdown' });
+          continue;
+        }
         textValue = text;
         resolved = 'text';
         break;
