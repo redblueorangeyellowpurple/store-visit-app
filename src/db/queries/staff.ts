@@ -89,6 +89,67 @@ export async function countTrainedStaff(visitId: string): Promise<number> {
   return count ?? 0;
 }
 
+export interface VisitEngagementTrainingItem {
+  product_name: string;
+  response: string | null;
+}
+export interface VisitEngagedPersonItem {
+  name: string;
+  update_text: string | null;
+  trainings: VisitEngagementTrainingItem[];
+}
+
+// Bot-side reader for the new engagement model (mig 021). Mirrors the mini app's
+// engaged_people: all people on the visit (known staff or free-typed), each with
+// a free-text update + trainings. Falls back to the old products CSV for legacy/
+// bot rows that have no engagement_trainings child rows yet.
+export async function getVisitEngagements(visitId: string): Promise<VisitEngagedPersonItem[]> {
+  const { data: vsRows, error } = await supabase
+    .from('visit_staff')
+    .select('id, person_name, update_text, products_trained_on, training_response, staff(name)')
+    .eq('visit_id', visitId);
+  if (error || !vsRows) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = vsRows as any[];
+  const ids = rows.map((r) => r.id as string);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let etRows: any[] = [];
+  if (ids.length > 0) {
+    const { data } = await supabase
+      .from('engagement_trainings')
+      .select('visit_staff_id, product_name, response')
+      .in('visit_staff_id', ids);
+    etRows = data ?? [];
+  }
+  const byPerson = new Map<string, VisitEngagementTrainingItem[]>();
+  for (const t of etRows) {
+    const arr = byPerson.get(t.visit_staff_id as string) ?? [];
+    arr.push({ product_name: t.product_name as string, response: (t.response as string | null) ?? null });
+    byPerson.set(t.visit_staff_id as string, arr);
+  }
+
+  return rows
+    .map((r) => {
+      const name = (r.person_name as string | null) ?? (r.staff?.name as string | null) ?? 'Unknown';
+      let trainings = byPerson.get(r.id as string) ?? [];
+      if (trainings.length === 0 && r.products_trained_on) {
+        trainings = String(r.products_trained_on)
+          .split(/[,\n]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+          .map((p) => ({ product_name: p, response: null }));
+      }
+      return {
+        name,
+        update_text: (r.update_text as string | null) ?? (r.training_response as string | null) ?? null,
+        trainings,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export async function attachTrainedStaffToVisit(
   visitId: string,
   entries: TrainedStaffEntry[],

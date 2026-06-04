@@ -3,6 +3,10 @@ import { supabase } from '../db/client.js';
 import { config } from '../config.js';
 import { getVisitCMs } from '../db/queries/visit-cms.js';
 import { getAlertGroup, Market } from '../db/queries/alert-groups.js';
+import { getFullVisit } from '../db/queries/visits.js';
+import { listFollowUpsForVisit } from '../db/queries/visit-follow-ups.js';
+import { getVisitEngagements } from '../db/queries/staff.js';
+import { formatVisitSummaryBody, escapeMd } from '../bot/visit-details.js';
 import { notifyAdmins } from './admin-notify.js';
 
 interface BroadcastRow {
@@ -79,13 +83,27 @@ export async function broadcastVisitLocked(
     const storeChain = row.stores?.chain;
     const storeLabel = storeChain ? `${storeName} @ ${storeChain}` : storeName;
 
-    const text = `✅ ${namesLabel} visited ${storeLabel}`;
+    // Full visit as text (no photos — a media-group per lock is slow/rate-limit-
+    // prone and clutters the group; photos live behind the View button). Header
+    // line stays plain; the body is Markdown.
+    const [fullVisit, followUps, engagedPeople] = await Promise.all([
+      getFullVisit(visitId),
+      listFollowUpsForVisit(visitId),
+      getVisitEngagements(visitId),
+    ]);
+
+    const header = `✅ *${escapeMd(namesLabel)}* visited *${escapeMd(storeLabel)}*`;
+    const text = fullVisit
+      ? `${header}\n\n${formatVisitSummaryBody(fullVisit, followUps, engagedPeople)}`
+      : header;
+
     const deepLink =
       `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}` +
       `?startapp=visit_${visitId}`;
 
     await botApi.sendMessage(chatId, text, {
-      reply_markup: new InlineKeyboard().url('View visit', deepLink),
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().url('📷 View full visit', deepLink),
       link_preview_options: { is_disabled: true },
     });
   } catch (err) {
