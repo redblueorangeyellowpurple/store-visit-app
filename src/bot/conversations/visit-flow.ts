@@ -96,9 +96,9 @@ const PROMPTS: PromptDef[] = [
   {
     key: 'people_training',
     emoji: '👥',
-    question: 'People & Engagements',
+    question: 'People & Training',
     cue: 'Who did you engage today? Tap below to log each person — an update, and a training if you ran one.',
-    footerHint: '📱 Tap "Log people & engagements" to open the app, then Next to continue',
+    footerHint: '📱 Tap "Log people & training" to open the app, then Submit to continue',
     bullets: [
       'A new store staff you got to know',
       'A training and how they responded',
@@ -169,8 +169,8 @@ function buildPromptKeyboard(
 // engagements in the app, taps Next/Skip, the app sendData()s, and the wait loop
 // below catches the web_app_data message and advances the flow — no manual
 // return to chat. Falls back to the inline deep-link button if MINIAPP_URL is
-// unset. The reply keyboard's Skip/Back are matched by exact label.
-const ENGAGE_SKIP_LABEL = '⏭ Skip — no one to log';
+// unset. The reply keyboard's Back is matched by exact label. No Skip button —
+// the CM advances by submitting in the app (even with no one logged).
 const ENGAGE_BACK_LABEL = '← Back';
 
 function engageWebAppUrl(visitId: string): string | null {
@@ -179,9 +179,8 @@ function engageWebAppUrl(visitId: string): string | null {
 }
 
 function buildEngagementReplyKeyboard(url: string, showBack: boolean): Keyboard {
-  const kb = new Keyboard().webApp('📱 Log people & engagements', url).row();
-  kb.text(ENGAGE_SKIP_LABEL);
-  if (showBack) kb.text(ENGAGE_BACK_LABEL);
+  const kb = new Keyboard().webApp('📱 Log people & training', url);
+  if (showBack) kb.row().text(ENGAGE_BACK_LABEL);
   return kb.resized();
 }
 
@@ -669,13 +668,12 @@ export async function visitFlow(
         resolved = 'skip';
         break;
       }
-      // Reply-keyboard buttons on the engagement step arrive as plain text.
+      // Reply-keyboard Back on the engagement step arrives as plain text.
       if (isEngagementStep) {
         const label = upd.message?.text ?? null;
-        if (label === ENGAGE_SKIP_LABEL) { resolved = 'skip'; break; }
         if (label === ENGAGE_BACK_LABEL) { resolved = 'back'; break; }
-        // App-only step: ignore stray text/photos captions so nothing is saved
-        // as a legacy people_training note. (Photos still attach below.)
+        // App-only step: ignore stray text so nothing is saved as a legacy
+        // people_training note. (Photos still attach below.)
         if (label) continue;
       }
       if (upd.message?.photo) {

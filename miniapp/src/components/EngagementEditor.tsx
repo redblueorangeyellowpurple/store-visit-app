@@ -129,10 +129,10 @@ function AutoTextarea({
       onFocus={(e) => {
         // Defer so the keyboard has started opening before we re-centre.
         const el = e.currentTarget;
-        setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+        setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 200);
       }}
       placeholder={placeholder}
-      className="w-full resize-none overflow-hidden rounded-lg border border-ink-100 bg-white px-3 py-2 text-[16px] leading-snug text-ink-700 placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
+      className="w-full resize-none overflow-hidden rounded-lg border border-ink-100 bg-white px-3 py-2 text-[16px] leading-snug text-ink-700 placeholder:text-[13px] placeholder:text-ink-300 focus:border-[var(--color-tc-200)] focus:outline-none"
     />
   );
 }
@@ -374,11 +374,6 @@ export default function EngagementEditor({
     }
   }
 
-  // Handoff "Skip" — advance the bot without logging anyone.
-  function handoffSkip() {
-    window.Telegram?.WebApp?.sendData?.(JSON.stringify({ action: "skip" }));
-  }
-
   if (!open) return null;
 
   // Known staff not yet added as a person — offered as quick-add chips.
@@ -395,7 +390,7 @@ export default function EngagementEditor({
         >
           ‹ Back to visit
         </button>
-        <h1 className="text-xl font-extrabold text-ink-700 leading-tight">People &amp; engagements</h1>
+        <h1 className="text-xl font-extrabold text-ink-700 leading-tight">People &amp; Training</h1>
         <p className="mt-1 text-[12px] text-ink-400">
           Log anyone you spoke to. Add an update, and a training if you ran one.
         </p>
@@ -424,8 +419,12 @@ export default function EngagementEditor({
                   type="text"
                   value={p.name}
                   onChange={(e) => patchPerson(p.key, { name: e.target.value })}
+                  onFocus={(e) => {
+                    const el = e.currentTarget;
+                    setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 200);
+                  }}
                   placeholder="Who did you speak to?"
-                  className="flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 text-[16px] font-semibold text-ink-700 placeholder:text-ink-300 placeholder:font-normal focus:border-[var(--color-tc-200)] focus:outline-none"
+                  className="flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 text-[16px] font-semibold text-ink-700 placeholder:text-[13px] placeholder:text-ink-300 placeholder:font-normal focus:border-[var(--color-tc-200)] focus:outline-none"
                 />
               )}
               <button
@@ -522,10 +521,10 @@ export default function EngagementEditor({
 
       <div className="flex gap-2 px-5 py-3 border-t border-ink-100 bg-white shrink-0">
         <button
-          onClick={handoffMode ? handoffSkip : onClose}
-          className="rounded-xl py-3 px-4 text-sm font-bold bg-ink-100 text-ink-500"
+          onClick={onClose}
+          className="flex-1 rounded-xl py-3 text-sm font-bold bg-ink-100 text-ink-500"
         >
-          {handoffMode ? "Skip" : "Cancel"}
+          Cancel
         </button>
         <button
           onClick={save}
@@ -533,7 +532,7 @@ export default function EngagementEditor({
           className="flex-1 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
           style={{ background: "var(--color-tc-600)" }}
         >
-          {saving ? "Saving…" : handoffMode ? "Next → back to visit" : "Save"}
+          {saving ? "Submitting…" : "Submit"}
         </button>
       </div>
 

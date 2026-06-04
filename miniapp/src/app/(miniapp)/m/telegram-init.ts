@@ -9,6 +9,9 @@ declare global {
         ready?: () => void;
         expand?: () => void;
         close?: () => void;
+        // Stops the swipe-down gesture from closing the app, so the page can
+        // scroll its own content instead (Bot API 7.7+).
+        disableVerticalSwipes?: () => void;
         // Only fires when the app was opened from a reply-keyboard web_app
         // button; sends a web_app_data message to the bot and closes the app.
         sendData?: (data: string) => void;
@@ -45,5 +48,6 @@ export async function initTelegram(): Promise<string | null> {
   if (!tg?.initData) return null;
   tg.ready?.();
   tg.expand?.();
+  tg.disableVerticalSwipes?.(); // let pages scroll instead of swipe-closing
   return tg.initData;
 }

@@ -40,8 +40,10 @@ export default function EngageHandoffPage({
     return () => { cancelled = true; };
   }, [id]);
 
-  // Back/close without saving → skip the bot step rather than stranding it.
-  const skip = () => window.Telegram?.WebApp?.sendData?.(JSON.stringify({ action: "skip" }));
+  // Cancel/back without submitting → just close the app. The bot stays parked at
+  // the People & Training step (its button is still there), so the CM can re-open
+  // or go Back in chat. Nothing is sent, nothing is stranded.
+  const closeApp = () => window.Telegram?.WebApp?.close?.();
 
   if (error) {
     return (
@@ -62,7 +64,7 @@ export default function EngageHandoffPage({
   return (
     <EngagementEditor
       open
-      onClose={skip}
+      onClose={closeApp}
       onSaved={() => {}}
       visitId={id}
       initData={initData}
