@@ -98,7 +98,7 @@ const PROMPTS: PromptDef[] = [
     emoji: '👥',
     question: 'People & Training',
     cue: 'Who did you engage today? Tap below to log each person — an update, and a training if you ran one.',
-    footerHint: '🎓 Tap "Log Engagement" below to log who you engaged — it saves on its own',
+    footerHint: '🎓 Tap "Log Engagement" to log each person — Skip when you\'re done',
     bullets: [
       'A new store staff you got to know',
       'A training and how they responded',
@@ -130,14 +130,6 @@ const PROMPTS: PromptDef[] = [
   },
 ];
 
-function trainingDeepLink(visitId: string): string | null {
-  if (!config.broadcast.botUsername) return null;
-  return (
-    `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}` +
-    `?startapp=visit_${visitId}_training`
-  );
-}
-
 function followUpDeepLink(visitId: string): string | null {
   if (!config.broadcast.botUsername) return null;
   return (
@@ -146,51 +138,33 @@ function followUpDeepLink(visitId: string): string | null {
   );
 }
 
-function buildPromptKeyboard(
-  visitId: string,
-  prompt: PromptDef,
-  showBack: boolean,
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  if (showBack) kb.text('← Back', `prompt:back:${prompt.key}`);
-  kb.text('Skip', `prompt:skip:${prompt.key}`);
-  if (prompt.showTrainingButton) {
-    const link = trainingDeepLink(visitId);
-    // .row() drops the URL button onto its own line. Three buttons on one row
-    // get truncated on narrow phone widths.
-    if (link) kb.row().url('🎓 Log Training', link);
-  }
-  return kb;
-}
-
 // ── Engagement step (people/training) ───────────────────────────────────────
-// Telegram only lets a Mini App signal the bot (WebApp.sendData) when it's
-// launched from a reply-keyboard button — never from an inline button. To keep
-// the button INSIDE the message, this step is non-blocking: the inline
-// "🎓 Log Engagement" web_app button opens the app, which saves via its own API
-// and closes itself, while the bot flows straight to the next Q. Nothing to wait
-// for, so no "Continue" tap. inline web_app buttons are private-chat only — the
-// visit flow always runs in the CM's DM, so that's fine.
+// The "🎓 Log Engagement" button is an inline web_app button on the message
+// itself. It opens the mini-app, which saves engagements via its own API and
+// closes itself — Telegram can't signal the bot from an inline web_app button
+// (WebApp.sendData needs a reply-keyboard launch), so the step BLOCKS like every
+// other prompt: after logging, the CM taps Skip to move on (or types a free-text
+// note). Blocking keeps Back navigation predictable (plain i-1) and lets the CM
+// log several people across multiple app opens. inline web_app buttons are
+// private-chat only — the visit flow always runs in the CM's DM, so that's fine.
 function engageWebAppUrl(visitId: string): string | null {
   if (!config.miniapp.url) return null;
   return `${config.miniapp.url.replace(/\/$/, '')}/m/visit/${visitId}/engage`;
 }
 
-function buildEngagementInlineKeyboard(url: string, showBack: boolean, key: V2PromptKey): InlineKeyboard {
-  const kb = new InlineKeyboard().webApp('🎓 Log Engagement', url);
-  if (showBack) kb.row().text('← Back', `prompt:back:${key}`);
+function buildPromptKeyboard(
+  prompt: PromptDef,
+  showBack: boolean,
+  engageUrl: string | null,
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  // Engagement button gets its own row on top — it's the primary action here.
+  if (prompt.showTrainingButton && engageUrl) {
+    kb.webApp('🎓 Log Engagement', engageUrl).row();
+  }
+  if (showBack) kb.text('← Back', `prompt:back:${prompt.key}`);
+  kb.text('Skip', `prompt:skip:${prompt.key}`);
   return kb;
-}
-
-// The non-blocking engagement step is "transparent" to back-nav: a ← Back from
-// any step (including the engagement message itself) rewinds to the nearest
-// preceding *blocking* prompt, skipping engagement. Returns -1 if none.
-function backTargetIndex(fromKey: V2PromptKey, engageEnabled: boolean): number {
-  const idx = PROMPTS.findIndex((p) => p.key === fromKey);
-  if (idx <= 0) return -1;
-  let t = idx - 1;
-  while (t >= 0 && engageEnabled && PROMPTS[t].showTrainingButton) t--;
-  return t;
 }
 
 // 5-per-page is the sweet spot for thumb-reachable buttons before pagination
@@ -649,27 +623,14 @@ export async function visitFlow(
       continue;
     }
 
-    // Engagement step is non-blocking: show the inline web_app button + Back and
-    // flow straight on. The app saves via its API and closes itself; Telegram
-    // can't signal the bot from an inline button, so there's nothing to wait for.
-    if (p.showTrainingButton && engageUrl) {
-      await ctx.reply(formatPrompt(i, p), {
-        parse_mode: 'Markdown',
-        reply_markup: buildEngagementInlineKeyboard(engageUrl, i > 0, p.key),
-      });
-      i++;
-      continue;
-    }
-
     await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
     await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
-      reply_markup: buildPromptKeyboard(createdVisitId, p, i > 0),
+      reply_markup: buildPromptKeyboard(p, i > 0, engageUrl),
     });
 
     let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
     let textValue: string | null = null;
-    let backToIdx: number | null = null;
 
     promptWait: while (true) {
       const upd = await conversation.wait();
@@ -702,17 +663,12 @@ export async function visitFlow(
           resolved = 'skip';
           break promptWait;
         }
-        // Back can arrive from this step OR from the non-blocking engagement
-        // message above it — rewind to the nearest preceding blocking prompt.
+        // Back rewinds one prompt. Q1 hides Back (showBack = i > 0), so this
+        // never fires below index 0.
         if (data.startsWith('prompt:back:')) {
-          const fromKey = data.slice('prompt:back:'.length) as V2PromptKey;
-          const target = backTargetIndex(fromKey, engageUrl !== null);
-          if (target >= 0) {
-            await upd.answerCallbackQuery('Going back').catch(() => {});
-            backToIdx = target;
-            resolved = 'back';
-            break promptWait;
-          }
+          await upd.answerCallbackQuery('Going back').catch(() => {});
+          resolved = 'back';
+          break promptWait;
         }
         // Other callbacks (viewlast/viewvisit handled at bot.ts level) — ignore.
         await upd.answerCallbackQuery().catch(() => {});
@@ -738,10 +694,9 @@ export async function visitFlow(
       return;
     }
     if (resolved === 'back') {
-      // Wipe the target prompt's photos + answer, then rewind to it. backToIdx
-      // skips the transparent engagement step; falls back to the previous prompt.
+      // Wipe the previous prompt's photos + answer, then rewind to it.
       // Q1 hides Back (showBack = i > 0), so this can't rewind below 0.
-      const targetIdx = backToIdx ?? i - 1;
+      const targetIdx = i - 1;
       const target = PROMPTS[targetIdx];
       const targetSection = sectionKeyForPrompt(target.key);
       const removed = await conversation.external(() =>

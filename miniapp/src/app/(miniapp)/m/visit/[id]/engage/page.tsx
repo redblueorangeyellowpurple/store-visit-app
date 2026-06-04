@@ -6,9 +6,10 @@ import EngagementEditor, { type EngagedPersonRow } from "@/components/Engagement
 
 // Hand-off entry point. The bot's visit-flow opens this via an inline web_app
 // button at the people/engagements step. The editor mounts straight away in
-// handoff mode; on Submit it saves via the API and closes the app. The visit
-// flow is non-blocking (it already moved on), so no signal back is needed —
-// inline-launched apps can't sendData() anyway. See visit-flow.ts.
+// handoff mode; on Submit it saves via the API and closes the app. The bot stays
+// parked at the People & Training prompt (it blocks there) — inline-launched apps
+// can't sendData() anyway, so the CM taps Skip in chat to move on after logging.
+// See visit-flow.ts.
 export default function EngageHandoffPage({
   params,
 }: {
@@ -41,9 +42,9 @@ export default function EngageHandoffPage({
     return () => { cancelled = true; };
   }, [id]);
 
-  // Cancel/back without submitting → just close the app. The bot stays parked at
-  // the People & Training step (its button is still there), so the CM can re-open
-  // or go Back in chat. Nothing is sent, nothing is stranded.
+  // Submit or cancel → close the app. The bot stays parked at the People &
+  // Training prompt (its button is still there), so the CM can re-open to log
+  // another person, or tap Skip/Back in chat. Nothing is sent, nothing stranded.
   const closeApp = () => window.Telegram?.WebApp?.close?.();
 
   if (error) {
