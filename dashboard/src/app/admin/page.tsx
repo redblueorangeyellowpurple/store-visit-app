@@ -21,6 +21,7 @@ interface ActivePerson {
   is_active: boolean;
   is_intelligence_recipient: boolean;
   is_join_request_admin: boolean;
+  is_recap_recipient: boolean;
 }
 
 interface PendingPerson {
@@ -132,6 +133,11 @@ export default function AdminPage() {
   const [addProductForm, setAddProductForm] = useState({ brand: "", name: "" });
   const [addProductSubmitting, setAddProductSubmitting] = useState(false);
 
+  // Daily recaps (master switch + test send)
+  const [recapEnabled, setRecapEnabled] = useState(false);
+  const [recapBusy, setRecapBusy] = useState(false);
+  const [recapTestMsg, setRecapTestMsg] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) setUser(d); });
     reload();
@@ -177,6 +183,11 @@ export default function AdminPage() {
     if (prodRes.ok) {
       const d = await prodRes.json();
       setProducts(d.products);
+    }
+    const rcRes = await fetch("/api/admin/recaps");
+    if (rcRes.ok) {
+      const d = await rcRes.json();
+      setRecapEnabled(!!d.enabled);
     }
     setLoading(false);
   }
@@ -273,6 +284,47 @@ export default function AdminPage() {
       setActive((rows) => rows.filter((r) => r.telegram_id !== telegramId));
     }
     setSavingKey(null);
+  }
+
+  // ── daily recaps ──────────────────────────────────────────────────────────
+
+  async function saveRecapEnabled(enabled: boolean) {
+    setError(null);
+    setRecapBusy(true);
+    const prev = recapEnabled;
+    setRecapEnabled(enabled); // optimistic
+    const res = await fetch("/api/admin/recaps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      setError(j?.error ?? "Couldn't update the recaps switch");
+      setRecapEnabled(prev);
+    }
+    setRecapBusy(false);
+  }
+
+  async function sendRecapTest() {
+    setRecapTestMsg(null);
+    setRecapBusy(true);
+    const res = await fetch("/api/admin/recaps/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      setRecapTestMsg(j?.error ?? "Test send failed");
+    } else {
+      setRecapTestMsg(
+        j?.empty
+          ? "Sent — but your own day was empty, so it's a near-empty sample."
+          : "✓ Sent to your Telegram.",
+      );
+    }
+    setRecapBusy(false);
   }
 
   // ── AM picker options (active AMs in the same market as the row) ──────────
@@ -572,6 +624,9 @@ export default function AdminPage() {
                     <th>
                       <span title="Telegram DM when a new join request arrives">Join req DM</span>
                     </th>
+                    <th>
+                      <span title="Receives the daily 8am recap of their own visits">Recap</span>
+                    </th>
                     <th></th>
                   </tr>
                 </thead>
@@ -640,6 +695,17 @@ export default function AdminPage() {
                             <span className="admin-switch-slider" />
                           </label>
                         </td>
+                        <td className="admin-toggle-cell">
+                          <label className="admin-switch">
+                            <input
+                              type="checkbox"
+                              checked={p.is_recap_recipient}
+                              disabled={saving}
+                              onChange={(e) => patchPerson(p.telegram_id, { is_recap_recipient: e.target.checked })}
+                            />
+                            <span className="admin-switch-slider" />
+                          </label>
+                        </td>
                         <td>
                           <button
                             className="admin-mini-btn admin-mini-btn--reject"
@@ -665,9 +731,41 @@ export default function AdminPage() {
         <p className="admin-footnote">
           <strong>Intel brief</strong> = receives the daily intelligence digest via Telegram DM.
           <strong> Join req DM</strong> = receives a Telegram DM when a new join request arrives.
-          Both are intentionally separate from the role above — admins manage who-can-edit,
+          <strong> Recap</strong> = receives the daily 8am recap of their own visits (only sends when the master switch below is on).
+          These are intentionally separate from the role above — admins manage who-can-edit,
           these toggles control who-gets-notified.
         </p>
+
+        {/* ── Daily recaps ────────────────────────────────────────────────── */}
+        <section className="admin-card">
+          <div className="admin-card-head">
+            <h2 className="admin-card-title">Daily recaps</h2>
+            <span className="admin-count">{active.filter((p) => p.is_recap_recipient).length} on</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <label className="admin-switch">
+              <input
+                type="checkbox"
+                checked={recapEnabled}
+                disabled={recapBusy}
+                onChange={(e) => saveRecapEnabled(e.target.checked)}
+              />
+              <span className="admin-switch-slider" />
+            </label>
+            <div style={{ flex: 1, minWidth: 220, fontSize: 13, color: "var(--color-ink-500)" }}>
+              <strong>{recapEnabled ? "On" : "Off"}</strong> — master switch for the 8am daily recap.{" "}
+              {recapEnabled
+                ? "CMs ticked in the Recap column above get it each morning."
+                : "Nobody receives a recap while this is off."}
+            </div>
+            <button className="admin-mini-btn" disabled={recapBusy} onClick={sendRecapTest}>
+              Send test to me
+            </button>
+          </div>
+          {recapTestMsg && (
+            <p style={{ marginTop: 10, fontSize: 13, color: "var(--color-ink-400)" }}>{recapTestMsg}</p>
+          )}
+        </section>
 
         {/* ── Alert groups ────────────────────────────────────────────────── */}
         <section className="admin-card">

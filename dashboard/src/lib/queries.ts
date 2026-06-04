@@ -1372,6 +1372,7 @@ export interface ActivePersonRow {
   is_active: boolean;
   is_intelligence_recipient: boolean;
   is_join_request_admin: boolean;
+  is_recap_recipient: boolean;
 }
 
 export interface PendingPersonRow {
@@ -1383,7 +1384,7 @@ export interface PendingPersonRow {
 export async function getActivePeople(): Promise<ActivePersonRow[]> {
   const { data, error } = await supabase
     .from('cms')
-    .select('telegram_id, full_name, nickname, role, market, am_telegram_id, is_active, is_intelligence_recipient, is_join_request_admin')
+    .select('telegram_id, full_name, nickname, role, market, am_telegram_id, is_active, is_intelligence_recipient, is_join_request_admin, is_recap_recipient')
     .eq('is_active', true)
     .order('full_name');
   if (error || !data) {
@@ -1444,6 +1445,7 @@ export interface UpdatePersonPatch {
   is_active?: boolean;
   is_intelligence_recipient?: boolean;
   is_join_request_admin?: boolean;
+  is_recap_recipient?: boolean;
 }
 
 export async function updatePerson(
@@ -1452,6 +1454,33 @@ export async function updatePerson(
 ): Promise<boolean> {
   const { error } = await supabase.from('cms').update(patch).eq('telegram_id', telegramId);
   if (error) console.error('updatePerson error:', error);
+  return !error;
+}
+
+// ─── Daily-recap master switch (sva.settings key/value) ───────────────────────
+
+const RECAP_ENABLED_KEY = 'daily_recaps_enabled';
+
+export async function getRecapsEnabled(): Promise<boolean> {
+  const { data } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', RECAP_ENABLED_KEY)
+    .maybeSingle();
+  return data?.value === 'true';
+}
+
+export async function setRecapsEnabled(enabled: boolean, byTelegramId: number): Promise<boolean> {
+  const { error } = await supabase.from('settings').upsert(
+    {
+      key: RECAP_ENABLED_KEY,
+      value: enabled ? 'true' : 'false',
+      updated_at: new Date().toISOString(),
+      updated_by_telegram_id: byTelegramId,
+    },
+    { onConflict: 'key' },
+  );
+  if (error) console.error('setRecapsEnabled error:', error);
   return !error;
 }
 

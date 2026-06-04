@@ -69,6 +69,9 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.is_join_request_admin === "boolean") {
     patch.is_join_request_admin = body.is_join_request_admin;
   }
+  if (typeof body.is_recap_recipient === "boolean") {
+    patch.is_recap_recipient = body.is_recap_recipient;
+  }
 
   if (Object.keys(patch).length === 0) {
     return Response.json({ error: "no fields to update" }, { status: 400 });
