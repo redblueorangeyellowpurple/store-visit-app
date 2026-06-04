@@ -238,13 +238,18 @@ export default function HomePage() {
     } finally { setSaving(false); }
   }
 
-  // Link interceptor: /visits/store/[id] → open drawer, styled as a mockup chip.
+  // Link interceptor → open the store drawer, styled as a mockup chip.
+  //   /visits/store/<store_id>             — store mention
+  //   /visits/visit/<store_id>/<visit_id>  — visit mention (carries the store id
+  //     so the store-keyed drawer still resolves; the mini app uses the visit id)
   const mdComponents = (alert: boolean) => ({
     a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
-      const m = href?.match(/^\/visits\/store\/([^/?#]+)/);
-      if (m) {
+      const store = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      const visit = href?.match(/^\/visits\/visit\/([^/?#]+)/);
+      const storeId = store?.[1] ?? visit?.[1];
+      if (storeId) {
         return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(m[1])}>
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(storeId)}>
             {children}
           </button>
         );

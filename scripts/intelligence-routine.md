@@ -106,16 +106,18 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 | <cm> | <market> | <n> | <e> |
 
 ## 🔔 Signals
-- <pattern> — **only if seen across ≥2 visits.** Link each to its source store(s): `[<store name>](/visits/store/<store_id>)`.
+- <pattern> — **only if seen across ≥2 visits.** Link each to its source store(s): `[<store name>](/visits/store/<store_id>)`. If a single visit is the clearest example, deep-link it instead with `[<store name>](/visits/visit/<store_id>/<visit_id>)`.
 
 ## 🚨 Alerts
-- <alert> — **only if it matches the allowlist below.** Link the store: `[<store name>](/visits/store/<store_id>)`.
+- <alert> — **only if it matches the allowlist below.** Deep-link the specific visit that triggered it: `[<store name>](/visits/visit/<store_id>/<visit_id>)`.
 
 ## 🧵 Threads   _(optional — multi-visit/week patterns from memory; skip if none)_
 - <theme>: <stores/people> — <one-line pattern>
 ```
 - **Alert allowlist** (strict — nothing else qualifies): store staff/manager resisting our brand · competitor conquering shelf/POS space · stock-out or display defect at a T1/T2 store · a T1 store gone silent ≥7 days (from silence-as-signal).
-- Link every signal/alert to its source store(s) with `[<store name>](/visits/store/<store_id>)` — the dashboard already turns these into a click-to-open visit drawer.
+- Link every signal/alert to its source. Two link forms (both render as click-to-open chips on the dashboard *and* the mini app):
+  - `[<store name>](/visits/store/<store_id>)` — store-level mention (opens the store timeline / visit drawer).
+  - `[<store name>](/visits/visit/<store_id>/<visit_id>)` — deep-link to one visit (the mini app opens the visit page; the dashboard opens its store drawer). Prefer this for alerts and any single-visit signal. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one.
 
 ### B) `telegram_summary` — DM body (sent with `parse_mode=HTML`, ≤900 chars)
 ```

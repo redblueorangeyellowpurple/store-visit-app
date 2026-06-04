@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { initTelegram } from "../telegram-init";
 
@@ -87,17 +87,28 @@ function parseBrief(md: string): { exec: ExecData | null; sections: Section[] } 
   return { exec, sections };
 }
 
-// Render a "- bullet" line: plain text with [name](/visits/store/<id>) → tappable chip.
-function renderBullet(line: string, alert: boolean, onStore: (id: string) => void, key: number) {
+// Render a "- bullet" line. Tappable chips come from two link forms in the brief:
+//   [name](/visits/store/<store_id>)            → opens the store timeline
+//   [name](/visits/visit/<store_id>/<visit_id>) → opens the actual visit
+// The visit form carries the store id too so the dashboard (store-keyed drawer)
+// and the mini app (visit page) can both resolve the same link.
+function renderBullet(
+  line: string,
+  alert: boolean,
+  onNav: (kind: "store" | "visit", id: string) => void,
+  key: number,
+) {
   const text = line.replace(/^[-*]\s+/, "");
-  const re = /\[([^\]]+)\]\(\/visits\/store\/([^)]+)\)/g;
+  const re = /\[([^\]]+)\]\(\/visits\/(store|visit)\/([^)]+)\)/g;
   const parts: React.ReactNode[] = [];
   let last = 0, m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
-    const id = m[2];
+    const kind = m[2] as "store" | "visit";
+    // store: <store_id>; visit: <store_id>/<visit_id> → take the last segment.
+    const id = kind === "visit" ? m[3].split("/").pop() ?? m[3] : m[3];
     parts.push(
-      <button key={`c${i++}`} className={`chip${alert ? " emg" : ""}`} onClick={() => onStore(id)}>
+      <button key={`c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id)}>
         {m[1]}
       </button>,
     );
@@ -153,13 +164,44 @@ export default function IntelPage() {
     [exec],
   );
 
-  const openStore = (id: string) => router.push(`/m/store/${id}`);
+  const onNav = (kind: "store" | "visit", id: string) =>
+    router.push(kind === "visit" ? `/m/visit/${id}` : `/m/store/${id}`);
   const bullets = (body: string) => body.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
+
+  // ── Date navigation (arrows · dropdown · swipe) ─────────────────────────────
+  // Newest first. "Previous" = older day (idx+1), "next" = newer day (idx-1).
+  const sortedDates = useMemo(
+    () => [...dates].sort((a, b) => b.report_date.localeCompare(a.report_date)),
+    [dates],
+  );
+  const dateIdx = sortedDates.findIndex((d) => d.report_date === activeDate);
+  const hasPrev = dateIdx >= 0 && dateIdx < sortedDates.length - 1;
+  const hasNext = dateIdx > 0;
+  const goTo = (date: string) => { setLoading(true); setActiveDate(date); };
+  const goPrev = () => { if (hasPrev) goTo(sortedDates[dateIdx + 1].report_date); };
+  const goNext = () => { if (hasNext) goTo(sortedDates[dateIdx - 1].report_date); };
+
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const s = touchStart.current;
+    touchStart.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    // Horizontal, deliberate swipe only — don't hijack vertical scrolling.
+    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return;
+    if (dx > 0) goNext(); // swipe right → next (newer) day
+    else goPrev();        // swipe left → previous (older) day
+  };
 
   return (
     <div className="intel">
       <style>{INTEL_CSS}</style>
-      <div className="wrap">
+      <div className="wrap" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         <header className="head">
           <div className="kicker">📊 SVA Daily Intelligence</div>
           <h1>{activeDate ? fmtWeekday(activeDate) : "Daily Intelligence"}</h1>
@@ -170,17 +212,24 @@ export default function IntelPage() {
           </div>
         </header>
 
-        {dates.length > 1 && (
-          <div className="datechips">
-            {dates.slice(0, 14).map((d) => (
-              <button
-                key={d.report_date}
-                className={`datechip${d.report_date === activeDate ? " on" : ""}`}
-                onClick={() => { setLoading(true); setActiveDate(d.report_date); }}
+        {sortedDates.length > 1 && (
+          <div className="datenav">
+            <button className="navbtn" disabled={!hasPrev} onClick={goPrev} aria-label="Previous day">‹</button>
+            <div className="datepick">
+              <select
+                value={activeDate ?? ""}
+                onChange={(e) => goTo(e.target.value)}
+                aria-label="Jump to date"
               >
-                {fmtDateShort(d.report_date)}{d.edited_by_human && <span className="ed">✎</span>}
-              </button>
-            ))}
+                {sortedDates.map((d) => (
+                  <option key={d.report_date} value={d.report_date}>
+                    {fmtDateShort(d.report_date)}{d.edited_by_human ? " ✎" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="caret">▾</span>
+            </div>
+            <button className="navbtn" disabled={!hasNext} onClick={goNext} aria-label="Next day">›</button>
           </div>
         )}
 
@@ -231,14 +280,14 @@ export default function IntelPage() {
             <div className="card">
               <h2>🔔 Signals</h2>
               {signals?.body
-                ? <ul className="bul">{bullets(signals.body).map((l, i) => renderBullet(l, false, openStore, i))}</ul>
+                ? <ul className="bul">{bullets(signals.body).map((l, i) => renderBullet(l, false, onNav, i))}</ul>
                 : <p className="calm">No repeated patterns today.</p>}
             </div>
 
             <div className="card card-emg">
               <h2 className="emg-h">🚨 Alerts</h2>
               {alerts?.body
-                ? <ul className="bul">{bullets(alerts.body).map((l, i) => renderBullet(l, true, openStore, i))}</ul>
+                ? <ul className="bul">{bullets(alerts.body).map((l, i) => renderBullet(l, true, onNav, i))}</ul>
                 : <p className="calm">No alerts today.</p>}
             </div>
           </>
@@ -288,10 +337,18 @@ const INTEL_CSS = `
   font-family:inherit;display:inline-flex;align-items:center;gap:4px;line-height:1.4;vertical-align:baseline;margin:1px 0;}
 .intel .chip::before{content:"↳";opacity:.6;font-weight:700;}
 .intel .chip.emg{color:var(--red);background:var(--red-soft);}
-.intel .datechips{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px;}
-.intel .datechip{font-size:11px;font-weight:500;border:none;cursor:pointer;border-radius:20px;
-  padding:4px 11px;background:#EDE9E0;color:var(--muted);font-family:inherit;}
-.intel .datechip.on{background:var(--accent);color:#fff;font-weight:700;}
-.intel .datechip .ed{margin-left:4px;opacity:.8;}
+.intel .datenav{display:flex;align-items:center;gap:8px;margin-top:13px;}
+.intel .navbtn{flex:0 0 auto;width:38px;height:38px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);font-size:20px;font-weight:700;line-height:1;cursor:pointer;
+  font-family:inherit;display:flex;align-items:center;justify-content:center;}
+.intel .navbtn:disabled{opacity:.35;cursor:default;}
+.intel .datepick{position:relative;flex:1;}
+.intel .datepick select{appearance:none;-webkit-appearance:none;width:100%;height:38px;
+  border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);
+  font-family:inherit;font-size:14px;font-weight:600;text-align:center;padding:0 28px;cursor:pointer;}
+.intel .datepick .caret{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  font-size:11px;color:var(--muted);pointer-events:none;}
+.intel .chip.visit{padding-left:8px;}
+.intel .chip.visit::before{content:"📍";opacity:.85;font-weight:400;}
 .intel .empty{color:var(--muted);font-size:13.5px;padding:28px 0;text-align:center;}
 `;
