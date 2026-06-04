@@ -395,12 +395,11 @@ export default function EngagementEditor({
         body: JSON.stringify(payload),
       });
       if (res.ok) {
+        // Hand-off launches from an inline web_app button (private chat), which
+        // can't sendData() back to the bot — and doesn't need to: the visit flow
+        // is non-blocking, so we just close the app after the PATCH saved.
         if (handoffMode) {
-          // Signal the bot's visit-flow to advance, then the app auto-closes.
-          // sendData only works because the app was opened from a reply-keyboard
-          // web_app button. Saved already via the PATCH above — payload is just
-          // the signal.
-          window.Telegram?.WebApp?.sendData?.(JSON.stringify({ action: "done" }));
+          onClose();
           return;
         }
         onSaved();

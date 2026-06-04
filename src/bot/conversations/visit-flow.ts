@@ -1,5 +1,5 @@
 import { Conversation } from '@grammyjs/conversations';
-import { InlineKeyboard, Keyboard } from 'grammy';
+import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../middleware/auth.js';
 import { QUICK_ACCESS_KEYBOARD } from '../commands/start.js';
 import { getStoresForCM } from '../../db/queries/stores.js';
@@ -98,7 +98,7 @@ const PROMPTS: PromptDef[] = [
     emoji: '👥',
     question: 'People & Training',
     cue: 'Who did you engage today? Tap below to log each person — an update, and a training if you ran one.',
-    footerHint: '📱 Tap "Log people & training" to open the app, then Submit to continue',
+    footerHint: '🎓 Tap "Log Engagement" below to log who you engaged — it saves on its own',
     bullets: [
       'A new store staff you got to know',
       'A training and how they responded',
@@ -163,25 +163,34 @@ function buildPromptKeyboard(
   return kb;
 }
 
-// ── Seamless engagement hand-off (people/training step) ─────────────────────
-// A reply-keyboard web_app button is the ONLY launch method from which the mini
-// app can call Telegram.WebApp.sendData() back to the bot. The CM logs people +
-// engagements in the app, taps Next/Skip, the app sendData()s, and the wait loop
-// below catches the web_app_data message and advances the flow — no manual
-// return to chat. Falls back to the inline deep-link button if MINIAPP_URL is
-// unset. The reply keyboard's Back is matched by exact label. No Skip button —
-// the CM advances by submitting in the app (even with no one logged).
-const ENGAGE_BACK_LABEL = '← Back';
-
+// ── Engagement step (people/training) ───────────────────────────────────────
+// Telegram only lets a Mini App signal the bot (WebApp.sendData) when it's
+// launched from a reply-keyboard button — never from an inline button. To keep
+// the button INSIDE the message, this step is non-blocking: the inline
+// "🎓 Log Engagement" web_app button opens the app, which saves via its own API
+// and closes itself, while the bot flows straight to the next Q. Nothing to wait
+// for, so no "Continue" tap. inline web_app buttons are private-chat only — the
+// visit flow always runs in the CM's DM, so that's fine.
 function engageWebAppUrl(visitId: string): string | null {
   if (!config.miniapp.url) return null;
   return `${config.miniapp.url.replace(/\/$/, '')}/m/visit/${visitId}/engage`;
 }
 
-function buildEngagementReplyKeyboard(url: string, showBack: boolean): Keyboard {
-  const kb = new Keyboard().webApp('📱 Log people & training', url);
-  if (showBack) kb.row().text(ENGAGE_BACK_LABEL);
-  return kb.resized();
+function buildEngagementInlineKeyboard(url: string, showBack: boolean, key: V2PromptKey): InlineKeyboard {
+  const kb = new InlineKeyboard().webApp('🎓 Log Engagement', url);
+  if (showBack) kb.row().text('← Back', `prompt:back:${key}`);
+  return kb;
+}
+
+// The non-blocking engagement step is "transparent" to back-nav: a ← Back from
+// any step (including the engagement message itself) rewinds to the nearest
+// preceding *blocking* prompt, skipping engagement. Returns -1 if none.
+function backTargetIndex(fromKey: V2PromptKey, engageEnabled: boolean): number {
+  const idx = PROMPTS.findIndex((p) => p.key === fromKey);
+  if (idx <= 0) return -1;
+  let t = idx - 1;
+  while (t >= 0 && engageEnabled && PROMPTS[t].showTrainingButton) t--;
+  return t;
 }
 
 // 5-per-page is the sweet spot for thumb-reachable buttons before pagination
@@ -626,6 +635,7 @@ export async function visitFlow(
   let hasNavigatedBack = false;
   let followUpsAdded = 0;
   let followUpsClosed = 0;
+  const engageUrl = engageWebAppUrl(createdVisitId);
 
   mainFlow: while (true) {
   while (i < PROMPTS.length) {
@@ -639,21 +649,27 @@ export async function visitFlow(
       continue;
     }
 
-    await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
+    // Engagement step is non-blocking: show the inline web_app button + Back and
+    // flow straight on. The app saves via its API and closes itself; Telegram
+    // can't signal the bot from an inline button, so there's nothing to wait for.
+    if (p.showTrainingButton && engageUrl) {
+      await ctx.reply(formatPrompt(i, p), {
+        parse_mode: 'Markdown',
+        reply_markup: buildEngagementInlineKeyboard(engageUrl, i > 0, p.key),
+      });
+      i++;
+      continue;
+    }
 
-    // People/training step uses the reply-keyboard web_app hand-off when the
-    // mini app URL is configured; everything else keeps the inline keyboard.
-    const engageUrl = p.showTrainingButton ? engageWebAppUrl(createdVisitId) : null;
-    const isEngagementStep = engageUrl !== null;
+    await conversation.external(() => setActiveSection(telegramId, sectionKeyForPrompt(p.key)));
     await ctx.reply(formatPrompt(i, p), {
       parse_mode: 'Markdown',
-      reply_markup: engageUrl
-        ? buildEngagementReplyKeyboard(engageUrl, i > 0)
-        : buildPromptKeyboard(createdVisitId, p, i > 0),
+      reply_markup: buildPromptKeyboard(createdVisitId, p, i > 0),
     });
 
     let resolved: 'text' | 'skip' | 'cancel' | 'back' = 'text';
     let textValue: string | null = null;
+    let backToIdx: number | null = null;
 
     promptWait: while (true) {
       const upd = await conversation.wait();
@@ -661,20 +677,6 @@ export async function visitFlow(
       if (upd.message?.text === '/cancel') {
         resolved = 'cancel';
         break;
-      }
-      // Hand-off: the mini app signalled (done or skip). Engagements are already
-      // saved via the API — the payload is just the advance signal.
-      if (upd.message?.web_app_data) {
-        resolved = 'skip';
-        break;
-      }
-      // Reply-keyboard Back on the engagement step arrives as plain text.
-      if (isEngagementStep) {
-        const label = upd.message?.text ?? null;
-        if (label === ENGAGE_BACK_LABEL) { resolved = 'back'; break; }
-        // App-only step: ignore stray text so nothing is saved as a legacy
-        // people_training note. (Photos still attach below.)
-        if (label) continue;
       }
       if (upd.message?.photo) {
         const arr = upd.message.photo;
@@ -685,9 +687,7 @@ export async function visitFlow(
         await conversation.external(() => {
           void handleIncomingPhoto(telegramId, fileId, mediaGroupId);
         });
-        // On the app-only engagement step, attach the photo but never treat its
-        // caption as the answer — engagements live in the mini app now.
-        const caption = isEngagementStep ? null : (upd.message.caption ?? null);
+        const caption = upd.message.caption ?? null;
         if (caption) {
           textValue = caption;
           resolved = 'text';
@@ -702,13 +702,19 @@ export async function visitFlow(
           resolved = 'skip';
           break promptWait;
         }
-        if (data === `prompt:back:${p.key}`) {
-          await upd.answerCallbackQuery('Going back').catch(() => {});
-          resolved = 'back';
-          break promptWait;
+        // Back can arrive from this step OR from the non-blocking engagement
+        // message above it — rewind to the nearest preceding blocking prompt.
+        if (data.startsWith('prompt:back:')) {
+          const fromKey = data.slice('prompt:back:'.length) as V2PromptKey;
+          const target = backTargetIndex(fromKey, engageUrl !== null);
+          if (target >= 0) {
+            await upd.answerCallbackQuery('Going back').catch(() => {});
+            backToIdx = target;
+            resolved = 'back';
+            break promptWait;
+          }
         }
-        // Other callbacks (e.g. Log Training URL button has no callback;
-        // viewlast/viewvisit handled at bot.ts level) — ignore politely.
+        // Other callbacks (viewlast/viewvisit handled at bot.ts level) — ignore.
         await upd.answerCallbackQuery().catch(() => {});
         continue;
       }
@@ -718,14 +724,6 @@ export async function visitFlow(
         resolved = 'text';
         break;
       }
-    }
-
-    // The engagement reply keyboard is persistent + message-independent — clear
-    // it before the next step's inline keyboard. (Cancel sends its own keyboard.)
-    if (isEngagementStep && resolved !== 'cancel') {
-      await ctx.reply(resolved === 'back' ? '↩️ Going back…' : '✓ Logged — continuing.', {
-        reply_markup: { remove_keyboard: true },
-      });
     }
 
     if (resolved === 'cancel') {
@@ -740,9 +738,11 @@ export async function visitFlow(
       return;
     }
     if (resolved === 'back') {
-      // Wipe the previous prompt's photos + answer, then rewind. Q1 hides the
-      // Back button (showBack = i > 0), so this branch can't fire when i = 0.
-      const target = PROMPTS[i - 1];
+      // Wipe the target prompt's photos + answer, then rewind to it. backToIdx
+      // skips the transparent engagement step; falls back to the previous prompt.
+      // Q1 hides Back (showBack = i > 0), so this can't rewind below 0.
+      const targetIdx = backToIdx ?? i - 1;
+      const target = PROMPTS[targetIdx];
       const targetSection = sectionKeyForPrompt(target.key);
       const removed = await conversation.external(() =>
         deletePhotosBySection(createdVisitId, targetSection),
@@ -753,7 +753,7 @@ export async function visitFlow(
       await conversation.external(() => persistVisitSection(createdVisitId, target.key, null));
       answers[target.key] = null;
       hasNavigatedBack = true;
-      i--;
+      i = targetIdx;
       continue;
     }
     if (resolved === 'skip') {

@@ -4,10 +4,11 @@ import { use, useEffect, useState } from "react";
 import { initTelegram } from "../../../telegram-init";
 import EngagementEditor, { type EngagedPersonRow } from "@/components/EngagementEditor";
 
-// Hand-off entry point. The bot's visit-flow opens this via a reply-keyboard
-// web_app button at the people/engagements step. The editor mounts straight away
-// in handoff mode; its Next/Skip call Telegram.WebApp.sendData(), which signals
-// the bot to advance the visit flow and auto-closes the app. See visit-flow.ts.
+// Hand-off entry point. The bot's visit-flow opens this via an inline web_app
+// button at the people/engagements step. The editor mounts straight away in
+// handoff mode; on Submit it saves via the API and closes the app. The visit
+// flow is non-blocking (it already moved on), so no signal back is needed —
+// inline-launched apps can't sendData() anyway. See visit-flow.ts.
 export default function EngageHandoffPage({
   params,
 }: {
