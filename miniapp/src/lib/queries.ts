@@ -1365,3 +1365,24 @@ export async function signPhotoUrls(
     .map((d: any) => d.signedUrl as string)
     .filter((u: string) => Boolean(u));
 }
+
+// ─── Managed product catalogue (sva.products, mig 019) ─────────────────────
+// Powers the EngagementEditor product picker. Display name = brand + ' ' + name
+// (matches the free-typed product strings 1:1), but we keep the id so a picked
+// training links back to the product row (denormalize-and-link).
+export interface ProductOption {
+  id: string;
+  brand: string;
+  name: string;
+}
+
+export async function getActiveProducts(): Promise<ProductOption[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, brand, name")
+    .eq("is_active", true)
+    .order("brand")
+    .order("name");
+  if (error || !data) return [];
+  return data as ProductOption[];
+}

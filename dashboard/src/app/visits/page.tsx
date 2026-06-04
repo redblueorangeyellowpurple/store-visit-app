@@ -828,7 +828,7 @@ function VisitCard({
 
               {showTrainings && (
                 <div className="visit-section-card">
-                  <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>🎓 Trainings Logged</div>
+                  <div className="visit-section-label" style={{ color: "var(--color-tier-t2-fg)" }}>🎓 Engagements</div>
                   <div className="sc-staff-list">
                     {v.trained_staff.map((ts, i) => (
                       <div key={i} className="sc-staff-row">

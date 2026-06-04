@@ -18,9 +18,17 @@ export interface EngagedPersonRow {
   trainings: EngagementTrainingRow[];
 }
 
-// Hard-coded catalogue for now (Wilson vets). The managed list lives in
-// sva.products + the dashboard CRUD; a miniapp products endpoint will replace
-// this constant later. Same names as the dashboard seed.
+// A product in the managed catalogue (sva.products via /api/m/products). id is
+// kept so a picked training links back to the product row; custom-typed products
+// pass a null id.
+export interface ProductOption {
+  id: string;
+  brand: string;
+  name: string;
+}
+
+// Offline fallback only — used if /api/m/products can't be reached. The live
+// list comes from sva.products + the dashboard CRUD. Same names as the seed.
 export const PRODUCT_CATALOGUE: Record<string, string[]> = {
   Marshall: [
     "Marshall Acton III",
@@ -70,6 +78,17 @@ export function parseProductsCsv(raw: string | null | undefined): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
+
+// Flatten the hard-coded catalogue into ProductOptions (id "" → unlinked) so the
+// picker can render it when the live fetch fails.
+const FALLBACK_PRODUCTS: ProductOption[] = Object.entries(PRODUCT_CATALOGUE).flatMap(
+  ([brand, items]) =>
+    items.map((display) => ({
+      id: "",
+      brand,
+      name: display.startsWith(brand) ? display.slice(brand.length).trim() : display,
+    })),
+);
 
 interface StoreStaff { id: string; name: string }
 
@@ -140,17 +159,27 @@ function AutoTextarea({
 // ─── Single-select product picker ──────────────────────────────────────────
 function ProductPickerModal({
   personName,
+  products,
   onClose,
   onPick,
 }: {
   personName: string;
+  products: ProductOption[];
   onClose: () => void;
-  onPick: (product: string) => void;
+  onPick: (pick: { product_id: string | null; product_name: string }) => void;
 }) {
   const [search, setSearch] = useState("");
   const searchLc = search.trim().toLowerCase();
-  const hasExactMatch = Object.values(PRODUCT_CATALOGUE).some((items) =>
-    items.some((p) => p.toLowerCase() === searchLc),
+
+  // Group by brand; display name = brand + ' ' + name (matches stored strings).
+  const byBrand = new Map<string, { id: string; display: string }[]>();
+  for (const p of products) {
+    const arr = byBrand.get(p.brand) ?? [];
+    arr.push({ id: p.id, display: `${p.brand} ${p.name}` });
+    byBrand.set(p.brand, arr);
+  }
+  const hasExactMatch = products.some(
+    (p) => `${p.brand} ${p.name}`.toLowerCase() === searchLc,
   );
 
   return (
@@ -177,7 +206,7 @@ function ProductPickerModal({
           onKeyDown={(e) => {
             if (e.key === "Enter" && search.trim()) {
               e.preventDefault();
-              onPick(search.trim());
+              onPick({ product_id: null, product_name: search.trim() });
             }
           }}
           placeholder="Search or type a custom product…"
@@ -186,8 +215,8 @@ function ProductPickerModal({
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4">
-        {Object.entries(PRODUCT_CATALOGUE).map(([brand, items]) => {
-          const matches = items.filter((p) => !searchLc || p.toLowerCase().includes(searchLc));
+        {[...byBrand.entries()].map(([brand, items]) => {
+          const matches = items.filter((p) => !searchLc || p.display.toLowerCase().includes(searchLc));
           if (matches.length === 0) return null;
           return (
             <div key={brand} className="mb-1">
@@ -196,12 +225,12 @@ function ProductPickerModal({
               </div>
               {matches.map((p) => (
                 <button
-                  key={p}
+                  key={p.id || p.display}
                   type="button"
-                  onClick={() => onPick(p)}
+                  onClick={() => onPick({ product_id: p.id || null, product_name: p.display })}
                   className="w-full text-left rounded-lg px-3 py-2.5 text-[15px] text-ink-700"
                 >
-                  {p}
+                  {p.display}
                 </button>
               ))}
             </div>
@@ -210,7 +239,7 @@ function ProductPickerModal({
         {searchLc && !hasExactMatch && (
           <button
             type="button"
-            onClick={() => onPick(search.trim())}
+            onClick={() => onPick({ product_id: null, product_name: search.trim() })}
             className="w-full text-left rounded-lg px-3 py-2.5 text-[14px] mt-2 border-t border-ink-100 text-ink-500"
           >
             + Add &ldquo;<span className="font-bold text-ink-700">{search}</span>&rdquo; as custom product
@@ -246,6 +275,7 @@ export default function EngagementEditor({
 }: Props) {
   const [drafts, setDrafts] = useState<PersonDraft[]>([]);
   const [storeStaff, setStoreStaff] = useState<StoreStaff[] | null>(null);
+  const [catalogue, setCatalogue] = useState<ProductOption[]>([]);
   const [pickerForKey, setPickerForKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -274,6 +304,13 @@ export default function EngagementEditor({
       .then((r) => r.json())
       .then((j) => setStoreStaff(j.staff ?? []))
       .catch(() => setStoreStaff([]));
+
+    // Managed product catalogue for the training picker (mig 019). Falls back to
+    // the hard-coded list if the endpoint can't be reached.
+    fetch(`/api/m/products`, { headers: { Authorization: `tma ${initData}` } })
+      .then((r) => r.json())
+      .then((j) => setCatalogue(j.products ?? []))
+      .catch(() => setCatalogue([]));
   }, [open, visitId, initData, people]);
 
   function patchPerson(key: string, patch: Partial<PersonDraft>) {
@@ -297,7 +334,7 @@ export default function EngagementEditor({
     setDrafts((curr) => curr.filter((p) => p.key !== key));
   }
 
-  function addTraining(personKey: string, product: string) {
+  function addTraining(personKey: string, pick: { product_id: string | null; product_name: string }) {
     setDrafts((curr) =>
       curr.map((p) =>
         p.key === personKey
@@ -305,7 +342,7 @@ export default function EngagementEditor({
               ...p,
               trainings: [
                 ...p.trainings,
-                { key: nextKey(), product_id: null, product_name: product, response: "" },
+                { key: nextKey(), product_id: pick.product_id, product_name: pick.product_name, response: "" },
               ],
             }
           : p,
@@ -539,9 +576,10 @@ export default function EngagementEditor({
       {pickerForKey && (
         <ProductPickerModal
           personName={drafts.find((d) => d.key === pickerForKey)?.name ?? ""}
+          products={catalogue.length > 0 ? catalogue : FALLBACK_PRODUCTS}
           onClose={() => setPickerForKey(null)}
-          onPick={(product) => {
-            addTraining(pickerForKey, product);
+          onPick={(pick) => {
+            addTraining(pickerForKey, pick);
             setPickerForKey(null);
           }}
         />
