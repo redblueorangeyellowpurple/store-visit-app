@@ -249,10 +249,11 @@ export default function VisitsPage() {
   }
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a));
 
-  // Expand-all / collapse-all across the currently-filtered feed
-  const allExpanded = filtered.length > 0 && filtered.every(v => expandedVisits.has(v.id));
-  function toggleExpandAll() {
-    setExpandedVisits(allExpanded ? new Set() : new Set(filtered.map(v => v.id)));
+  // "All" chip = clear section focus + toggle expand/collapse across every visit
+  const allExpanded = photoFiltered.length > 0 && photoFiltered.every(v => expandedVisits.has(v.id));
+  function handleAllClick() {
+    setFocusSections(new Set());
+    setExpandedVisits(allExpanded ? new Set() : new Set(photoFiltered.map(v => v.id)));
   }
 
   function toggleMarket(m: string) {
@@ -569,8 +570,9 @@ export default function VisitsPage() {
             <div className="section-chips">
               <button
                 className={`section-chip${focusSections.size === 0 ? " active" : ""}`}
-                onClick={() => setFocusSections(new Set())}
-              >All</button>
+                onClick={handleAllClick}
+                title={allExpanded ? "Collapse all visits" : "Show all · expand every visit"}
+              >All <span style={{ fontSize: 11, opacity: 0.55 }}>{allExpanded ? "▾" : "▸"}</span></button>
               <button
                 className={`photo-toggle-btn${filterPhotos ? " on" : ""}`}
                 onClick={() => setFilterPhotos(p => !p)}
@@ -587,15 +589,6 @@ export default function VisitsPage() {
                   onClick={() => handleSectionChipClick(s.key)}
                 >{s.icon} {s.label}</button>
               ))}
-              <button
-                className="section-chip"
-                style={allExpanded
-                  ? { marginLeft: "auto" }
-                  : { marginLeft: "auto", background: "linear-gradient(135deg, var(--color-tc-600), var(--color-tc-500))", color: "#fff", borderColor: "transparent", fontWeight: 700 }}
-                onClick={toggleExpandAll}
-                disabled={filtered.length === 0}
-                title={allExpanded ? "Collapse all visits" : "Expand all visits"}
-              >{allExpanded ? "Collapse all" : "Expand all"}</button>
             </div>
           </div>
 
