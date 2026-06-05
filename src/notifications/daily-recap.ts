@@ -188,6 +188,32 @@ export async function sendDailyRecaps(
   return { recipients: recipients.length, sent, failed, skippedEmpty };
 }
 
+export interface RecapPreview {
+  willReceive: string[]; // CM display names whose recap is non-empty (will be sent)
+  recipients: number;    // total opted-in recipients considered
+  skippedEmpty: number;  // recipients whose day was empty (skipped)
+}
+
+// Dry-run the recap send for the morning preview: which opted-in CMs WILL get a
+// daily brief at 09:00. Mirrors sendDailyRecaps' recipient + empty-skip logic
+// exactly (same queries, same isRecapEmpty) so the 08:00 preview matches the
+// 09:00 send. Ignores the master switch — a preview should show what's queued
+// even while the switch is being decided.
+export async function previewRecapRecipients(date: string): Promise<RecapPreview> {
+  const recipients = await getRecapRecipients();
+  const willReceive: string[] = [];
+  let skippedEmpty = 0;
+  for (const r of recipients) {
+    const data = await getCMDailyRecap(r.telegram_id, date);
+    if (!data || isRecapEmpty(data)) {
+      skippedEmpty++;
+      continue;
+    }
+    willReceive.push(r.nickname || r.full_name);
+  }
+  return { willReceive, recipients: recipients.length, skippedEmpty };
+}
+
 // Build + DM a single recap, bypassing the master switch and recipient flag.
 // Used by /testrecap and the dashboard "Send test" button. The recap is BUILT
 // from dataForTelegramId's visits (defaults to the recipient) but always SENT to

@@ -18,6 +18,7 @@ import { handleRunIntelligence } from './commands/admin/runintelligence.js';
 import { handleStopIntelligence } from './commands/admin/stopintelligence.js';
 import { handleResumeIntelligence } from './commands/admin/resumeintelligence.js';
 import { handleTestRecap } from './commands/admin/testrecap.js';
+import { handleMorningPreview, handleMorningSend } from './commands/admin/morning.js';
 import { handleDashboard } from './commands/dashboard.js';
 import { visitFlow } from './conversations/visit-flow.js';
 import { joinRequestFlow } from './conversations/join-request.js';
@@ -534,6 +535,8 @@ export function createBot(): Bot<BotContext> {
   bot.command('stopintelligence', handleStopIntelligence);
   bot.command('resumeintelligence', handleResumeIntelligence);
   bot.command('testrecap', handleTestRecap);
+  bot.command('morningpreview', handleMorningPreview);
+  bot.command('morningsend', handleMorningSend);
 
   bot.catch((err) => {
     const ctx = err.ctx;

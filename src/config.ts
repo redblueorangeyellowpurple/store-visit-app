@@ -44,4 +44,9 @@ export const config = {
     // Falls back to BROADCAST_CHAT_ID if not set.
     chatId: optional('JOIN_REQUEST_CHAT_ID') || optional('BROADCAST_CHAT_ID'),
   },
+  admin: {
+    // Telegram chat that receives the 08:00 morning preview + 09:00 send summary
+    // (Wilson, 806982232). If unset, those admin DMs are skipped.
+    chatId: optional('ADMIN_TELEGRAM_ID'),
+  },
 } as const;

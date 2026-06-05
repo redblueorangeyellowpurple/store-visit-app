@@ -3,14 +3,15 @@ import { webhookCallback } from 'grammy';
 import { config } from './config.js';
 import { createBot } from './bot/bot.js';
 import { getJoinRequestAdmins, listAlertGroups } from './db/queries/alert-groups.js';
-import { registerRecapCron } from './cron/recap-cron.js';
+import { registerMorningCrons } from './cron/morning-cron.js';
 
 const bot = createBot();
-// Daily per-CM recap scheduler. No-op unless RECAP_CRON_ENABLED=true; even when
-// scheduled, it sends nothing until the dashboard master switch is on with
-// recipients chosen. createBot() has already run initPhotoCollection(bot.api),
-// so the bot.api singleton the cron sends through is ready.
-registerRecapCron();
+// Morning pipeline scheduler: 08:00 SGT preview to Wilson, 09:00 SGT team send
+// (intelligence broadcast + per-CM recaps). No-op unless MORNING_CRON_ENABLED=true;
+// the 9am recaps still honour the daily_recaps_enabled master switch. createBot()
+// has already run initPhotoCollection(bot.api), so the bot.api singleton the cron
+// sends through is ready. Supersedes the old registerRecapCron (cron/recap-cron.ts).
+registerMorningCrons();
 const app = express();
 
 async function startupHealthCheck(): Promise<void> {

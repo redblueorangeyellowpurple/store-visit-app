@@ -19,6 +19,8 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
       `/runintelligence — generate today's daily brief (or for a past date)\n` +
       `/stopintelligence — 🛑 kill switch: pause all intelligence (cron + manual). Add a reason after the command.\n` +
       `/resumeintelligence — re-enable intelligence after a pause\n` +
+      `/morningpreview — preview the morning brief + daily-brief recipient list (DMs only you)\n` +
+      `/morningsend — 📢 manually fire the 9am team send now (needs \`confirm\`)\n` +
       `_(per-market alert groups are configured in the dashboard Admin tab)_\n`
     : '';
 

@@ -56,14 +56,22 @@ export async function broadcastIntelligenceBrief(
 
   const bot = new Bot(config.telegram.botToken);
 
-  // Build inline keyboard if we have a dashboard URL; otherwise plain message.
+  // Inline buttons mirror what the 7am markdown routine used to attach: a
+  // dashboard link (desktop web view) + an "Open in App" mini-app deep-link
+  // (m/intel via startapp=intel). Each is added only if its base is configured.
   const dashboardBase = config.dashboard.url;
-  const keyboard = dashboardBase
-    ? new InlineKeyboard().url(
-        '📊 View full brief',
-        `${dashboardBase.replace(/\/+$/, '')}/intelligence`,
-      )
-    : undefined;
+  const { botUsername } = config.broadcast;
+  const miniappShort = config.miniapp.shortName;
+  let keyboard: InlineKeyboard | undefined;
+  if (dashboardBase || botUsername) {
+    keyboard = new InlineKeyboard();
+    if (dashboardBase) {
+      keyboard.url('📊 Dashboard', `${dashboardBase.replace(/\/+$/, '')}/intelligence`);
+    }
+    if (botUsername) {
+      keyboard.url('📱 Open in App', `https://t.me/${botUsername}/${miniappShort}?startapp=intel`);
+    }
+  }
 
   let sent = 0;
   const failed: { telegram_id: number; error: string }[] = [];

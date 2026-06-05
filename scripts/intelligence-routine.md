@@ -1,20 +1,20 @@
 # SVA Daily Intelligence — Claude Code Routine
 
 You are a scheduled Claude Code routine, run **headless on the Max plan** (no API key).
-Goal: produce the SVA daily **Store Visit Report**, update the memory layer, broadcast to recipients.
+Goal: produce the SVA daily **Store Visit Report** and update the memory layer. You do NOT broadcast to the team — you persist the report (with its `telegram_summary`); the always-on bot broadcasts it at 09:00 SGT, after Wilson has had an 08:00 preview.
 Self-contained — execute end to end, no human in the loop.
 
 ---
 
 ## Invocation
 
-- **Cron (no args):** `REPORT_DATE` = yesterday SGT. Broadcast ON.
+- **Cron (no args):** `REPORT_DATE` = yesterday SGT.
 - **Manual args** (parse from the prompt that invoked you):
   - a date `YYYY-MM-DD` → use as `REPORT_DATE` (else yesterday SGT)
   - `force` → skip the "report already exists" idempotency check
-  - `nobroadcast` → skip Step 6 (use for **backfills** so the team isn't spammed)
+  - `nobroadcast` → accepted but now a no-op: this routine never broadcasts. Team delivery is the bot's 09:00 send of yesterday's report. (Backfills are therefore never spammed.)
 
-If unclear: yesterday, no force, broadcast on.
+If unclear: yesterday, no force.
 
 ---
 
@@ -41,7 +41,7 @@ ORDER BY d;
 - No rows → heartbeat `no visits ≤ <REPORT_DATE>` (Step 7) and exit.
 - Otherwise process each date **in ascending order** through Steps 2–5 (one report per date).
 - Unless `force`, skip a date that already has a report: `SELECT 1 FROM sva.intelligence_reports WHERE report_date='<D>'`.
-- **Only the `REPORT_DATE` report broadcasts** (Step 6); earlier catch-up dates write silently.
+- All dates write silently here. The bot broadcasts only the most recent (`REPORT_DATE` = yesterday) report at 09:00 SGT; catch-up dates are never team-broadcast.
 
 ---
 
@@ -149,7 +149,8 @@ Executed: <N> Visits (<pct>%)
 
 ### D) `edges` — `{from_slug, to_slug, edge_type}`, type ∈ `store_theme | person_store | person_theme | theme_theme`. Dedupe (ON CONFLICT).
 
-### E) `stats` — `{executed, engagements, planned, notes_touched, new_notes}`.
+### E) `stats` — `{executed, engagements, planned, notes_touched, new_notes, telegram_summary}`.
+- `telegram_summary` = the **exact HTML string from (B)**, stored verbatim as a JSON string value. The bot reads `stats.telegram_summary` to broadcast the brief at 09:00 SGT — if it is missing or empty, nothing is broadcast to the team. So this field is required on the `REPORT_DATE` report.
 
 ---
 
@@ -197,28 +198,13 @@ On any error, log it verbatim and skip Step 6 for this date (transaction auto-ro
 
 ---
 
-## Step 6 — Broadcast (REPORT_DATE only · skip entirely if `nobroadcast`)
+## Step 6 — Hand off to the bot (no team broadcast here)
 
-Recipients:
-```sql
-SELECT telegram_id AS chat_id FROM sva.cms WHERE is_intelligence_recipient AND is_active
-UNION
-SELECT chat_id FROM sva.alert_groups WHERE intelligence_mode IN ('group','both') AND chat_id IS NOT NULL;
-```
-For each (dedupe), shell out:
-```bash
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-  -H "Content-Type: application/json" \
-  -d '{"chat_id": <chat>, "text": <telegram_summary>, "parse_mode": "HTML",
-       "link_preview_options": {"is_disabled": true},
-       "reply_markup": {"inline_keyboard": [[
-         {"text": "📊 Dashboard", "url": "<DASHBOARD_URL>/intelligence"},
-         {"text": "📱 Open in App", "url": "<MINIAPP_DEEPLINK>?startapp=intel"}
-       ]]}}'
-```
-> Button labels are intentionally editable here. "Dashboard" opens the desktop web view; "Open in App" deep-links into the mini app intelligence view (`m/intel`) via the `startapp=intel` param.
+This routine does **not** message the team. The report you wrote in Step 4 carries `telegram_summary` inside `stats`; the always-on bot owns delivery:
+- **08:00 SGT** — the bot DMs Wilson a preview (this brief + which CMs get a daily brief).
+- **09:00 SGT** — the bot broadcasts the brief to `is_intelligence_recipient` people + `intelligence_mode in ('group','both')` group chats (the recipient resolution + inline buttons live in the bot's `broadcastIntelligenceBrief`).
 
-If catch-up dates were also processed, prepend one line to the broadcast: `(also caught up: <dates>)`.
+So there is nothing to send in this step. Just make sure Step 4 persisted a non-empty `stats.telegram_summary` for `REPORT_DATE`. Catch-up dates are intentionally never team-broadcast.
 
 ---
 
@@ -226,10 +212,10 @@ If catch-up dates were also processed, prepend one line to the broadcast: `(also
 
 DM `HEARTBEAT_CHAT_ID` one line, success or failure. This is separate from the content pipeline on purpose.
 ```
-[sva-intel] <REPORT_DATE> · <N> visits · <notes> notes · sent <x>/<y> · catch-up: <dates|none>
+[sva-intel] <REPORT_DATE> · <N> visits · <notes> notes · report written · catch-up: <dates|none>
 ```
 On any abort/error, DM the reason instead (e.g. `[sva-intel] ABORT <REPORT_DATE>: <why>`). Then exit. Do not loop or retry.
 
 ---
 
-_Kill switch: there is no DB kill switch. To stop intelligence, disable the LaunchAgent (`launchctl unload ~/Library/LaunchAgents/com.wilson.sva-intelligence.plist`)._
+_Kill switch: to stop the whole pipeline at the source, disable the LaunchAgent (`launchctl unload ~/Library/LaunchAgents/com.wilson.sva-intelligence.plist`) — no report means the bot has nothing to broadcast at 09:00. After the 08:00 preview you can also kill just that morning's send: a no-report state, or flipping `daily_recaps_enabled` off, stops the respective half. There is no DB kill switch inside this routine itself._
