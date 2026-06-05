@@ -165,7 +165,7 @@ export default function IntelPage() {
   );
 
   const onNav = (kind: "store" | "visit", id: string) =>
-    router.push(kind === "visit" ? `/m/visit/${id}` : `/m/store/${id}`);
+    router.push(kind === "visit" ? `/m/visit/${id}?from=intel` : `/m/store/${id}`);
   const bullets = (body: string) => body.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
 
   // ── Date navigation (arrows · dropdown · swipe) ─────────────────────────────

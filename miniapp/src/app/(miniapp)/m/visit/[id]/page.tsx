@@ -162,10 +162,13 @@ function fmtDate(dateStr: string): string {
 
 export default function VisitPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = use(params);
+  const fromIntel = use(searchParams).from === "intel";
   const router = useRouter();
   const [data, setData] = useState<VisitPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -367,12 +370,21 @@ export default function VisitPage({
     <main className="min-h-screen pb-12">
       {/* Header */}
       <header className="bg-white border-b border-ink-100 px-4 pt-4 pb-4">
-        <Link
-          href={`/m/store/${visit.store_id}`}
-          className="text-xs text-ink-300 font-medium flex items-center gap-1 mb-3"
-        >
-          ‹ {visit.store_name}
-        </Link>
+        {fromIntel ? (
+          <button
+            onClick={() => router.back()}
+            className="text-xs text-ink-300 font-medium flex items-center gap-1 mb-3"
+          >
+            ‹ Daily Brief
+          </button>
+        ) : (
+          <Link
+            href={`/m/store/${visit.store_id}`}
+            className="text-xs text-ink-300 font-medium flex items-center gap-1 mb-3"
+          >
+            ‹ {visit.store_name}
+          </Link>
+        )}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-extrabold text-ink-700 leading-tight">
