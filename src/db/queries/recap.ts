@@ -18,7 +18,19 @@ export interface RecapData {
   walkIns: string[];         // visited but not in the plan
   openFollowUps: { title: string; store: string; due: string | null; overdue: boolean }[];
   followUpOpenTotal: number;
+  // Locked visits with AM review feedback the CM hasn't marked seen yet (any
+  // recent date, not just yesterday) — a standing nudge until acknowledged.
+  pendingFeedback: { store: string; visitId: string; fixes: number; comments: number }[];
 }
+
+// Calendar-date math on 'YYYY-MM-DD' (timezone-independent).
+function addDaysISO(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+// How far back to look for unacknowledged feedback. Older than this is stale.
+const FEEDBACK_WINDOW_DAYS = 30;
 
 // CMs who have opted in to the daily recap (dashboard Admin tab).
 export async function getRecapRecipients(): Promise<RecapRecipient[]> {
@@ -49,8 +61,10 @@ export async function getCMDailyRecap(
   const start = `${date}T00:00:00+08:00`;
   const end = `${date}T23:59:59.999+08:00`;
 
-  // 1. Visits locked on the date + 2. plans for the date + 4. open follow-ups.
-  const [visitsRes, plansRes, fuRes] = await Promise.all([
+  // 1. Visits locked on the date + 2. plans for the date + 4. open follow-ups +
+  // 5. recent visits with unacknowledged AM feedback.
+  const feedbackCutoff = `${addDaysISO(date, -FEEDBACK_WINDOW_DAYS)}T00:00:00+08:00`;
+  const [visitsRes, plansRes, fuRes, unackedRes] = await Promise.all([
     supabase
       .from('visits')
       .select('id, store_id')
@@ -69,6 +83,13 @@ export async function getCMDailyRecap(
       .eq('cm_telegram_id', telegramId)
       .eq('status', 'open')
       .order('due_date', { ascending: true, nullsFirst: false }),
+    supabase
+      .from('visits')
+      .select('id, store_id')
+      .eq('cm_telegram_id', telegramId)
+      .eq('is_locked', true)
+      .is('review_ack_at', null)
+      .gte('locked_at', feedbackCutoff),
   ]);
 
   if (visitsRes.error) {
@@ -79,10 +100,11 @@ export async function getCMDailyRecap(
   const visits = (visitsRes.data ?? []) as { id: string; store_id: string }[];
   const plans = (plansRes.data ?? []) as { store_id: string }[];
   const fus = (fuRes.data ?? []) as { title: string; due_date: string | null; store_id: string }[];
+  const unackedVisits = (unackedRes.data ?? []) as { id: string; store_id: string }[];
 
   // 3. Resolve store names once for every store id we touch.
   const storeIds = Array.from(
-    new Set([...visits, ...plans, ...fus].map((r) => r.store_id).filter(Boolean)),
+    new Set([...visits, ...plans, ...fus, ...unackedVisits].map((r) => r.store_id).filter(Boolean)),
   );
   const storeMap = new Map<string, { name: string | null; chain: string | null }>();
   if (storeIds.length > 0) {
@@ -109,10 +131,49 @@ export async function getCMDailyRecap(
     trainedCount = rows.filter((r) => r.was_trained).length;
   }
 
+  const label = (id: string) => storeLabel(storeMap.get(id));
+
+  // Pending AM feedback: for the recent unacked visits, count boxed fixes +
+  // comments per visit (via their photos). Only visits that actually carry
+  // feedback make the list.
+  const pendingFeedback: RecapData['pendingFeedback'] = [];
+  if (unackedVisits.length > 0) {
+    const uvIds = unackedVisits.map((v) => v.id);
+    const { data: photoRows } = await supabase
+      .from('visit_photos')
+      .select('id, visit_id')
+      .in('visit_id', uvIds);
+    const photos = (photoRows ?? []) as { id: string; visit_id: string }[];
+    if (photos.length > 0) {
+      const photoIds = photos.map((p) => p.id);
+      const photoToVisit = new Map(photos.map((p) => [p.id, p.visit_id]));
+      const [annRes, cmtRes] = await Promise.all([
+        supabase.from('photo_annotations').select('photo_id').in('photo_id', photoIds),
+        supabase.from('photo_comments').select('photo_id').in('photo_id', photoIds),
+      ]);
+      const fixByVisit = new Map<string, number>();
+      const cmtByVisit = new Map<string, number>();
+      for (const r of (annRes.data ?? []) as { photo_id: string }[]) {
+        const vid = photoToVisit.get(r.photo_id);
+        if (vid) fixByVisit.set(vid, (fixByVisit.get(vid) ?? 0) + 1);
+      }
+      for (const r of (cmtRes.data ?? []) as { photo_id: string }[]) {
+        const vid = photoToVisit.get(r.photo_id);
+        if (vid) cmtByVisit.set(vid, (cmtByVisit.get(vid) ?? 0) + 1);
+      }
+      for (const v of unackedVisits) {
+        const fixes = fixByVisit.get(v.id) ?? 0;
+        const comments = cmtByVisit.get(v.id) ?? 0;
+        if (fixes + comments > 0) {
+          pendingFeedback.push({ store: label(v.store_id), visitId: v.id, fixes, comments });
+        }
+      }
+    }
+  }
+
   // Planned-vs-executed: compare the set of stores visited against the planned set.
   const visitedStoreIds = new Set(visits.map((v) => v.store_id));
   const plannedStoreIds = new Set(plans.map((p) => p.store_id));
-  const label = (id: string) => storeLabel(storeMap.get(id));
 
   const visitedStores = [...visitedStoreIds].map(label);
   const plannedExecuted = [...plannedStoreIds].filter((id) => visitedStoreIds.has(id)).map(label);
@@ -136,5 +197,6 @@ export async function getCMDailyRecap(
     walkIns,
     openFollowUps,
     followUpOpenTotal: fus.length,
+    pendingFeedback,
   };
 }

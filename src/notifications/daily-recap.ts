@@ -1,4 +1,5 @@
-import { Api } from 'grammy';
+import { Api, InlineKeyboard } from 'grammy';
+import { config } from '../config.js';
 import { getSetting } from '../db/queries/settings.js';
 import { getRecapRecipients, getCMDailyRecap, type RecapData } from '../db/queries/recap.js';
 
@@ -43,7 +44,35 @@ const FU_LIMIT = 5; // show at most this many follow-ups inline, then "+N more"
 // True when there's genuinely nothing worth sending — no visits, no missed
 // plans, no open follow-ups. We skip these so a quiet day isn't a nag.
 export function isRecapEmpty(d: RecapData): boolean {
-  return d.visitedStores.length === 0 && d.plannedMissed.length === 0 && d.followUpOpenTotal === 0;
+  return (
+    d.visitedStores.length === 0 &&
+    d.plannedMissed.length === 0 &&
+    d.followUpOpenTotal === 0 &&
+    d.pendingFeedback.length === 0
+  );
+}
+
+const FB_LIMIT = 5; // show at most this many feedback visits inline, then "+N more"
+
+function feedbackBits(f: RecapData['pendingFeedback'][number]): string {
+  return [
+    f.fixes > 0 ? `${f.fixes} fix${f.fixes !== 1 ? 'es' : ''}` : null,
+    f.comments > 0 ? `${f.comments} comment${f.comments !== 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+// Inline "open the viewer" buttons for each pending-feedback visit. We use
+// buttons (not a Markdown text link) because the mini-app deep-link URL carries
+// underscores (startapp=visit_…) that legacy Markdown can mis-parse — the same
+// reason every other mini-app link in this codebase is a kb.url button.
+export function buildRecapKeyboard(d: RecapData): InlineKeyboard | undefined {
+  if (d.pendingFeedback.length === 0 || !config.broadcast.botUsername) return undefined;
+  const kb = new InlineKeyboard();
+  for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
+    const url = `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}?startapp=visit_${f.visitId}`;
+    kb.url(`⬚ ${f.store}`, url).row();
+  }
+  return kb;
 }
 
 export function buildRecapMessage(name: string, date: string, d: RecapData): string {
@@ -86,6 +115,18 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
       lines.push(`• ${escapeMd(f.title)} · ${escapeMd(f.store)}${dueLabel(f.due, todayISO)}`);
     }
     if (d.followUpOpenTotal > FU_LIMIT) lines.push(`_+${d.followUpOpenTotal - FU_LIMIT} more_`);
+  }
+
+  // AM feedback to review — boxed fixes + comments left on your visits. The
+  // tap-through buttons are attached via buildRecapKeyboard at send time.
+  if (d.pendingFeedback.length > 0) {
+    lines.push('');
+    lines.push(`⬚ *Feedback to review: ${d.pendingFeedback.length}*`);
+    for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
+      lines.push(`• ${escapeMd(f.store)} — ${feedbackBits(f)}`);
+    }
+    if (d.pendingFeedback.length > FB_LIMIT) lines.push(`_+${d.pendingFeedback.length - FB_LIMIT} more_`);
+    lines.push('_Tap a store below to see what to fix._');
   }
 
   lines.push('');
@@ -132,7 +173,10 @@ export async function sendDailyRecaps(
     }
     const name = r.nickname || r.full_name;
     try {
-      await botApi.sendMessage(r.telegram_id, buildRecapMessage(name, date, data), { parse_mode: 'Markdown' });
+      await botApi.sendMessage(r.telegram_id, buildRecapMessage(name, date, data), {
+        parse_mode: 'Markdown',
+        reply_markup: buildRecapKeyboard(data),
+      });
       sent++;
     } catch (err) {
       failed++;
@@ -161,7 +205,10 @@ export async function sendTestRecap(
   const empty = isRecapEmpty(data);
   const msg = '🧪 *Test recap* — only you can see this.\n\n' + buildRecapMessage(name, date, data);
   try {
-    await botApi.sendMessage(sendToTelegramId, msg, { parse_mode: 'Markdown' });
+    await botApi.sendMessage(sendToTelegramId, msg, {
+      parse_mode: 'Markdown',
+      reply_markup: buildRecapKeyboard(data),
+    });
     return { ok: true, empty };
   } catch (err) {
     console.error('[recap] test send failed:', err instanceof Error ? err.message : err);
