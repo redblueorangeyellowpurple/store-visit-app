@@ -625,7 +625,7 @@ export default function AdminPage() {
                       <span title="Telegram DM when a new join request arrives">Join req DM</span>
                     </th>
                     <th>
-                      <span title="Receives the daily 8am recap of their own visits">Recap</span>
+                      <span title="Receives the daily 9am recap of their own visits">Recap</span>
                     </th>
                     <th></th>
                   </tr>
@@ -731,7 +731,7 @@ export default function AdminPage() {
         <p className="admin-footnote">
           <strong>Intel brief</strong> = receives the daily intelligence digest via Telegram DM.
           <strong> Join req DM</strong> = receives a Telegram DM when a new join request arrives.
-          <strong> Recap</strong> = receives the daily 8am recap of their own visits (only sends when the master switch below is on).
+          <strong> Recap</strong> = receives the daily 9am recap of their own visits (only sends when the master switch below is on).
           These are intentionally separate from the role above — admins manage who-can-edit,
           these toggles control who-gets-notified.
         </p>
@@ -753,7 +753,7 @@ export default function AdminPage() {
               <span className="admin-switch-slider" />
             </label>
             <div style={{ flex: 1, minWidth: 220, fontSize: 13, color: "var(--color-ink-500)" }}>
-              <strong>{recapEnabled ? "On" : "Off"}</strong> — master switch for the 8am daily recap.{" "}
+              <strong>{recapEnabled ? "On" : "Off"}</strong> — master switch for the 9am daily recap.{" "}
               {recapEnabled
                 ? "CMs ticked in the Recap column above get it each morning."
                 : "Nobody receives a recap while this is off."}

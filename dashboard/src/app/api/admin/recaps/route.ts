@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getRecapsEnabled, setRecapsEnabled } from "@/lib/queries";
 
 // Master on/off for the daily CM recap (sva.settings 'daily_recaps_enabled').
-// This is the runtime kill switch; the 8am cron checks it before sending.
+// This is the runtime kill switch; the 9am morning send checks it before sending.
 export async function GET(req: NextRequest) {
   if (!requireAdmin(req)) return Response.json({ error: "Not authorised" }, { status: 403 });
   const enabled = await getRecapsEnabled();

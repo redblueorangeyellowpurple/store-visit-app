@@ -10,7 +10,8 @@ const bot = createBot();
 // (intelligence broadcast + per-CM recaps). No-op unless MORNING_CRON_ENABLED=true;
 // the 9am recaps still honour the daily_recaps_enabled master switch. createBot()
 // has already run initPhotoCollection(bot.api), so the bot.api singleton the cron
-// sends through is ready. Supersedes the old registerRecapCron (cron/recap-cron.ts).
+// sends through is ready. Replaces the former standalone recap cron — the 9am
+// send now handles the recaps.
 registerMorningCrons();
 const app = express();
 
