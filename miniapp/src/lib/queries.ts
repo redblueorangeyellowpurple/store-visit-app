@@ -1135,18 +1135,100 @@ export async function setVisitEngagements(
 
   if (people.length === 0) return true;
 
+  // Every engaged person becomes a store staff record, so they're clickable in
+  // the dashboard, appear in the /staff roster, and accumulate history. Resolve
+  // each free-typed name to an existing store staff (case-insensitive) or create
+  // one. Falls back to a legacy person_name row only if the store can't resolve.
+  const storeId = await getStoreIdForVisit(visitId);
+  const nameToId = new Map<string, string>();
+  if (storeId) {
+    const { data: staffRows } = await supabase
+      .from("staff")
+      .select("id, name")
+      .eq("store_id", storeId);
+    for (const s of (staffRows ?? []) as { id: string; name: string }[]) {
+      nameToId.set(s.name.trim().toLowerCase(), s.id);
+    }
+  }
+
+  // Resolve + merge: people who collapse to the same staff member (same name
+  // typed twice, or a free-typed name matching a roster pick) are combined so the
+  // (visit_id, staff_id) unique index can't throw on re-insert.
+  interface MergedPerson {
+    staff_id: string | null;
+    person_name: string | null; // set only when we couldn't resolve to a staff record
+    update_text: string | null;
+    trainings: EngagementPersonInput["trainings"];
+  }
+  const byKey = new Map<string, MergedPerson>();
+  const order: string[] = [];
+
   for (const p of people) {
-    const productCsv = p.trainings.map((t) => t.product_name).filter(Boolean).join(", ");
+    let staffId = p.staff_id ?? null;
+    let personName: string | null = null;
+
+    if (!staffId) {
+      const nm = (p.person_name ?? "").trim();
+      if (!nm) continue; // no identity at all — skip (the route already validates this)
+      if (storeId) {
+        const key = nm.toLowerCase();
+        staffId = nameToId.get(key) ?? null;
+        if (!staffId) {
+          const { data: created, error: cErr } = await supabase
+            .from("staff")
+            .insert({ store_id: storeId, name: nm })
+            .select("id")
+            .single();
+          if (cErr || !created) {
+            console.error("setVisitEngagements staff create error:", cErr);
+            return false;
+          }
+          staffId = created.id as string;
+          nameToId.set(key, staffId);
+        }
+      } else {
+        personName = nm; // no store id (shouldn't happen) — keep a legacy free-typed row
+      }
+    }
+
+    const key = staffId ?? `name:${(personName ?? "").toLowerCase()}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.trainings.push(...p.trainings);
+      existing.update_text =
+        [existing.update_text, p.update_text].filter((t) => t && t.trim()).join(" · ") || null;
+    } else {
+      byKey.set(key, {
+        staff_id: staffId,
+        person_name: personName,
+        update_text: p.update_text ?? null,
+        trainings: [...p.trainings],
+      });
+      order.push(key);
+    }
+  }
+
+  for (const key of order) {
+    const m = byKey.get(key)!;
+    // A merge can repeat a product — dedupe trainings before writing.
+    const seen = new Set<string>();
+    const trainings = m.trainings.filter((t) => {
+      const k = (t.product_id ?? t.product_name).toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    const productCsv = trainings.map((t) => t.product_name).filter(Boolean).join(", ");
     const { data: inserted, error: insErr } = await supabase
       .from("visit_staff")
       .insert({
         visit_id: visitId,
-        staff_id: p.staff_id,
-        person_name: p.staff_id ? null : p.person_name,
-        update_text: p.update_text,
-        was_trained: p.trainings.length > 0,
+        staff_id: m.staff_id,
+        person_name: m.staff_id ? null : m.person_name,
+        update_text: m.update_text,
+        was_trained: trainings.length > 0,
         products_trained_on: productCsv || null,
-        training_response: p.update_text, // dual-write for old readers
+        training_response: m.update_text, // dual-write for old readers
       })
       .select("id")
       .single();
@@ -1155,8 +1237,8 @@ export async function setVisitEngagements(
       return false;
     }
 
-    if (p.trainings.length > 0) {
-      const trainingRows = p.trainings.map((t) => ({
+    if (trainings.length > 0) {
+      const trainingRows = trainings.map((t) => ({
         visit_staff_id: inserted.id as string,
         product_id: t.product_id,
         product_name: t.product_name,
