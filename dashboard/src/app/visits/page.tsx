@@ -249,6 +249,12 @@ export default function VisitsPage() {
   }
   const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a));
 
+  // Expand-all / collapse-all across the currently-filtered feed
+  const allExpanded = filtered.length > 0 && filtered.every(v => expandedVisits.has(v.id));
+  function toggleExpandAll() {
+    setExpandedVisits(allExpanded ? new Set() : new Set(filtered.map(v => v.id)));
+  }
+
   function toggleMarket(m: string) {
     setOpenMarkets(prev => prev.has(m) ? new Set() : new Set([m]));
     setOpenChains(new Set()); // collapse all chains when switching/closing a market
@@ -581,6 +587,15 @@ export default function VisitsPage() {
                   onClick={() => handleSectionChipClick(s.key)}
                 >{s.icon} {s.label}</button>
               ))}
+              <button
+                className="section-chip"
+                style={allExpanded
+                  ? { marginLeft: "auto" }
+                  : { marginLeft: "auto", background: "linear-gradient(135deg, var(--color-tc-600), var(--color-tc-500))", color: "#fff", borderColor: "transparent", fontWeight: 700 }}
+                onClick={toggleExpandAll}
+                disabled={filtered.length === 0}
+                title={allExpanded ? "Collapse all visits" : "Expand all visits"}
+              >{allExpanded ? "Collapse all" : "Expand all"}</button>
             </div>
           </div>
 

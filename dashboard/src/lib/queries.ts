@@ -1065,6 +1065,18 @@ export async function setAllyStatus(staffId: string, isAlly: boolean): Promise<b
   return !error;
 }
 
+// Manually mark a follow-up done / re-open it from the dashboard.
+// done → status='done' + closed_at=now(); reopen → status='open' + clear close fields.
+export async function setFollowUpStatus(id: string, done: boolean): Promise<boolean> {
+  const { error } = await supabase
+    .from("visit_follow_ups")
+    .update(done
+      ? { status: "done", closed_at: new Date().toISOString() }
+      : { status: "open", closed_at: null, closed_by_visit_id: null })
+    .eq("id", id);
+  return !error;
+}
+
 export interface PayrollGrid {
   weeks: { start: string; end: string }[]; // ISO Monday → Sunday, oldest → newest
   rows: {
