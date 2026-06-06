@@ -1,4 +1,5 @@
 import { Bot, InlineKeyboard, session } from 'grammy';
+import { sequentialize } from '@grammyjs/runner';
 import { conversations, createConversation } from '@grammyjs/conversations';
 import { config } from '../config.js';
 import { BotContext, authMiddleware, requireAuth } from './middleware/auth.js';
@@ -46,6 +47,18 @@ export function createBot(): Bot<BotContext> {
   });
 
   initPhotoCollection(bot.api);
+
+  // Serialize updates per chat BEFORE session/conversations. Telegram delivers a
+  // photo album as N near-simultaneous webhook POSTs, and each spawns its own
+  // concurrent webhookCallback invocation. @grammyjs/conversations v2 replays the
+  // step generator on every update and REQUIRES strictly-sequential per-chat
+  // delivery — concurrent album updates racing that replay corrupt the
+  // conversation state and wedge the CM (the "sent photos, then text, and it
+  // hung" bug an HK CM hit). sequentialize keyed by chat id funnels same-chat
+  // updates through one queue. One Railway replica → this single in-process queue
+  // covers all traffic; if the bot is ever scaled past 1 replica this must be
+  // revisited (per-process queues would let the race back in).
+  bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
   bot.use(groupGuardMiddleware);
   bot.use(session({ initial: () => ({}) }));
