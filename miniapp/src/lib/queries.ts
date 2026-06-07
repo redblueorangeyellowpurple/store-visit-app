@@ -895,6 +895,59 @@ export async function listFollowUpsForVisitMA(
   }));
 }
 
+// CM-scoped list of all OPEN follow-ups across every visit, oldest first, with
+// the 48h-KPI age computed server-side. Powers the Stats-tab follow-up list so a
+// CM sees everything still outstanding (and what's breaching the <48h KPI) in one
+// place, each tappable through to its visit.
+export interface OpenFollowUp {
+  id: string;
+  visit_id: string;
+  title: string;
+  store_name: string;
+  due_date: string | null;
+  created_at: string;
+  openedDaysAgo: number;
+  kpiBreach: boolean;
+  overdue: boolean;
+}
+
+export async function getOpenFollowUpsForCM(telegramId: number): Promise<OpenFollowUp[]> {
+  const { data } = await supabase
+    .from("visit_follow_ups")
+    .select("id, visit_id, title, due_date, created_at, store_id")
+    .eq("cm_telegram_id", telegramId)
+    .eq("status", "open")
+    .order("created_at", { ascending: true });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data ?? []) as any[];
+  if (rows.length === 0) return [];
+
+  const storeIds = Array.from(new Set(rows.map((r) => r.store_id).filter(Boolean)));
+  const storeName = new Map<string, string>();
+  if (storeIds.length > 0) {
+    const { data: stores } = await supabase.from("stores").select("id, name").in("id", storeIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const s of (stores ?? []) as any[]) storeName.set(s.id, s.name);
+  }
+
+  const now = Date.now();
+  const todayISO = new Date().toISOString().slice(0, 10);
+  return rows.map((r) => {
+    const ageHours = Math.max(0, (now - new Date(r.created_at).getTime()) / 3_600_000);
+    return {
+      id: r.id as string,
+      visit_id: r.visit_id as string,
+      title: r.title as string,
+      store_name: storeName.get(r.store_id) ?? "—",
+      due_date: (r.due_date as string | null) ?? null,
+      created_at: r.created_at as string,
+      openedDaysAgo: Math.floor(ageHours / 24),
+      kpiBreach: ageHours > 48,
+      overdue: !!r.due_date && (r.due_date as string) < todayISO,
+    };
+  });
+}
+
 export async function markFollowUpDoneMA(id: string): Promise<boolean> {
   const { error } = await supabase
     .from("visit_follow_ups")

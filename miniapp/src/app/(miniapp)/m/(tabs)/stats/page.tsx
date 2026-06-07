@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { initTelegram } from "../../telegram-init";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -17,6 +18,17 @@ interface Activity {
   trainings: { date: string; store_id: string; store_name: string; staff_count: number }[];
   engagements: { date: string; store_id: string; store_name: string }[];
   products: { date: string; store_id: string; product_name: string }[];
+}
+
+interface OpenFollowUp {
+  id: string;
+  visit_id: string;
+  title: string;
+  store_name: string;
+  due_date: string | null;
+  openedDaysAgo: number;
+  kpiBreach: boolean;
+  overdue: boolean;
 }
 
 type Preset = "lifetime" | "this-week" | "this-month" | "last-month" | "quarter";
@@ -124,6 +136,7 @@ function describeFilter(f: AppliedFilter): string {
 export default function StatsPage() {
   const [whoami, setWhoami] = useState<Whoami | null>(null);
   const [allActivity, setAllActivity] = useState<Activity | null>(null);
+  const [followUps, setFollowUps] = useState<OpenFollowUp[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>({ mode: "preset", preset: "lifetime" });
   const [visitsOpen, setVisitsOpen] = useState(true);
@@ -138,17 +151,21 @@ export default function StatsPage() {
         await initTelegram();
         const initData = window.Telegram?.WebApp?.initData ?? "";
         const headers = { Authorization: `tma ${initData}` };
-        const [whoamiRes, activityRes] = await Promise.all([
+        const [whoamiRes, activityRes, followUpsRes] = await Promise.all([
           fetch("/api/m/whoami", { headers }),
           fetch("/api/m/stats/activity", { headers }),
+          fetch("/api/m/followups", { headers }),
         ]);
         if (!whoamiRes.ok) throw new Error(`whoami: ${whoamiRes.status}`);
         if (!activityRes.ok) throw new Error(`activity: ${activityRes.status}`);
         const whoamiJson: Whoami = await whoamiRes.json();
         const activityJson: Activity = await activityRes.json();
+        // Follow-ups are non-critical — a failure here shouldn't blank the page.
+        const followUpsJson: { followUps?: OpenFollowUp[] } = followUpsRes.ok ? await followUpsRes.json() : {};
         if (!cancelled) {
           setWhoami(whoamiJson);
           setAllActivity(activityJson);
+          setFollowUps(followUpsJson.followUps ?? []);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
@@ -214,6 +231,19 @@ export default function StatsPage() {
           <div className="mx-[14px] mt-4 p-4 rounded-xl border border-[var(--color-status-bad-bg)] bg-[var(--color-status-bad-bg)] text-[var(--color-status-bad-fg)] text-sm">
             {error}
           </div>
+        )}
+
+        {/* Open follow-ups — outstanding tasks, 48h KPI front-and-centre */}
+        {followUps.length > 0 && (
+          <>
+            <SectionLabel>
+              Open follow-ups
+              {followUps.some((f) => f.kpiBreach) && (
+                <span className="ml-1.5 text-[var(--color-status-bad-fg)]">· ⏰ {followUps.filter((f) => f.kpiBreach).length} past 48h</span>
+              )}
+            </SectionLabel>
+            <FollowUpList items={followUps} />
+          </>
         )}
 
         {/* Performance — personal insights */}
@@ -293,6 +323,36 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[var(--color-ink-300)] px-[18px] pt-[18px] pb-1">
       {children}
+    </div>
+  );
+}
+
+// ── Open follow-ups ──────────────────────────────────────────────────────────
+
+function FollowUpList({ items }: { items: OpenFollowUp[] }) {
+  const dueShort = (iso: string) => parseISO(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return (
+    <div className="mx-[14px] mt-1 bg-white border border-[var(--color-ink-100)] rounded-2xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)] divide-y divide-[var(--color-ink-100)]">
+      {items.map((f) => (
+        <Link key={f.id} href={`/m/visit/${f.visit_id}`} className="flex items-center gap-3 px-4 py-3 active:bg-[var(--color-ink-50)]">
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${f.kpiBreach ? "bg-[var(--color-status-bad-fg)]" : "bg-[var(--color-tc-400)]"}`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-semibold text-[var(--color-ink-700)] truncate">{f.title}</div>
+            <div className="text-[11px] text-[var(--color-ink-500)] truncate">{f.store_name}</div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className={`text-[10px] font-bold ${f.kpiBreach ? "text-[var(--color-status-bad-fg)]" : "text-[var(--color-ink-300)]"}`}>
+              {f.kpiBreach ? `⏰ ${f.openedDaysAgo}d` : f.openedDaysAgo <= 0 ? "today" : `${f.openedDaysAgo}d`}
+            </div>
+            {f.due_date && (
+              <div className={`text-[9px] font-semibold mt-0.5 ${f.overdue ? "text-[var(--color-status-bad-fg)]" : "text-[var(--color-ink-300)]"}`}>
+                {f.overdue ? "overdue" : `due ${dueShort(f.due_date)}`}
+              </div>
+            )}
+          </div>
+          <div className="text-[var(--color-ink-300)] text-[16px] flex-shrink-0">›</div>
+        </Link>
+      ))}
     </div>
   );
 }
