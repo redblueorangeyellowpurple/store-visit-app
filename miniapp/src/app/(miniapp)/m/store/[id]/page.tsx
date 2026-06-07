@@ -43,10 +43,21 @@ interface StoreStats {
   products: number;
 }
 
+interface StoreStaffRosterEntry {
+  id: string;
+  name: string;
+  role: string | null;
+  is_ally: boolean;
+  engagements: number;
+  trained: number;
+  products: number;
+}
+
 interface StorePayload {
   store: Store;
   visits: VisitSummary[];
   stats: StoreStats;
+  staff: StoreStaffRosterEntry[];
 }
 
 type SectionKey = "good_news" | "competitors" | "display_stock" | "follow_up" | "buzz_plan";
@@ -123,7 +134,7 @@ export default function StorePage({
     );
   }
 
-  const { store, visits, stats } = data;
+  const { store, visits, stats, staff } = data;
   const tierStyle = store.tier ? TIER_STYLE[store.tier] : TIER_STYLE.T4;
 
   const allPhotos = visits.flatMap((v) =>
@@ -171,6 +182,41 @@ export default function StorePage({
             </div>
           )}
         </header>
+
+        {/* Staff roster */}
+        {staff.length > 0 && (
+          <section className="mt-4">
+            <h2 className="px-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-ink-300">
+              Staff engaged
+            </h2>
+            <ul className="space-y-2 px-3.5">
+              {staff.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    href={`/m/staff/${s.id}`}
+                    className="flex items-center gap-3 rounded-[18px] border border-ink-100 bg-white p-3 shadow-sm active:bg-ink-50"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-[11px] font-extrabold text-ink-500">
+                      {s.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-ink-700 truncate">{s.name}</span>
+                        {s.is_ally && <span className="text-[11px] shrink-0">⭐</span>}
+                      </div>
+                      <div className="text-[11px] text-ink-300">
+                        {s.engagements} engagement{s.engagements === 1 ? "" : "s"}
+                        {s.trained > 0 && ` · ${s.trained} trained`}
+                        {s.products > 0 && ` · ${s.products} product${s.products === 1 ? "" : "s"}`}
+                      </div>
+                    </div>
+                    <span className="text-ink-300 text-sm shrink-0">›</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Visit list / gallery */}
         {visits.length === 0 ? (

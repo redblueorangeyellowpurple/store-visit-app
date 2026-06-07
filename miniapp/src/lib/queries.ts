@@ -225,11 +225,24 @@ export interface StoreStats {
   products: number;     // product-training rows across those visits
 }
 
+// A canonical store-staff member with their engagement rollup over the visits
+// currently in view. Free-typed (not-yet-promoted) people are excluded — only
+// linked staff (have a staff_id) appear, so each row can deep-link to detail.
+export interface StoreStaffRosterEntry {
+  id: string;
+  name: string;
+  role: string | null;
+  is_ally: boolean;
+  engagements: number;
+  trained: number;
+  products: number;
+}
+
 export async function getStoreTimelineForCM(
   telegramId: number,
   storeId: string,
   options?: { allCMs?: boolean },
-): Promise<{ store: Store | null; visits: VisitSummary[]; stats: StoreStats }> {
+): Promise<{ store: Store | null; visits: VisitSummary[]; stats: StoreStats; staff: StoreStaffRosterEntry[] }> {
   const emptyStats: StoreStats = { visits: 0, engagements: 0, trained: 0, products: 0 };
   const [storeRes, visitsRes] = await Promise.all([
     supabase.from("stores").select("*").eq("id", storeId).single(),
@@ -255,7 +268,7 @@ export async function getStoreTimelineForCM(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visitRows = (visitsRes.data ?? []) as any[];
 
-  if (visitRows.length === 0) return { store, visits: [], stats: emptyStats };
+  if (visitRows.length === 0) return { store, visits: [], stats: emptyStats, staff: [] };
 
   const ids = visitRows.map((v: any) => v.id); // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -263,18 +276,61 @@ export async function getStoreTimelineForCM(
   const stats: StoreStats = { visits: visitRows.length, engagements: 0, trained: 0, products: 0 };
   const { data: staffRows } = await supabase
     .from("visit_staff")
-    .select("id, was_trained")
+    .select("id, staff_id, was_trained")
     .in("visit_id", ids);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const staffArr = (staffRows ?? []) as any[];
   stats.engagements = staffArr.length;
   stats.trained = staffArr.filter((r) => r.was_trained).length;
+
+  // Per-staff roster aggregation, keyed by canonical staff_id. visit_staff.id →
+  // staff_id lets us attribute product-training rows back to each person.
+  const vsToStaff = new Map<string, string>();   // visit_staff.id → staff_id
+  const rosterAgg = new Map<string, { engagements: number; trained: number; products: number }>();
+  for (const r of staffArr) {
+    if (!r.staff_id) continue;
+    vsToStaff.set(r.id as string, r.staff_id as string);
+    const agg = rosterAgg.get(r.staff_id) ?? { engagements: 0, trained: 0, products: 0 };
+    agg.engagements += 1;
+    if (r.was_trained) agg.trained += 1;
+    rosterAgg.set(r.staff_id, agg);
+  }
+
   if (staffArr.length > 0) {
-    const { count } = await supabase
+    const { data: trainingRows } = await supabase
       .from("engagement_trainings")
-      .select("id", { count: "exact", head: true })
+      .select("visit_staff_id")
       .in("visit_staff_id", staffArr.map((r) => r.id as string));
-    stats.products = count ?? 0;
+    const trArr = (trainingRows ?? []) as { visit_staff_id: string }[];
+    stats.products = trArr.length;
+    for (const t of trArr) {
+      const sid = vsToStaff.get(t.visit_staff_id);
+      if (sid) rosterAgg.get(sid)!.products += 1;
+    }
+  }
+
+  // Hydrate roster with canonical staff names/roles, sorted by engagement count.
+  let staffRoster: StoreStaffRosterEntry[] = [];
+  if (rosterAgg.size > 0) {
+    const { data: staffDetails } = await supabase
+      .from("staff")
+      .select("id, name, role, is_ally")
+      .in("id", [...rosterAgg.keys()]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    staffRoster = ((staffDetails ?? []) as any[])
+      .map((s) => {
+        const agg = rosterAgg.get(s.id as string)!;
+        return {
+          id: s.id as string,
+          name: s.name as string,
+          role: (s.role as string | null) ?? null,
+          is_ally: Boolean(s.is_ally),
+          engagements: agg.engagements,
+          trained: agg.trained,
+          products: agg.products,
+        };
+      })
+      .sort((a, b) => b.engagements - a.engagements || a.name.localeCompare(b.name));
   }
 
   const { data: photoRows } = await supabase
@@ -322,7 +378,7 @@ export async function getStoreTimelineForCM(
     grade_comments: v.grade_comments ?? null,
   }));
 
-  return { store, visits, stats };
+  return { store, visits, stats, staff: staffRoster };
 }
 
 export async function getAllStoresInMarket(
@@ -956,6 +1012,69 @@ export async function markFollowUpDoneMA(id: string): Promise<boolean> {
   return !error;
 }
 
+// Recent AM/admin review comments left on THIS CM's own visit photos, newest
+// first. Powers the Visits-tab "Recent comments" feed so a CM sees feedback on
+// their photos without opening each visit. "Recent" = a rolling window (no
+// per-user read-state exists yet), bounded + capped.
+export interface RecentPhotoComment {
+  id: string;
+  visit_id: string;
+  visit_date: string;
+  store_name: string;
+  body: string;
+  author_name: string | null;
+  created_at: string;
+  thumb_url: string | null;
+}
+
+export async function getRecentPhotoCommentsForCM(
+  telegramId: number,
+  sinceDays = 21,
+  limit = 25,
+): Promise<RecentPhotoComment[]> {
+  const sinceISO = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+  const { data, error } = await supabase
+    .from("photo_comments")
+    .select(
+      "id, body, author_name, created_at, " +
+        "visit_photos!inner(storage_path, visits!inner(id, visit_date, cm_telegram_id, stores(name)))",
+    )
+    .eq("visit_photos.visits.cm_telegram_id", telegramId)
+    .gte("created_at", sinceISO)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("getRecentPhotoCommentsForCM error:", error);
+    return [];
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data ?? []) as any[];
+  if (rows.length === 0) return [];
+
+  // Sign one thumbnail per comment in a single batch.
+  const paths = rows.map((r) => r.visit_photos?.storage_path as string).filter(Boolean);
+  const signed = await signPhotoUrls(paths);
+  const signedByPath = new Map<string, string>();
+  paths.forEach((p, i) => { if (signed[i]) signedByPath.set(p, signed[i]); });
+
+  return rows.map((r) => {
+    const photo = r.visit_photos;
+    const visit = photo?.visits;
+    const path = photo?.storage_path as string | undefined;
+    return {
+      id: r.id as string,
+      visit_id: (visit?.id as string) ?? "",
+      visit_date: (visit?.visit_date as string) ?? "",
+      store_name: (visit?.stores?.name as string) ?? "—",
+      body: r.body as string,
+      author_name: (r.author_name as string | null) ?? null,
+      created_at: r.created_at as string,
+      thumb_url: path ? (signedByPath.get(path) ?? null) : null,
+    };
+  });
+}
+
 export async function updateFollowUpFieldsMA(
   visitId: string,
   followUpId: string,
@@ -1186,6 +1305,111 @@ export async function getStoreStaffForVisit(visitId: string): Promise<StoreStaff
     return null;
   }
   return (data ?? []).map((s) => ({ id: s.id as string, name: s.name as string }));
+}
+
+export interface StaffDetail {
+  id: string;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  is_ally: boolean;
+  age: number | null;
+  bio: string | null;
+  store_id: string;
+  store_name: string;
+  stats: { engagements: number; trained: number; products: number; lastEngagedAt: string | null };
+  trainingHistory: Array<{ visit_id: string; visit_date: string; products: string[] }>;
+}
+
+// Full per-staff profile + lifetime engagement rollup across all locked visits
+// at their store. Powers the m/staff/[id] detail screen.
+export async function getStaffDetailForCM(staffId: string): Promise<StaffDetail | null> {
+  const { data: staff, error } = await supabase
+    .from("staff")
+    .select("id, name, role, phone, is_ally, age, bio, store_id, stores(name)")
+    .eq("id", staffId)
+    .single();
+  if (error || !staff) return null;
+
+  // Every locked engagement for this person, newest first (date sort in JS to
+  // avoid referenced-table ordering quirks).
+  const { data: vsRows } = await supabase
+    .from("visit_staff")
+    .select("id, was_trained, visits!inner(id, visit_date, is_locked)")
+    .eq("staff_id", staffId)
+    .eq("visits.is_locked", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vs = ((vsRows ?? []) as any[]).sort((a, b) =>
+    String(b.visits?.visit_date ?? "").localeCompare(String(a.visits?.visit_date ?? "")),
+  );
+
+  const stats = {
+    engagements: vs.length,
+    trained: vs.filter((r) => r.was_trained).length,
+    products: 0,
+    lastEngagedAt: vs.length > 0 ? (vs[0].visits?.visit_date ?? null) : null,
+  };
+
+  // Per-product training history grouped by visit (only visits with trainings).
+  const trainingHistory: StaffDetail["trainingHistory"] = [];
+  if (vs.length > 0) {
+    const vsIds = vs.map((r) => r.id as string);
+    const { data: trRows } = await supabase
+      .from("engagement_trainings")
+      .select("visit_staff_id, product_name")
+      .in("visit_staff_id", vsIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tr = (trRows ?? []) as any[];
+    stats.products = tr.length;
+    const byVs = new Map<string, string[]>();
+    for (const t of tr) {
+      const arr = byVs.get(t.visit_staff_id as string) ?? [];
+      arr.push(t.product_name as string);
+      byVs.set(t.visit_staff_id as string, arr);
+    }
+    for (const r of vs) {
+      const products = byVs.get(r.id as string) ?? [];
+      if (products.length === 0) continue;
+      trainingHistory.push({
+        visit_id: r.visits?.id as string,
+        visit_date: r.visits?.visit_date as string,
+        products,
+      });
+    }
+  }
+
+  return {
+    id: staff.id as string,
+    name: staff.name as string,
+    role: (staff.role as string | null) ?? null,
+    phone: (staff.phone as string | null) ?? null,
+    is_ally: Boolean(staff.is_ally),
+    age: (staff.age as number | null) ?? null,
+    bio: (staff.bio as string | null) ?? null,
+    store_id: staff.store_id as string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    store_name: ((staff.stores as any)?.name as string) ?? "Store",
+    stats,
+    trainingHistory,
+  };
+}
+
+// Update editable profile fields on a staff member (age + bio). Used by the
+// m/staff/[id] edit form. age/bio columns added in mig 026.
+export async function updateStaffProfile(
+  staffId: string,
+  fields: { age?: number | null; bio?: string | null },
+): Promise<boolean> {
+  const patch: Record<string, unknown> = {};
+  if (fields.age !== undefined) patch.age = fields.age;
+  if (fields.bio !== undefined) patch.bio = fields.bio;
+  if (Object.keys(patch).length === 0) return true;
+  const { error } = await supabase.from("staff").update(patch).eq("id", staffId);
+  if (error) {
+    console.error("updateStaffProfile error:", error);
+    return false;
+  }
+  return true;
 }
 
 export interface EngagementPersonInput {
