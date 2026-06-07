@@ -39,6 +39,14 @@ function dueLabel(due: string | null, todayISO: string): string {
   return ` · due ${prettyDate(due)}`;
 }
 
+// When a follow-up was logged, for the 48h KPI. A breach (>48h still open) gets
+// the ⏰ marker; otherwise just a quiet "logged Nd ago".
+function ageLabel(daysAgo: number, breach: boolean): string {
+  if (breach) return ` · ⏰ ${daysAgo}d open`;
+  if (daysAgo <= 0) return ' · logged today';
+  return ` · logged ${daysAgo}d ago`;
+}
+
 const FU_LIMIT = 5; // show at most this many follow-ups inline, then "+N more"
 
 // True when there's genuinely nothing worth sending — no visits, no missed
@@ -107,12 +115,14 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
     for (const s of d.plannedMissed) lines.push(`✗ ${escapeMd(s)} _(planned, missed)_`);
   }
 
-  // Open follow-ups
+  // Open follow-ups — with logged-age + the 48h KPI flag (⏰) so anything left
+  // open past the window is impossible to miss.
   if (d.followUpOpenTotal > 0) {
     lines.push('');
-    lines.push(`📌 *Open follow-ups: ${d.followUpOpenTotal}*`);
+    const kpi = d.followUpKpiBreaches > 0 ? ` · ⏰ ${d.followUpKpiBreaches} past 48h` : '';
+    lines.push(`📌 *Open follow-ups: ${d.followUpOpenTotal}*${kpi}`);
     for (const f of d.openFollowUps.slice(0, FU_LIMIT)) {
-      lines.push(`• ${escapeMd(f.title)} · ${escapeMd(f.store)}${dueLabel(f.due, todayISO)}`);
+      lines.push(`• ${escapeMd(f.title)} · ${escapeMd(f.store)}${dueLabel(f.due, todayISO)}${ageLabel(f.openedDaysAgo, f.kpiBreach)}`);
     }
     if (d.followUpOpenTotal > FU_LIMIT) lines.push(`_+${d.followUpOpenTotal - FU_LIMIT} more_`);
   }
@@ -124,6 +134,7 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
     lines.push(`⬚ *Feedback to review: ${d.pendingFeedback.length}*`);
     for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
       lines.push(`• ${escapeMd(f.store)} — ${feedbackBits(f)}`);
+      for (const s of f.commentSnippets) lines.push(`   💬 _${escapeMd(s)}_`);
     }
     if (d.pendingFeedback.length > FB_LIMIT) lines.push(`_+${d.pendingFeedback.length - FB_LIMIT} more_`);
     lines.push('_Tap a store below to see what to fix._');

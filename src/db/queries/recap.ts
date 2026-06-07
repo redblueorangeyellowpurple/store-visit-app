@@ -16,12 +16,21 @@ export interface RecapData {
   plannedExecuted: string[]; // planned for the date AND visited
   plannedMissed: string[];   // planned for the date but NOT visited
   walkIns: string[];         // visited but not in the plan
-  openFollowUps: { title: string; store: string; due: string | null; overdue: boolean }[];
+  // openedDaysAgo / kpiBreach drive the <48h follow-up KPI: kpiBreach is true
+  // once a follow-up has been open longer than 48h without being closed.
+  openFollowUps: { title: string; store: string; due: string | null; overdue: boolean; openedDaysAgo: number; kpiBreach: boolean }[];
   followUpOpenTotal: number;
+  followUpKpiBreaches: number; // count of open follow-ups past the 48h window
   // Locked visits with AM review feedback the CM hasn't marked seen yet (any
   // recent date, not just yesterday) — a standing nudge until acknowledged.
-  pendingFeedback: { store: string; visitId: string; fixes: number; comments: number }[];
+  // commentSnippets carries the actual comment text (capped) so the brief shows
+  // what was said, not just a count.
+  pendingFeedback: { store: string; visitId: string; fixes: number; comments: number; commentSnippets: string[] }[];
 }
+
+const FU_KPI_HOURS = 48; // TC KPI: act on a store follow-up within 48h
+const COMMENT_SNIPPET_LIMIT = 2; // comment bodies shown per feedback visit
+const COMMENT_SNIPPET_MAXLEN = 90; // truncate a long comment body
 
 // Calendar-date math on 'YYYY-MM-DD' (timezone-independent).
 function addDaysISO(date: string, n: number): string {
@@ -79,7 +88,7 @@ export async function getCMDailyRecap(
       .eq('planned_date', date),
     supabase
       .from('visit_follow_ups')
-      .select('title, due_date, store_id')
+      .select('title, due_date, store_id, created_at')
       .eq('cm_telegram_id', telegramId)
       .eq('status', 'open')
       .order('due_date', { ascending: true, nullsFirst: false }),
@@ -99,7 +108,7 @@ export async function getCMDailyRecap(
 
   const visits = (visitsRes.data ?? []) as { id: string; store_id: string }[];
   const plans = (plansRes.data ?? []) as { store_id: string }[];
-  const fus = (fuRes.data ?? []) as { title: string; due_date: string | null; store_id: string }[];
+  const fus = (fuRes.data ?? []) as { title: string; due_date: string | null; store_id: string; created_at: string }[];
   const unackedVisits = (unackedRes.data ?? []) as { id: string; store_id: string }[];
 
   // 3. Resolve store names once for every store id we touch.
@@ -149,23 +158,42 @@ export async function getCMDailyRecap(
       const photoToVisit = new Map(photos.map((p) => [p.id, p.visit_id]));
       const [annRes, cmtRes] = await Promise.all([
         supabase.from('photo_annotations').select('photo_id').in('photo_id', photoIds),
-        supabase.from('photo_comments').select('photo_id').in('photo_id', photoIds),
+        supabase
+          .from('photo_comments')
+          .select('photo_id, body, author_name, created_at')
+          .in('photo_id', photoIds)
+          .order('created_at', { ascending: true }),
       ]);
       const fixByVisit = new Map<string, number>();
       const cmtByVisit = new Map<string, number>();
+      const snippetsByVisit = new Map<string, string[]>();
       for (const r of (annRes.data ?? []) as { photo_id: string }[]) {
         const vid = photoToVisit.get(r.photo_id);
         if (vid) fixByVisit.set(vid, (fixByVisit.get(vid) ?? 0) + 1);
       }
-      for (const r of (cmtRes.data ?? []) as { photo_id: string }[]) {
+      for (const r of (cmtRes.data ?? []) as { photo_id: string; body: string | null; author_name: string | null }[]) {
         const vid = photoToVisit.get(r.photo_id);
-        if (vid) cmtByVisit.set(vid, (cmtByVisit.get(vid) ?? 0) + 1);
+        if (!vid) continue;
+        cmtByVisit.set(vid, (cmtByVisit.get(vid) ?? 0) + 1);
+        const arr = snippetsByVisit.get(vid) ?? [];
+        if (arr.length < COMMENT_SNIPPET_LIMIT && r.body?.trim()) {
+          let body = r.body.trim().replace(/\s+/g, ' ');
+          if (body.length > COMMENT_SNIPPET_MAXLEN) body = body.slice(0, COMMENT_SNIPPET_MAXLEN - 1) + '…';
+          arr.push(r.author_name ? `${r.author_name}: ${body}` : body);
+          snippetsByVisit.set(vid, arr);
+        }
       }
       for (const v of unackedVisits) {
         const fixes = fixByVisit.get(v.id) ?? 0;
         const comments = cmtByVisit.get(v.id) ?? 0;
         if (fixes + comments > 0) {
-          pendingFeedback.push({ store: label(v.store_id), visitId: v.id, fixes, comments });
+          pendingFeedback.push({
+            store: label(v.store_id),
+            visitId: v.id,
+            fixes,
+            comments,
+            commentSnippets: snippetsByVisit.get(v.id) ?? [],
+          });
         }
       }
     }
@@ -180,13 +208,22 @@ export async function getCMDailyRecap(
   const plannedMissed = [...plannedStoreIds].filter((id) => !visitedStoreIds.has(id)).map(label);
   const walkIns = [...visitedStoreIds].filter((id) => !plannedStoreIds.has(id)).map(label);
 
-  // Open follow-ups, with overdue flagged against the recap date.
-  const openFollowUps = fus.map((f) => ({
-    title: f.title,
-    store: label(f.store_id),
-    due: f.due_date,
-    overdue: !!f.due_date && f.due_date < date,
-  }));
+  // Open follow-ups, with overdue flagged against the recap date and age measured
+  // against ~09:00 the morning the recap is sent (date + 1) for the 48h KPI.
+  const sendMoment = new Date(`${addDaysISO(date, 1)}T09:00:00+08:00`).getTime();
+  const openFollowUps = fus.map((f) => {
+    const ageMs = Math.max(0, sendMoment - new Date(f.created_at).getTime());
+    const ageHours = ageMs / 3_600_000;
+    return {
+      title: f.title,
+      store: label(f.store_id),
+      due: f.due_date,
+      overdue: !!f.due_date && f.due_date < date,
+      openedDaysAgo: Math.floor(ageHours / 24),
+      kpiBreach: ageHours > FU_KPI_HOURS,
+    };
+  });
+  const followUpKpiBreaches = openFollowUps.filter((f) => f.kpiBreach).length;
 
   return {
     visitedStores,
@@ -197,6 +234,7 @@ export async function getCMDailyRecap(
     walkIns,
     openFollowUps,
     followUpOpenTotal: fus.length,
+    followUpKpiBreaches,
     pendingFeedback,
   };
 }
