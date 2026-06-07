@@ -36,9 +36,17 @@ interface Store {
   address: string | null;
 }
 
+interface StoreStats {
+  visits: number;
+  engagements: number;
+  trained: number;
+  products: number;
+}
+
 interface StorePayload {
   store: Store;
   visits: VisitSummary[];
+  stats: StoreStats;
 }
 
 type SectionKey = "good_news" | "competitors" | "display_stock" | "follow_up" | "buzz_plan";
@@ -115,7 +123,7 @@ export default function StorePage({
     );
   }
 
-  const { store, visits } = data;
+  const { store, visits, stats } = data;
   const tierStyle = store.tier ? TIER_STYLE[store.tier] : TIER_STYLE.T4;
 
   const allPhotos = visits.flatMap((v) =>
@@ -148,6 +156,20 @@ export default function StorePage({
               </div>
             </div>
           </div>
+          {store.address && (
+            <div className="flex items-start gap-1.5 mt-3 text-[11px] text-ink-400 leading-snug">
+              <span className="shrink-0">📍</span>
+              <span>{store.address}</span>
+            </div>
+          )}
+          {visits.length > 0 && (
+            <div className="grid grid-cols-4 gap-px mt-3.5 rounded-xl overflow-hidden bg-ink-100 border border-ink-100">
+              <StoreStat value={stats.visits} label={stats.visits === 1 ? "visit" : "visits"} />
+              <StoreStat value={stats.engagements} label="engaged" />
+              <StoreStat value={stats.trained} label="trained" />
+              <StoreStat value={stats.products} label="products" />
+            </div>
+          )}
         </header>
 
         {/* Visit list / gallery */}
@@ -216,6 +238,15 @@ export default function StorePage({
         </div>
       )}
     </>
+  );
+}
+
+function StoreStat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="bg-white py-2 text-center">
+      <div className="text-[17px] font-black text-ink-700 leading-none">{value}</div>
+      <div className="text-[9px] font-bold uppercase tracking-wider text-ink-300 mt-1">{label}</div>
+    </div>
   );
 }
 

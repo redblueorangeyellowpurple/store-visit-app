@@ -218,11 +218,19 @@ export async function getPortfolioForCM(
     });
 }
 
+export interface StoreStats {
+  visits: number;       // visits in the current view (your visits, or all CMs)
+  engagements: number;  // people engaged across those visits
+  trained: number;      // of those, how many were trained
+  products: number;     // product-training rows across those visits
+}
+
 export async function getStoreTimelineForCM(
   telegramId: number,
   storeId: string,
   options?: { allCMs?: boolean },
-): Promise<{ store: Store | null; visits: VisitSummary[] }> {
+): Promise<{ store: Store | null; visits: VisitSummary[]; stats: StoreStats }> {
+  const emptyStats: StoreStats = { visits: 0, engagements: 0, trained: 0, products: 0 };
   const [storeRes, visitsRes] = await Promise.all([
     supabase.from("stores").select("*").eq("id", storeId).single(),
     options?.allCMs
@@ -247,9 +255,28 @@ export async function getStoreTimelineForCM(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visitRows = (visitsRes.data ?? []) as any[];
 
-  if (visitRows.length === 0) return { store, visits: [] };
+  if (visitRows.length === 0) return { store, visits: [], stats: emptyStats };
 
   const ids = visitRows.map((v: any) => v.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  // Engagement / training / product rollup for the visits in view.
+  const stats: StoreStats = { visits: visitRows.length, engagements: 0, trained: 0, products: 0 };
+  const { data: staffRows } = await supabase
+    .from("visit_staff")
+    .select("id, was_trained")
+    .in("visit_id", ids);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const staffArr = (staffRows ?? []) as any[];
+  stats.engagements = staffArr.length;
+  stats.trained = staffArr.filter((r) => r.was_trained).length;
+  if (staffArr.length > 0) {
+    const { count } = await supabase
+      .from("engagement_trainings")
+      .select("id", { count: "exact", head: true })
+      .in("visit_staff_id", staffArr.map((r) => r.id as string));
+    stats.products = count ?? 0;
+  }
+
   const { data: photoRows } = await supabase
     .from("visit_photos")
     .select("visit_id, storage_path")
@@ -295,7 +322,7 @@ export async function getStoreTimelineForCM(
     grade_comments: v.grade_comments ?? null,
   }));
 
-  return { store, visits };
+  return { store, visits, stats };
 }
 
 export async function getAllStoresInMarket(
