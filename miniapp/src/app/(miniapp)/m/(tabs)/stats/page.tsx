@@ -15,6 +15,8 @@ interface Whoami {
 interface Activity {
   visits: { date: string; store_id: string; store_name: string }[];
   trainings: { date: string; store_id: string; store_name: string; staff_count: number }[];
+  engagements: { date: string; store_id: string; store_name: string }[];
+  products: { date: string; store_id: string; product_name: string }[];
 }
 
 type Preset = "lifetime" | "this-week" | "this-month" | "last-month" | "quarter";
@@ -165,14 +167,19 @@ export default function StatsPage() {
     const inRange = (date: string) => (!from || date >= from) && (!to || date <= to);
     if (appliedFilter.mode === "weeks") {
       const weekSet = new Set(appliedFilter.weeks);
+      const inWeeks = (date: string) => weekSet.has(weekStart(date));
       return {
-        visits: allActivity.visits.filter((v) => weekSet.has(weekStart(v.date))),
-        trainings: allActivity.trainings.filter((t) => weekSet.has(weekStart(t.date))),
+        visits: allActivity.visits.filter((v) => inWeeks(v.date)),
+        trainings: allActivity.trainings.filter((t) => inWeeks(t.date)),
+        engagements: allActivity.engagements.filter((e) => inWeeks(e.date)),
+        products: allActivity.products.filter((p) => inWeeks(p.date)),
       };
     }
     return {
       visits: allActivity.visits.filter((v) => inRange(v.date)),
       trainings: allActivity.trainings.filter((t) => inRange(t.date)),
+      engagements: allActivity.engagements.filter((e) => inRange(e.date)),
+      products: allActivity.products.filter((p) => inRange(p.date)),
     };
   }, [allActivity, appliedFilter]);
 
@@ -209,18 +216,11 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Performance — placeholder */}
+        {/* Performance — personal insights */}
         <SectionLabel>Performance</SectionLabel>
-        <div className="mx-[14px] mt-1 rounded-2xl border border-dashed border-[var(--color-ink-200)] bg-white p-4 text-center">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-[var(--color-tc-50)] text-[var(--color-tc-400)] text-lg mb-2">📈</div>
-          <div className="text-[13px] font-extrabold text-[var(--color-ink-700)] tracking-tight">Insights coming soon</div>
-          <div className="text-[11px] text-[var(--color-ink-500)] leading-relaxed mt-0.5">Trends, coverage scores, comparisons &amp; more.</div>
-          <div className="flex gap-1.5 flex-wrap justify-center mt-2.5">
-            {["Coverage", "Streaks", "Trends"].map((c) => (
-              <span key={c} className="text-[9px] font-bold uppercase tracking-wider bg-[var(--color-ink-100)] text-[var(--color-ink-500)] px-2.5 py-1 rounded-full">{c}</span>
-            ))}
-          </div>
-        </div>
+        {allActivity && activity && (
+          <PerformancePanel all={allActivity} period={activity} periodLabel={filterLabel} />
+        )}
 
         {/* Activity */}
         <SectionLabel>Activity</SectionLabel>
@@ -293,6 +293,146 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[var(--color-ink-300)] px-[18px] pt-[18px] pb-1">
       {children}
+    </div>
+  );
+}
+
+// ── Performance (personal insights) ──────────────────────────────────────────
+
+function topStore(items: { store_id: string; store_name: string }[]): { name: string; count: number } | null {
+  if (items.length === 0) return null;
+  const m = new Map<string, { name: string; count: number }>();
+  for (const it of items) {
+    const e = m.get(it.store_id) ?? { name: it.store_name || "—", count: 0 };
+    e.count += 1;
+    m.set(it.store_id, e);
+  }
+  let best: { name: string; count: number } | null = null;
+  for (const e of m.values()) if (!best || e.count > best.count) best = e;
+  return best;
+}
+
+function PerformancePanel({ all, period, periodLabel }: { all: Activity; period: Activity; periodLabel: string }) {
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
+
+  // This-week / this-month visit counts — fixed periods, independent of the
+  // Activity filter below, so the CM always sees their current pace.
+  const [twFrom, twTo] = presetRange("this-week");
+  const [tmFrom, tmTo] = presetRange("this-month");
+  const inR = (d: string, from: string | null, to: string | null) => (!from || d >= from) && (!to || d <= to);
+  const visitsThisWeek = all.visits.filter((v) => inR(v.date, twFrom, twTo)).length;
+  const visitsThisMonth = all.visits.filter((v) => inR(v.date, tmFrom, tmTo)).length;
+
+  // Period-scoped rollups (respect the Activity filter).
+  const engagementCount = period.engagements.length;
+  const trainingSessions = period.trainings.length;
+  const productCount = period.products.length;
+  const topVisited = topStore(period.visits.map((v) => ({ store_id: v.store_id, store_name: v.store_name })));
+  const topEngaged = topStore(period.engagements.map((e) => ({ store_id: e.store_id, store_name: e.store_name })));
+
+  const productBreakdown = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of period.products) m.set(p.product_name || "—", (m.get(p.product_name || "—") ?? 0) + 1);
+    return Array.from(m.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }, [period.products]);
+  const maxProduct = productBreakdown[0]?.count ?? 1;
+
+  return (
+    <div className="mx-[14px] mt-1 space-y-2.5">
+      {/* Pace — fixed this-week / this-month */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <PaceTile label="This week" value={visitsThisWeek} tint="bg-[var(--color-tier-t1-bg)]" fg="text-[var(--color-tier-t1-fg)]" />
+        <PaceTile label="This month" value={visitsThisMonth} tint="bg-[var(--color-tc-50)]" fg="text-[var(--color-tc-600)]" />
+      </div>
+
+      {/* Period totals */}
+      <div className="bg-white border border-[var(--color-ink-100)] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-4">
+        <div className="text-[9px] font-extrabold uppercase tracking-wider text-[var(--color-ink-300)] mb-2.5">{periodLabel}</div>
+        <div className="grid grid-cols-3 divide-x divide-[var(--color-ink-100)]">
+          <StatCell value={engagementCount} label={engagementCount === 1 ? "engagement" : "engagements"} />
+          <StatCell value={trainingSessions} label={trainingSessions === 1 ? "training" : "trainings"} />
+          <StatCell value={productCount} label={productCount === 1 ? "product" : "products"} />
+        </div>
+      </div>
+
+      {/* Top stores */}
+      {(topVisited || topEngaged) && (
+        <div className="bg-white border border-[var(--color-ink-100)] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] divide-y divide-[var(--color-ink-100)]">
+          <TopStoreRow icon="🏆" label="Most visited" store={topVisited} unit="visits" />
+          <TopStoreRow icon="🤝" label="Most engaged" store={topEngaged} unit="people" />
+        </div>
+      )}
+
+      {/* Product breakdown */}
+      {productBreakdown.length > 0 && (
+        <div className="bg-white border border-[var(--color-ink-100)] rounded-2xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+          <button type="button" onClick={() => setBreakdownOpen((o) => !o)} className="w-full px-4 py-3 flex items-center gap-3 text-left">
+            <div className="w-[42px] h-[42px] rounded-xl flex items-center justify-center text-[19px] flex-shrink-0 bg-[var(--color-section-purple-bg)]">🎧</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-300)] mb-0.5">Products trained</div>
+              <div className="text-[22px] font-black text-[var(--color-ink-700)] leading-none tracking-tight">
+                {productBreakdown.length}
+                <span className="text-[13px] font-semibold text-[var(--color-ink-500)] ml-1">{productBreakdown.length === 1 ? "product" : "products"}</span>
+              </div>
+            </div>
+            <div className={`text-[var(--color-ink-300)] text-[22px] transition-transform flex-shrink-0 ${breakdownOpen ? "rotate-90" : ""}`}>›</div>
+          </button>
+          {breakdownOpen && (
+            <div className="border-t border-[var(--color-ink-100)] px-4 py-3 space-y-2">
+              {productBreakdown.map((p) => (
+                <div key={p.name} className="flex items-center gap-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-[12px] font-semibold text-[var(--color-ink-700)] truncate pr-2">{p.name}</span>
+                      <span className="text-[11px] font-bold text-[var(--color-ink-500)] flex-shrink-0">{p.count}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-[var(--color-ink-100)] overflow-hidden">
+                      <div className="h-full rounded-full bg-[var(--color-section-purple-border)]" style={{ width: `${Math.max(8, (p.count / maxProduct) * 100)}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaceTile({ label, value, tint, fg }: { label: string; value: number; tint: string; fg: string }) {
+  return (
+    <div className={`rounded-2xl p-3.5 ${tint}`}>
+      <div className={`text-[24px] font-black leading-none tracking-tight ${fg}`}>{value}</div>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-500)] mt-1.5">{label}</div>
+      <div className="text-[9px] font-semibold text-[var(--color-ink-300)] mt-px">{value === 1 ? "visit" : "visits"}</div>
+    </div>
+  );
+}
+
+function StatCell({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="px-1 text-center first:pl-0 last:pr-0">
+      <div className="text-[24px] font-black text-[var(--color-ink-700)] leading-none tracking-tight">{value}</div>
+      <div className="text-[10px] font-semibold text-[var(--color-ink-500)] mt-1.5">{label}</div>
+    </div>
+  );
+}
+
+function TopStoreRow({ icon, label, store, unit }: { icon: string; label: string; store: { name: string; count: number } | null; unit: string }) {
+  return (
+    <div className="px-4 py-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[16px] flex-shrink-0 bg-[var(--color-ink-50)]">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-ink-300)]">{label}</div>
+        <div className="text-[13px] font-bold text-[var(--color-ink-700)] truncate">{store ? store.name : "—"}</div>
+      </div>
+      {store && (
+        <div className="text-right flex-shrink-0">
+          <div className="text-[15px] font-black text-[var(--color-ink-700)] leading-none">{store.count}</div>
+          <div className="text-[9px] font-semibold text-[var(--color-ink-300)] mt-0.5">{unit}</div>
+        </div>
+      )}
     </div>
   );
 }

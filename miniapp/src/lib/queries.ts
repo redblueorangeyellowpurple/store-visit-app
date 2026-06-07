@@ -1359,6 +1359,11 @@ export async function updateVisitPhotoSection(
 export interface StatsActivity {
   visits: { id: string; date: string; store_id: string; store_name: string; store_chain: string }[];
   trainings: { date: string; store_id: string; store_name: string; staff_count: number }[];
+  // One entry per person engaged (visit_staff row) — the unit behind "engagements".
+  engagements: { date: string; store_id: string; store_name: string }[];
+  // One entry per product trained (engagement_trainings row) — drives the
+  // product breakdown. A single training session can yield several of these.
+  products: { date: string; store_id: string; product_name: string }[];
 }
 
 export async function getStatsActivityForCM(
@@ -1380,7 +1385,7 @@ export async function getStatsActivityForCM(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (visitRows ?? []) as any[];
-  if (rows.length === 0) return { visits: [], trainings: [] };
+  if (rows.length === 0) return { visits: [], trainings: [], engagements: [], products: [] };
 
   const visits = rows.map((r) => ({
     id: r.id as string,
@@ -1389,19 +1394,25 @@ export async function getStatsActivityForCM(
     store_name: (r.stores?.name as string | null) ?? "",
     store_chain: (r.stores?.chain as string | null) ?? "",
   }));
+  const visitById = new Map(visits.map((v) => [v.id, v]));
 
   const visitIds = visits.map((v) => v.id);
-  const { data: trainedRows } = await supabase
+  // Every engaged person on these visits — one visit_staff row = one engagement.
+  const { data: staffRows } = await supabase
     .from("visit_staff")
-    .select("visit_id")
-    .eq("was_trained", true)
+    .select("id, visit_id, was_trained")
     .in("visit_id", visitIds);
 
   const trainedCountByVisit = new Map<string, number>();
+  const staffVisitById = new Map<string, string>();
+  const engagements: StatsActivity["engagements"] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const r of (trainedRows ?? []) as any[]) {
+  for (const r of (staffRows ?? []) as any[]) {
     const vid = r.visit_id as string;
-    trainedCountByVisit.set(vid, (trainedCountByVisit.get(vid) ?? 0) + 1);
+    staffVisitById.set(r.id as string, vid);
+    const v = visitById.get(vid);
+    if (v) engagements.push({ date: v.date, store_id: v.store_id, store_name: v.store_name });
+    if (r.was_trained) trainedCountByVisit.set(vid, (trainedCountByVisit.get(vid) ?? 0) + 1);
   }
 
   const trainings = visits
@@ -1413,7 +1424,25 @@ export async function getStatsActivityForCM(
       staff_count: trainedCountByVisit.get(v.id) ?? 0,
     }));
 
-  return { visits, trainings };
+  // Per-product training rows (mig 021). Map each back to its visit's date/store
+  // via the owning visit_staff row, so the client can break trainings down by
+  // product and filter by period.
+  const products: StatsActivity["products"] = [];
+  const staffIds = Array.from(staffVisitById.keys());
+  if (staffIds.length > 0) {
+    const { data: trainingRows } = await supabase
+      .from("engagement_trainings")
+      .select("visit_staff_id, product_name")
+      .in("visit_staff_id", staffIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (trainingRows ?? []) as any[]) {
+      const vid = staffVisitById.get(r.visit_staff_id as string);
+      const v = vid ? visitById.get(vid) : undefined;
+      if (v) products.push({ date: v.date, store_id: v.store_id, product_name: (r.product_name as string) ?? "" });
+    }
+  }
+
+  return { visits, trainings, engagements, products };
 }
 
 export interface TrainingStats {
