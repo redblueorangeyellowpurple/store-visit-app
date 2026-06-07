@@ -205,7 +205,7 @@ export default function StorePage({
                         {s.is_ally && <span className="text-[11px] shrink-0">⭐</span>}
                       </div>
                       <div className="text-[11px] text-ink-300">
-                        {s.engagements} engagement{s.engagements === 1 ? "" : "s"}
+                        {s.engagements} engagement{s.engagements === 1 ? "" : "s"}{allCMs ? "" : " with you"}
                         {s.trained > 0 && ` · ${s.trained} trained`}
                         {s.products > 0 && ` · ${s.products} product${s.products === 1 ? "" : "s"}`}
                       </div>

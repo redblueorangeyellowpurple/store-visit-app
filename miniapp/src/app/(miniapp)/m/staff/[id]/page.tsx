@@ -91,14 +91,16 @@ export default function StaffPage({ params }: { params: Promise<{ id: string }> 
           </div>
         </div>
         {stats.engagements > 0 && (
-          <div className="grid grid-cols-3 gap-px mt-3.5 rounded-xl overflow-hidden bg-ink-100 border border-ink-100">
-            <StaffStat value={stats.engagements} label={stats.engagements === 1 ? "engagement" : "engagements"} />
-            <StaffStat value={stats.trained} label="trained" />
-            <StaffStat value={stats.products} label="products" />
-          </div>
-        )}
-        {stats.lastEngagedAt && (
-          <p className="text-[11px] text-ink-300 mt-2.5">Last engaged {fmtDate(stats.lastEngagedAt)}</p>
+          <>
+            <div className="grid grid-cols-3 gap-px mt-3.5 rounded-xl overflow-hidden bg-ink-100 border border-ink-100">
+              <StaffStat value={stats.engagements} label={stats.engagements === 1 ? "engagement" : "engagements"} />
+              <StaffStat value={stats.trained} label="trained" />
+              <StaffStat value={stats.products} label="products" />
+            </div>
+            <p className="text-[11px] text-ink-300 mt-2.5">
+              Lifetime at this store{stats.lastEngagedAt ? ` · last engaged ${fmtDate(stats.lastEngagedAt)}` : ""}
+            </p>
+          </>
         )}
       </header>
 

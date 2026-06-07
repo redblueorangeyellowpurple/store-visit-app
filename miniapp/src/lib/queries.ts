@@ -1033,43 +1033,66 @@ export async function getRecentPhotoCommentsForCM(
   limit = 25,
 ): Promise<RecentPhotoComment[]> {
   const sinceISO = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
-  const { data, error } = await supabase
+
+  // Two-step scoping (the proven pattern in this file) rather than a nested
+  // embedded filter: resolve THIS CM's photos first, then comments on them. A
+  // broken filter here would leak other CMs' feedback, so keep it explicit.
+  const { data: visitRows } = await supabase
+    .from("visits")
+    .select("id, visit_date, store_id")
+    .eq("cm_telegram_id", telegramId)
+    .eq("is_locked", true);
+  const visits = (visitRows ?? []) as { id: string; visit_date: string; store_id: string }[];
+  if (visits.length === 0) return [];
+  const visitById = new Map(visits.map((v) => [v.id, v]));
+
+  const { data: photoRows } = await supabase
+    .from("visit_photos")
+    .select("id, visit_id, storage_path")
+    .in("visit_id", visits.map((v) => v.id));
+  const photos = (photoRows ?? []) as { id: string; visit_id: string; storage_path: string }[];
+  if (photos.length === 0) return [];
+  const photoById = new Map(photos.map((p) => [p.id, p]));
+
+  const { data: cRows } = await supabase
     .from("photo_comments")
-    .select(
-      "id, body, author_name, created_at, " +
-        "visit_photos!inner(storage_path, visits!inner(id, visit_date, cm_telegram_id, stores(name)))",
-    )
-    .eq("visit_photos.visits.cm_telegram_id", telegramId)
+    .select("id, photo_id, body, author_name, created_at")
+    .in("photo_id", photos.map((p) => p.id))
     .gte("created_at", sinceISO)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) {
-    console.error("getRecentPhotoCommentsForCM error:", error);
-    return [];
+  const comments = (cRows ?? []) as {
+    id: string; photo_id: string; body: string; author_name: string | null; created_at: string;
+  }[];
+  if (comments.length === 0) return [];
+
+  const storeIds = Array.from(new Set(visits.map((v) => v.store_id).filter(Boolean)));
+  const storeName = new Map<string, string>();
+  if (storeIds.length > 0) {
+    const { data: stores } = await supabase.from("stores").select("id, name").in("id", storeIds);
+    for (const s of (stores ?? []) as { id: string; name: string }[]) storeName.set(s.id, s.name);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = (data ?? []) as any[];
-  if (rows.length === 0) return [];
-
   // Sign one thumbnail per comment in a single batch.
-  const paths = rows.map((r) => r.visit_photos?.storage_path as string).filter(Boolean);
+  const paths = comments
+    .map((c) => photoById.get(c.photo_id)?.storage_path)
+    .filter((p): p is string => Boolean(p));
   const signed = await signPhotoUrls(paths);
   const signedByPath = new Map<string, string>();
   paths.forEach((p, i) => { if (signed[i]) signedByPath.set(p, signed[i]); });
 
-  return rows.map((r) => {
-    const photo = r.visit_photos;
-    const visit = photo?.visits;
-    const path = photo?.storage_path as string | undefined;
+  return comments.map((c) => {
+    const photo = photoById.get(c.photo_id);
+    const visit = photo ? visitById.get(photo.visit_id) : undefined;
+    const path = photo?.storage_path;
     return {
-      id: r.id as string,
-      visit_id: (visit?.id as string) ?? "",
-      visit_date: (visit?.visit_date as string) ?? "",
-      store_name: (visit?.stores?.name as string) ?? "—",
-      body: r.body as string,
-      author_name: (r.author_name as string | null) ?? null,
-      created_at: r.created_at as string,
+      id: c.id,
+      visit_id: visit?.id ?? "",
+      visit_date: visit?.visit_date ?? "",
+      store_name: visit ? (storeName.get(visit.store_id) ?? "—") : "—",
+      body: c.body,
+      author_name: c.author_name ?? null,
+      created_at: c.created_at,
       thumb_url: path ? (signedByPath.get(path) ?? null) : null,
     };
   });
