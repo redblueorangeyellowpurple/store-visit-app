@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { initTelegram, getStartParam } from "../../telegram-init";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -25,6 +26,29 @@ interface VisitRow {
 interface Activity {
   visits: VisitRow[];
   trainings: { date: string; store_id: string; store_name: string; staff_count: number }[];
+}
+
+interface OpenFollowUp {
+  id: string;
+  visit_id: string;
+  title: string;
+  store_name: string;
+  due_date: string | null;
+  created_at: string;
+  openedDaysAgo: number;
+  kpiBreach: boolean;
+  overdue: boolean;
+}
+
+interface RecentPhotoComment {
+  id: string;
+  visit_id: string;
+  visit_date: string;
+  store_name: string;
+  body: string;
+  author_name: string | null;
+  created_at: string;
+  thumb_url: string | null;
 }
 
 interface SearchResult {
@@ -136,6 +160,8 @@ function VisitsContent() {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initData, setInitData] = useState<string | null>(null);
+  const [followUps, setFollowUps] = useState<OpenFollowUp[]>([]);
+  const [comments, setComments] = useState<RecentPhotoComment[]>([]);
 
   // Search overlay state
   const [searchOpen, setSearchOpen] = useState(false);
@@ -189,6 +215,16 @@ function VisitsContent() {
       setWhoami(wJson);
       setActivity(aJson);
       setNickInput(wJson.nickname ?? wJson.name.split(" ")[0]);
+
+      // Open follow-ups + recent photo comments — non-blocking, render when ready.
+      fetch("/api/m/followups", { headers })
+        .then((r) => (r.ok ? r.json() : { followUps: [] }))
+        .then((j) => setFollowUps(j.followUps ?? []))
+        .catch(() => {});
+      fetch("/api/m/comments", { headers })
+        .then((r) => (r.ok ? r.json() : { comments: [] }))
+        .then((j) => setComments(j.comments ?? []))
+        .catch(() => {});
     })().catch((e) => setError(String(e)));
   }, [router]);
 
@@ -362,6 +398,9 @@ function VisitsContent() {
             </div>
           </div>
         </header>
+
+        {/* Open follow-ups + recent comments */}
+        <AttentionBlock followUps={followUps} comments={comments} />
 
         {/* Timeline */}
         {grouped.length === 0 ? (
@@ -563,6 +602,101 @@ function VisitsContent() {
             </button>
           </div>
         </>
+      )}
+    </>
+  );
+}
+
+// ── Attention block: open follow-ups + recent comments ─────────────────────────
+
+function timeAgo(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "1w ago" : `${weeks}w ago`;
+}
+
+function AttentionBlock({
+  followUps,
+  comments,
+}: {
+  followUps: OpenFollowUp[];
+  comments: RecentPhotoComment[];
+}) {
+  if (followUps.length === 0 && comments.length === 0) return null;
+  const breaches = followUps.filter((f) => f.kpiBreach).length;
+
+  return (
+    <>
+      {followUps.length > 0 && (
+        <section className="mt-4">
+          <div className="px-4 pb-2 flex items-center justify-between">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-ink-300">
+              Open follow-ups · {followUps.length}
+            </h2>
+            {breaches > 0 && (
+              <span className="text-[10px] font-bold text-[var(--color-status-bad-fg)]">
+                ⏰ {breaches} past 48h
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1.5 px-3.5">
+            {followUps.map((f) => (
+              <li key={f.id}>
+                <Link
+                  href={`/m/visit/${f.visit_id}`}
+                  className="flex items-center gap-3 rounded-[16px] border border-ink-100 bg-white px-3.5 py-2.5 shadow-sm active:bg-ink-50"
+                >
+                  <span className={`shrink-0 text-sm ${f.kpiBreach ? "" : "opacity-30"}`}>
+                    {f.kpiBreach ? "⏰" : "○"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-bold text-ink-700">{f.title}</p>
+                    <p className="text-[11px] text-ink-300">
+                      {f.store_name} · logged {timeAgo(f.created_at)}
+                      {f.overdue && <span className="text-[var(--color-status-bad-fg)] font-semibold"> · overdue</span>}
+                    </p>
+                  </div>
+                  <span className="text-ink-200 text-sm shrink-0">›</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {comments.length > 0 && (
+        <section className="mt-4">
+          <h2 className="px-4 pb-2 text-[10px] font-bold uppercase tracking-widest text-ink-300">
+            Recent comments · {comments.length}
+          </h2>
+          <ul className="space-y-1.5 px-3.5">
+            {comments.map((c) => (
+              <li key={c.id}>
+                <Link
+                  href={`/m/visit/${c.visit_id}`}
+                  className="flex items-start gap-3 rounded-[16px] border border-ink-100 bg-white px-3 py-2.5 shadow-sm active:bg-ink-50"
+                >
+                  {c.thumb_url ? (
+                    <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-ink-100">
+                      <Image src={c.thumb_url} alt="" fill className="object-cover" sizes="44px" unoptimized />
+                    </span>
+                  ) : (
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-sm">💬</span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 text-[13px] leading-snug text-ink-700">{c.body}</p>
+                    <p className="text-[11px] text-ink-300 mt-0.5">
+                      {c.author_name ? `${c.author_name} · ` : ""}{c.store_name} · {timeAgo(c.created_at)}
+                    </p>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </>
   );
