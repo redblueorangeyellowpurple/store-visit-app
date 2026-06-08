@@ -12,6 +12,8 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
 import StoreVisitDrawer from "@/components/StoreVisitDrawer";
 import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
+import { WeeklyView } from "@/app/WeeklyView";
+import type { WeeklyReport } from "@/lib/weekly";
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -162,6 +164,14 @@ export default function HomePage() {
   const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
   const [drawerNoteSlug, setDrawerNoteSlug] = useState<string | null>(null);
 
+  // Week mode state
+  const [mode, setMode] = useState<"day" | "week">("day");
+  const [weeks, setWeeks] = useState<{ start: string; end: string; label: string }[]>([]);
+  const [activeWeek, setActiveWeek] = useState<string | null>(null);
+  const [weekReport, setWeekReport] = useState<WeeklyReport | null>(null);
+  const [loadingWeekList, setLoadingWeekList] = useState(false);
+  const [loadingWeekReport, setLoadingWeekReport] = useState(false);
+
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setUser(d));
   }, []);
@@ -177,6 +187,30 @@ export default function HomePage() {
     fetch("/api/intelligence/notes").then((r) => r.json()).then((d) => setNotes(d.notes ?? []));
   }, []);
   useEffect(() => { loadNotes(); }, [loadNotes]);
+
+  // Fetch weeks list on mount
+  useEffect(() => {
+    setLoadingWeekList(true);
+    fetch("/api/intelligence/weekly")
+      .then((r) => r.json())
+      .then((d) => {
+        const list = d.weeks ?? [];
+        setWeeks(list);
+        if (list.length > 0 && !activeWeek) setActiveWeek(list[0].start);
+      })
+      .finally(() => setLoadingWeekList(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch week report whenever activeWeek changes
+  useEffect(() => {
+    if (!activeWeek) return;
+    setLoadingWeekReport(true);
+    fetch(`/api/intelligence/weekly/${activeWeek}`)
+      .then((r) => r.json())
+      .then((d) => { setWeekReport(d.report ?? null); })
+      .finally(() => setLoadingWeekReport(false));
+  }, [activeWeek]);
 
   const silentRefresh = useCallback(async () => {
     const [reportList, currentReport, noteList] = await Promise.all([
@@ -296,41 +330,97 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Day / Week toggle — Week is deferred (richer AI weekly template, later) */}
+            {/* Day / Week toggle */}
             <div className="modetoggle">
-              <button className="on" type="button">Day</button>
-              <button className="soon" type="button" disabled title="Coming soon — a richer AI weekly synthesis">Week</button>
+              <button
+                className={mode === "day" ? "on" : ""}
+                type="button"
+                onClick={() => setMode("day")}
+              >Day</button>
+              <button
+                className={mode === "week" ? "on" : ""}
+                type="button"
+                onClick={() => setMode("week")}
+              >Week</button>
             </div>
 
-            {/* Day navigator: ‹ › arrows + date dropdown + Latest */}
-            <div className="daynav">
-              <button className="arrow" title="Older brief" disabled={!hasOlder} onClick={goOlder}>‹</button>
-              <div className="datepick">
-                <select
-                  value={activeDate ?? ""}
-                  onChange={(e) => setActiveDate(e.target.value)}
-                  disabled={reports.length === 0}
-                >
-                  {reports.length === 0 && <option value="">No briefs yet</option>}
-                  {reports.map((r, i) => (
-                    <option key={r.report_date} value={r.report_date}>
-                      {fmtDateShort(r.report_date)}{i === 0 ? "  ·  latest" : ""}{r.edited_by_human ? "  ✎" : ""}
-                    </option>
-                  ))}
-                </select>
+            {/* Day navigator — only in Day mode */}
+            {mode === "day" && (
+              <div className="daynav">
+                <button className="arrow" title="Older brief" disabled={!hasOlder} onClick={goOlder}>‹</button>
+                <div className="datepick">
+                  <select
+                    value={activeDate ?? ""}
+                    onChange={(e) => setActiveDate(e.target.value)}
+                    disabled={reports.length === 0}
+                  >
+                    {reports.length === 0 && <option value="">No briefs yet</option>}
+                    {reports.map((r, i) => (
+                      <option key={r.report_date} value={r.report_date}>
+                        {fmtDateShort(r.report_date)}{i === 0 ? "  ·  latest" : ""}{r.edited_by_human ? "  ✎" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button className="today-btn" disabled={reports.length === 0 || activeIdx === 0} onClick={goLatest}>Latest</button>
+                <button className="arrow" title="Newer brief" disabled={!hasNewer} onClick={goNewer}>›</button>
               </div>
-              <button className="today-btn" disabled={reports.length === 0 || activeIdx === 0} onClick={goLatest}>Latest</button>
-              <button className="arrow" title="Newer brief" disabled={!hasNewer} onClick={goNewer}>›</button>
-            </div>
+            )}
+
+            {/* Week navigator — only in Week mode */}
+            {mode === "week" && (() => {
+              const weekIdx = weeks.findIndex((w) => w.start === activeWeek);
+              const hasOlderWeek = weekIdx >= 0 && weekIdx < weeks.length - 1;
+              const hasNewerWeek = weekIdx > 0;
+              return (
+                <div className="daynav">
+                  <button className="arrow" title="Older week" disabled={!hasOlderWeek || loadingWeekList}
+                    onClick={() => { if (hasOlderWeek) setActiveWeek(weeks[weekIdx + 1].start); }}>‹</button>
+                  <div className="datepick">
+                    <select
+                      value={activeWeek ?? ""}
+                      onChange={(e) => setActiveWeek(e.target.value)}
+                      disabled={weeks.length === 0 || loadingWeekList}
+                    >
+                      {weeks.length === 0 && <option value="">No weeks yet</option>}
+                      {weeks.map((w, i) => (
+                        <option key={w.start} value={w.start}>
+                          {w.label}{i === 0 ? "  ·  latest" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button className="today-btn"
+                    disabled={weeks.length === 0 || weekIdx === 0 || loadingWeekList}
+                    onClick={() => { if (weeks.length > 0) setActiveWeek(weeks[0].start); }}>Latest</button>
+                  <button className="arrow" title="Newer week" disabled={!hasNewerWeek || loadingWeekList}
+                    onClick={() => { if (hasNewerWeek) setActiveWeek(weeks[weekIdx - 1].start); }}>›</button>
+                </div>
+              );
+            })()}
           </header>
 
-          {loadingReport && <p className="empty">Loading…</p>}
-          {!loadingReport && !report && (
+          {/* ── Week mode body ── */}
+          {mode === "week" && (
+            <>
+              {loadingWeekReport && <p className="empty">Loading week…</p>}
+              {!loadingWeekReport && !weekReport && !loadingWeekList && (
+                <p className="empty">No weekly data yet. Lock some visits first.</p>
+              )}
+              {!loadingWeekReport && weekReport && (
+                <WeeklyView report={weekReport} onOpenStore={setDrawerStoreId} />
+              )}
+            </>
+          )}
+
+          {/* ── Day mode body ── */}
+          {mode === "day" && loadingReport && <p className="empty">Loading…</p>}
+          {mode === "day" && !loadingReport && !report && (
             <p className="empty">No reports yet. The routine generates one each morning from locked visits.</p>
           )}
 
           {/* ── Edit mode ── */}
-          {editing && report && (
+          {mode === "day" && editing && report && (
             <div className="card">
               <textarea
                 className="editor"
@@ -350,7 +440,7 @@ export default function HomePage() {
           )}
 
           {/* ── Execution summary ── */}
-          {!editing && report && exec && (
+          {mode === "day" && !editing && report && exec && (
             <div className="card">
               <h2>Execution summary</h2>
               <div className="topline">
@@ -390,7 +480,7 @@ export default function HomePage() {
           )}
 
           {/* ── Signals ── */}
-          {!editing && report && (
+          {mode === "day" && !editing && report && (
             <div className="card">
               <h2>🔔 Signals <span className="h2-note">— patterns across ≥2 visits</span></h2>
               {signals?.body ? (
@@ -404,7 +494,7 @@ export default function HomePage() {
           )}
 
           {/* ── Alerts (always shown) ── */}
-          {!editing && report && (
+          {mode === "day" && !editing && report && (
             <div className="card card-emg">
               <h2 className="emg-h">🚨 Alerts <span className="h2-note">— explicit triggers only</span></h2>
               {alerts?.body ? (
@@ -418,7 +508,7 @@ export default function HomePage() {
           )}
 
           {/* ── Memory ── */}
-          {!editing && (
+          {mode === "day" && !editing && (
             <div className="card mem">
               <h2>Memory <span className="h2-note">— what the system remembers</span></h2>
               <div className="chips scopechips">
@@ -454,7 +544,7 @@ export default function HomePage() {
             </div>
           )}
 
-          {activeDate && <p className="gen">{fmtWeekday(activeDate)} · generated daily from locked store visits</p>}
+          {mode === "day" && activeDate && <p className="gen">{fmtWeekday(activeDate)} · generated daily from locked store visits</p>}
         </div>
       </div>
 
