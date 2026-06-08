@@ -1,4 +1,4 @@
-import { authedCMFromRequest } from "@/lib/miniapp-auth";
+import { authedCMFromRequest, viewAsReadOnly } from "@/lib/miniapp-auth";
 import {
   getFullVisitForCM,
   updateFollowUpFieldsMA,
@@ -18,6 +18,7 @@ export async function PATCH(
 ) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
+  if (cm.impersonating) return viewAsReadOnly();
 
   const { id, followupId } = await params;
   const visit = await getFullVisitForCM(cm.telegram_id, id, cm.role);
@@ -65,6 +66,7 @@ export async function DELETE(
 ) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
+  if (cm.impersonating) return viewAsReadOnly();
 
   const { id, followupId } = await params;
   const visit = await getFullVisitForCM(cm.telegram_id, id, cm.role);

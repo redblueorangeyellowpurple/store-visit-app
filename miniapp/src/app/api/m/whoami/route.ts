@@ -1,4 +1,4 @@
-import { authedCMFromRequest } from "@/lib/miniapp-auth";
+import { authedCMFromRequest, viewAsReadOnly } from "@/lib/miniapp-auth";
 import { updateCMNickname } from "@/lib/queries";
 
 export async function GET(req: Request) {
@@ -12,12 +12,17 @@ export async function GET(req: Request) {
     nickname: cm.nickname,
     role: cm.role,
     market: cm.market,
+    impersonating: !!cm.impersonating,
+    real: cm.impersonating
+      ? { telegram_id: cm.real_telegram_id, name: cm.real_name }
+      : null,
   });
 }
 
 export async function PATCH(req: Request) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
+  if (cm.impersonating) return viewAsReadOnly();
 
   let body: { nickname?: string };
   try { body = await req.json(); } catch { return Response.json({ error: "Bad request" }, { status: 400 }); }

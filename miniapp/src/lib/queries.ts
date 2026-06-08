@@ -636,6 +636,31 @@ export async function listCMsInMarket(market: string): Promise<CMOption[]> {
   }));
 }
 
+export interface ViewAsCM {
+  telegram_id: number;
+  name: string;
+  role: string;
+  market: string;
+}
+
+// Every active CM across all markets — for the admin view-as picker.
+export async function listAllActiveCMs(): Promise<ViewAsCM[]> {
+  const { data, error } = await supabase
+    .from("cms")
+    .select("telegram_id, full_name, nickname, role, market")
+    .eq("is_active", true)
+    .order("market")
+    .order("full_name");
+  if (error || !data) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any[]).map((c) => ({
+    telegram_id: c.telegram_id as number,
+    name: (c.nickname as string | null) ?? (c.full_name as string),
+    role: c.role as string,
+    market: c.market as string,
+  }));
+}
+
 export async function updateCMNickname(telegramId: number, nickname: string): Promise<boolean> {
   const { error } = await supabase
     .from("cms")

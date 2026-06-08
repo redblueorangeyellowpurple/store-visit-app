@@ -1,4 +1,4 @@
-import { authedCMFromRequest } from "@/lib/miniapp-auth";
+import { authedCMFromRequest, viewAsReadOnly } from "@/lib/miniapp-auth";
 import { getFullVisitForCM, acknowledgeVisitReview } from "@/lib/queries";
 
 // POST — the CM marks the AM review feedback on this visit as seen.
@@ -8,6 +8,7 @@ export async function POST(
 ) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
+  if (cm.impersonating) return viewAsReadOnly();
 
   const { id } = await params;
   // Reuse the visit fetch as the access gate — it returns null unless the CM is

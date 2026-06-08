@@ -1,4 +1,4 @@
-import { authedCMFromRequest } from "@/lib/miniapp-auth";
+import { authedCMFromRequest, viewAsReadOnly } from "@/lib/miniapp-auth";
 import { getStaffDetailForCM, updateStaffProfile } from "@/lib/queries";
 
 // Per-staff detail + lifetime engagement rollup for the m/staff/[id] screen.
@@ -23,6 +23,7 @@ export async function PATCH(
 ) {
   const cm = await authedCMFromRequest(req);
   if (!cm) return Response.json({ error: "Not authorised" }, { status: 401 });
+  if (cm.impersonating) return viewAsReadOnly();
 
   const { id } = await params;
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;

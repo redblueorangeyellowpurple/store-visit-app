@@ -79,24 +79,83 @@ export interface AuthedCM {
   nickname: string | null;
   role: "cm" | "cmic" | "am" | "admin";
   market: "SG" | "TH" | "MY" | "HK";
+  // Set only when a real admin is viewing the app "as" another CM (view-as
+  // mode). Downstream routes transparently see the *target* identity; these
+  // fields carry the truth about who is really behind the session.
+  impersonating?: boolean;
+  real_telegram_id?: number;
+  real_name?: string;
+}
+
+// Header carrying the view-as target's telegram id. The mini app's root-layout
+// fetch shim adds it to every /api/m/* request when an admin has picked someone
+// to view as (the choice lives in sessionStorage → it naturally resets when the
+// app is reopened). It rides the same requests as the Authorization header, so
+// there's no separate persistence to fail. Only honoured when the verified
+// caller is a real admin — a forged header therefore grants nothing.
+export const VIEW_AS_HEADER = "x-view-as";
+
+function readViewAsHeader(req: Request): number | null {
+  const raw = req.headers.get(VIEW_AS_HEADER);
+  if (!raw) return null;
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function fetchActiveCM(telegramId: number): Promise<AuthedCM | null> {
+  const { supabase } = await import("./supabase");
+  const { data, error } = await supabase
+    .from("cms")
+    .select("telegram_id, full_name, nickname, role, market")
+    .eq("telegram_id", telegramId)
+    .eq("is_active", true)
+    .single();
+  if (error || !data) return null;
+  return data as AuthedCM;
+}
+
+// The *real* signed-in CM, derived purely from cryptographically-verified
+// Telegram initData — never swapped for a view-as target. The view-as routes
+// themselves use this so an admin in view-as mode can still manage (and exit)
+// their own session.
+export async function realCMFromRequest(req: Request): Promise<AuthedCM | null> {
+  const initData = readInitDataHeader(req);
+  if (!initData) return null;
+  const verified = verifyInitData(initData);
+  if (!verified) return null;
+  return fetchActiveCM(verified.user.id);
 }
 
 export async function authedCMFromRequest(
   req: Request,
 ): Promise<AuthedCM | null> {
-  const initData = readInitDataHeader(req);
-  if (!initData) return null;
-  const verified = verifyInitData(initData);
-  if (!verified) return null;
+  const real = await realCMFromRequest(req);
+  if (!real) return null;
 
-  const { supabase } = await import("./supabase");
-  const { data, error } = await supabase
-    .from("cms")
-    .select("telegram_id, full_name, nickname, role, market")
-    .eq("telegram_id", verified.user.id)
-    .eq("is_active", true)
-    .single();
+  // View-as: only a real admin may borrow another active CM's identity.
+  if (real.role === "admin") {
+    const targetId = readViewAsHeader(req);
+    if (targetId && targetId !== real.telegram_id) {
+      const target = await fetchActiveCM(targetId);
+      if (target) {
+        return {
+          ...target,
+          impersonating: true,
+          real_telegram_id: real.telegram_id,
+          real_name: real.nickname ?? real.full_name,
+        };
+      }
+      // target gone/inactive → fall through to the admin's own identity
+    }
+  }
+  return real;
+}
 
-  if (error || !data) return null;
-  return data as AuthedCM;
+// Standard 403 for mutation routes when the caller is in view-as (read-only)
+// mode. Keeps the message identical across every write route.
+export function viewAsReadOnly(): Response {
+  return Response.json(
+    { error: "View-as is read-only — exit view-as to make changes." },
+    { status: 403 },
+  );
 }
