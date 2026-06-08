@@ -146,11 +146,12 @@ export async function POST(
     : undefined;
 
   const market = ctx.market;
-  const chatId = market ? await getAlertGroupChatIdMA(market) : null;
-  if (chatId) {
-    await sendTelegramMessage(chatId, broadcastText, {
+  const target = market ? await getAlertGroupChatIdMA(market) : null;
+  if (target) {
+    await sendTelegramMessage(target.chatId, broadcastText, {
       reply_markup: broadcastKb,
       link_preview_options: { is_disabled: true },
+      ...(target.threadId != null ? { message_thread_id: target.threadId } : {}),
     });
   } else {
     // No market or no chat_id configured — DM the flagged admins so the

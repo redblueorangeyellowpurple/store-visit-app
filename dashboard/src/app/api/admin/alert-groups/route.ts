@@ -24,7 +24,7 @@ export async function PATCH(req: NextRequest) {
     return Response.json({ error: "invalid market" }, { status: 400 });
   }
 
-  const patch: { chat_id?: number | null; intelligence_mode?: IntelligenceMode } = {};
+  const patch: { chat_id?: number | null; message_thread_id?: number | null; intelligence_mode?: IntelligenceMode } = {};
 
   if (body.chat_id !== undefined) {
     if (body.chat_id === null || body.chat_id === "") {
@@ -35,6 +35,18 @@ export async function PATCH(req: NextRequest) {
         return Response.json({ error: "chat_id must be an integer or null" }, { status: 400 });
       }
       patch.chat_id = n;
+    }
+  }
+
+  if (body.message_thread_id !== undefined) {
+    if (body.message_thread_id === null || body.message_thread_id === "") {
+      patch.message_thread_id = null;
+    } else {
+      const n = Number(body.message_thread_id);
+      if (!Number.isInteger(n)) {
+        return Response.json({ error: "message_thread_id must be an integer or null" }, { status: 400 });
+      }
+      patch.message_thread_id = n;
     }
   }
 

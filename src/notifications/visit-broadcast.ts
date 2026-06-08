@@ -21,10 +21,17 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
-async function resolveChatId(market: Market | null, botApi: Api): Promise<number | null> {
+interface AlertTarget {
+  chatId: number;
+  threadId: number | null;
+}
+
+async function resolveChatId(market: Market | null, botApi: Api): Promise<AlertTarget | null> {
   if (market) {
     const group = await getAlertGroup(market);
-    if (group?.chat_id) return group.chat_id;
+    if (group?.chat_id) {
+      return { chatId: group.chat_id, threadId: group.message_thread_id ?? null };
+    }
     await notifyAdmins(
       botApi,
       `⚠️ Visit locked in ${market} but no alert group is configured for that market. Set a chat in the dashboard Admin tab.`,
@@ -65,11 +72,12 @@ export async function broadcastVisitLocked(
     const row = visitRes.data as unknown as BroadcastRow;
     const market = row.stores?.market ?? null;
 
-    const chatId = await resolveChatId(market, botApi);
-    if (!chatId) {
+    const target = await resolveChatId(market, botApi);
+    if (!target) {
       console.log(`[broadcast] no chat_id for market ${market ?? '(unknown)'} — admins DM'd, skipping group send`);
       return;
     }
+    const { chatId, threadId } = target;
 
     const lead = cmRows.find((r) => r.role === 'lead');
     const cos = cmRows.filter((r) => r.role === 'co');
@@ -101,12 +109,33 @@ export async function broadcastVisitLocked(
       `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}` +
       `?startapp=visit_${visitId}`;
 
-    await botApi.sendMessage(chatId, text, {
-      parse_mode: 'Markdown',
+    const opts = {
+      parse_mode: 'Markdown' as const,
       reply_markup: new InlineKeyboard().url('📷 View full visit', deepLink),
       link_preview_options: { is_disabled: true },
-    });
+    };
+
+    try {
+      await botApi.sendMessage(chatId, text, {
+        ...opts,
+        ...(threadId != null ? { message_thread_id: threadId } : {}),
+      });
+    } catch (err) {
+      // A stale/deleted topic returns 400 "message thread not found" — don't let
+      // it silently kill the broadcast; retry into the group's General topic.
+      if (threadId != null && isThreadNotFound(err)) {
+        console.warn(`[broadcast] thread ${threadId} not found for chat ${chatId} — falling back to General`);
+        await botApi.sendMessage(chatId, text, opts);
+      } else {
+        throw err;
+      }
+    }
   } catch (err) {
     console.error('[broadcast] failed:', err);
   }
+}
+
+function isThreadNotFound(err: unknown): boolean {
+  const desc = (err as { description?: string } | null)?.description ?? '';
+  return /thread not found/i.test(desc);
 }

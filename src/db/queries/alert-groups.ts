@@ -6,13 +6,14 @@ export type IntelligenceMode = 'people' | 'group' | 'both';
 export interface AlertGroup {
   market: Market;
   chat_id: number | null;
+  message_thread_id: number | null;
   intelligence_mode: IntelligenceMode;
 }
 
 export async function getAlertGroup(market: Market): Promise<AlertGroup | null> {
   const { data, error } = await supabase
     .from('alert_groups')
-    .select('market, chat_id, intelligence_mode')
+    .select('market, chat_id, message_thread_id, intelligence_mode')
     .eq('market', market)
     .maybeSingle();
   if (error) {
@@ -25,7 +26,7 @@ export async function getAlertGroup(market: Market): Promise<AlertGroup | null> 
 export async function listAlertGroups(): Promise<AlertGroup[]> {
   const { data, error } = await supabase
     .from('alert_groups')
-    .select('market, chat_id, intelligence_mode')
+    .select('market, chat_id, message_thread_id, intelligence_mode')
     .order('market');
   if (error) {
     console.error('[alert-groups] listAlertGroups failed:', error);
@@ -36,6 +37,7 @@ export async function listAlertGroups(): Promise<AlertGroup[]> {
 
 export interface AlertGroupPatch {
   chat_id?: number | null;
+  message_thread_id?: number | null;
   intelligence_mode?: IntelligenceMode;
 }
 

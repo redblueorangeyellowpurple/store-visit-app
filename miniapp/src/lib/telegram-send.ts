@@ -23,6 +23,7 @@ interface SendMessageOpts {
   parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   reply_markup?: InlineKeyboardMarkup | ReplyKeyboardMarkup;
   link_preview_options?: { is_disabled: boolean };
+  message_thread_id?: number;
 }
 
 export async function sendTelegramMessage(
@@ -43,6 +44,13 @@ export async function sendTelegramMessage(
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
+      // A stale/deleted topic returns 400 "message thread not found" — retry
+      // into the group's General topic so the message isn't silently dropped.
+      if (opts.message_thread_id != null && /thread not found/i.test(body)) {
+        console.warn(`[telegram-send] thread ${opts.message_thread_id} not found for chat ${chatId} — falling back to General`);
+        const { message_thread_id: _drop, ...rest } = opts;
+        return sendTelegramMessage(chatId, text, rest);
+      }
       console.error('[telegram-send] non-2xx:', res.status, body);
       return false;
     }

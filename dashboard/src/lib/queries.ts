@@ -1530,6 +1530,7 @@ export type IntelligenceMode = 'people' | 'group' | 'both';
 export interface AlertGroupRow {
   market: AdminMarket;
   chat_id: number | null;
+  message_thread_id: number | null;
   intelligence_mode: IntelligenceMode;
   updated_at: string;
 }
@@ -1537,7 +1538,7 @@ export interface AlertGroupRow {
 export async function listAlertGroups(): Promise<AlertGroupRow[]> {
   const { data, error } = await supabase
     .from('alert_groups')
-    .select('market, chat_id, intelligence_mode, updated_at')
+    .select('market, chat_id, message_thread_id, intelligence_mode, updated_at')
     .order('market');
   if (error || !data) {
     console.error('listAlertGroups error:', error);
@@ -1548,6 +1549,7 @@ export async function listAlertGroups(): Promise<AlertGroupRow[]> {
 
 export interface AlertGroupPatch {
   chat_id?: number | null;
+  message_thread_id?: number | null;
   intelligence_mode?: IntelligenceMode;
 }
 

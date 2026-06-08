@@ -33,6 +33,7 @@ interface PendingPerson {
 interface AlertGroup {
   market: Market;
   chat_id: number | null;
+  message_thread_id: number | null;
   intelligence_mode: IntelligenceMode;
   updated_at: string;
 }
@@ -102,11 +103,11 @@ export default function AdminPage() {
 
   // Alert groups
   const [groups, setGroups] = useState<AlertGroup[]>([]);
-  const [groupDrafts, setGroupDrafts] = useState<Record<Market, { chat_id: string; intelligence_mode: IntelligenceMode }>>({
-    SG: { chat_id: "", intelligence_mode: "people" },
-    MY: { chat_id: "", intelligence_mode: "people" },
-    HK: { chat_id: "", intelligence_mode: "people" },
-    TH: { chat_id: "", intelligence_mode: "people" },
+  const [groupDrafts, setGroupDrafts] = useState<Record<Market, { chat_id: string; message_thread_id: string; intelligence_mode: IntelligenceMode }>>({
+    SG: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+    MY: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+    HK: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+    TH: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
   });
   const [groupTestResult, setGroupTestResult] = useState<Record<Market, string | null>>({
     SG: null, MY: null, HK: null, TH: null,
@@ -163,14 +164,15 @@ export default function AdminPage() {
       const list: AlertGroup[] = d.groups;
       setGroups(list);
       const drafts: typeof groupDrafts = {
-        SG: { chat_id: "", intelligence_mode: "people" },
-        MY: { chat_id: "", intelligence_mode: "people" },
-        HK: { chat_id: "", intelligence_mode: "people" },
-        TH: { chat_id: "", intelligence_mode: "people" },
+        SG: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+        MY: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+        HK: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
+        TH: { chat_id: "", message_thread_id: "", intelligence_mode: "people" },
       };
       for (const g of list) {
         drafts[g.market] = {
           chat_id: g.chat_id?.toString() ?? "",
+          message_thread_id: g.message_thread_id?.toString() ?? "",
           intelligence_mode: g.intelligence_mode,
         };
       }
@@ -348,13 +350,20 @@ export default function AdminPage() {
     setError(null);
     const draft = groupDrafts[market];
     const chatIdValue = draft.chat_id.trim();
+    const threadIdValue = draft.message_thread_id.trim();
     const body: Record<string, unknown> = {
       market,
       chat_id: chatIdValue === "" ? null : Number(chatIdValue),
+      message_thread_id: threadIdValue === "" ? null : Number(threadIdValue),
       intelligence_mode: draft.intelligence_mode,
     };
     if (chatIdValue !== "" && !Number.isInteger(body.chat_id)) {
       setError(`${market} chat_id must be an integer`);
+      setSavingKey(null);
+      return;
+    }
+    if (threadIdValue !== "" && !Number.isInteger(body.message_thread_id)) {
+      setError(`${market} topic thread ID must be an integer`);
       setSavingKey(null);
       return;
     }
@@ -787,6 +796,14 @@ export default function AdminPage() {
                     placeholder="Telegram chat_id (e.g. -1001234567890)"
                     value={draft.chat_id}
                     onChange={(e) => setGroupDrafts((d) => ({ ...d, [m]: { ...d[m], chat_id: e.target.value } }))}
+                    disabled={saving}
+                  />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Topic thread ID (blank = General)"
+                    value={draft.message_thread_id}
+                    onChange={(e) => setGroupDrafts((d) => ({ ...d, [m]: { ...d[m], message_thread_id: e.target.value } }))}
                     disabled={saving}
                   />
                   <select

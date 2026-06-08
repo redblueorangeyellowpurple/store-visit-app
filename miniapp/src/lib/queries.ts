@@ -1268,13 +1268,15 @@ export async function getFinalizeContext(
 // Per-market alert routing. Mirrors src/db/queries/alert-groups.ts:getAlertGroup.
 export async function getAlertGroupChatIdMA(
   market: "SG" | "MY" | "HK" | "TH",
-): Promise<number | null> {
+): Promise<{ chatId: number; threadId: number | null } | null> {
   const { data } = await supabase
     .from("alert_groups")
-    .select("chat_id")
+    .select("chat_id, message_thread_id")
     .eq("market", market)
     .maybeSingle();
-  return ((data as { chat_id: number | null } | null)?.chat_id) ?? null;
+  const row = data as { chat_id: number | null; message_thread_id: number | null } | null;
+  if (!row?.chat_id) return null;
+  return { chatId: row.chat_id, threadId: row.message_thread_id ?? null };
 }
 
 // Admins flagged for DM fallback when a market has no alert chat.

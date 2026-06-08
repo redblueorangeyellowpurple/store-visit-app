@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { BotContext, authMiddleware, requireAuth } from './middleware/auth.js';
 import { escapeHatchMiddleware } from './middleware/escape-hatch.js';
 import { groupGuardMiddleware } from './middleware/groups.js';
+import { handleTopicId } from './commands/topicid.js';
 import { handleStart } from './commands/start.js';
 import { handleHelp } from './commands/help.js';
 import { handleLinks } from './commands/links.js';
@@ -59,6 +60,10 @@ export function createBot(): Bot<BotContext> {
   // covers all traffic; if the bot is ever scaled past 1 replica this must be
   // revisited (per-process queues would let the race back in).
   bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
+
+  // Setup helper — registered BEFORE the group guard so it works inside group
+  // topics (the guard drops all other commands in groups). Terminal handler.
+  bot.command('topicid', handleTopicId);
 
   bot.use(groupGuardMiddleware);
   bot.use(session({ initial: () => ({}) }));
