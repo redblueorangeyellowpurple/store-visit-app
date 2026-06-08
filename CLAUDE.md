@@ -73,7 +73,7 @@ Each service has its own `railway.toml` — the bot's at repo root, the miniapp'
 - `miniapp/src/app/health/route.ts` — Railway healthcheck
 
 ### Intelligence routine
-- `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → Signals → Alerts. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]].
+- `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → Signals → Alerts. As of 2026-06-05 the routine **computes + persists only** (`telegram_summary` saved into the report's `stats` jsonb, no team broadcast); the bot's `cron/morning-cron.ts` does the 08:00 preview-to-Wilson + 09:00 team send. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]] + [[scheduler-edit-goes-live-before-deploy]].
 
 ---
 
