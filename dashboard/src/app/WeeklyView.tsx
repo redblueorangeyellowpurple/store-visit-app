@@ -1,8 +1,27 @@
 "use client";
 
+import type React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { WeeklyReport } from "@/lib/weekly";
 
 const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
+
+const wkSanitize = { ...defaultSchema, tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"] };
+
+// Store links in the narrative (/visits/store/<id> or /visits/visit/<id>/...) open
+// the same drawer the daily report uses, rendered as a source chip.
+function narrativeComponents(onOpenStore: (id: string) => void) {
+  return {
+    a({ href, children }: { href?: string; children?: React.ReactNode }) {
+      const m = href?.match(/^\/visits\/(?:store|visit)\/([^/?#]+)/);
+      if (m) return <button className="wk-chip" onClick={() => onOpenStore(m[1])}>{children}</button>;
+      return <a href={href}>{children}</a>;
+    },
+  };
+}
 
 function fmtPct(n: number): string { return `${n}%`; }
 function fmtWow(n: number | null): string | null {
@@ -271,10 +290,22 @@ export function WeeklyView({
         ))}
       </section>
 
-      {/* Placeholder for AI sections */}
-      <div className="wk-ai-placeholder">
-        🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
-      </div>
+      {/* AI narrative — Signals / Alerts / Engagements (stored, editable). */}
+      {report.narrativeMarkdown ? (
+        <section className="wk-section wk-narrative">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
+            components={narrativeComponents(onOpenStore)}
+          >
+            {report.narrativeMarkdown}
+          </ReactMarkdown>
+        </section>
+      ) : (
+        <div className="wk-ai-placeholder">
+          🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
+        </div>
+      )}
     </div>
   );
 }
@@ -386,6 +417,19 @@ const WK_CSS = `
 .wk-ds-fu-wrap{margin-top:4px;}
 .wk-fu{display:inline-block;font-size:12px;background:var(--wk-warn-soft);color:var(--wk-warn);
   padding:2px 9px;border-radius:20px;margin:2px 3px 2px 0;}
+
+/* narrative (Signals / Alerts / Engagements) */
+.wk-narrative h2{font-size:15px;margin:18px 0 8px;}
+.wk-narrative h2:first-child{margin-top:0;}
+.wk-narrative ul{margin:0;padding-left:18px;}
+.wk-narrative li{padding:4px 0;font-size:13.5px;line-height:1.5;}
+.wk-narrative p{font-size:13.5px;margin:6px 0;}
+.wk-narrative strong{font-weight:700;}
+.wk-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--wk-chip-ink);
+  background:var(--wk-chip);border:1px solid transparent;padding:1px 9px;border-radius:20px;
+  cursor:pointer;margin:0 1px;transition:.15s;}
+.wk-chip:hover{background:#e1e6ec;border-color:#cdd6df;}
+.wk-chip::before{content:"↗";font-size:10px;opacity:.5;}
 
 /* placeholder card */
 .wk-ai-placeholder{background:var(--wk-card);border:1px dashed var(--wk-line);border-radius:14px;

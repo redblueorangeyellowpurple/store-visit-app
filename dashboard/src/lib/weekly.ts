@@ -53,6 +53,7 @@ export interface WeeklyReport {
   weekStart: string;
   weekEnd: string;
   label: string;
+  narrativeMarkdown: string | null; // AI Signals/Alerts/Engagements; null until generated
   stats: {
     planned: number;
     executed: number;
@@ -524,10 +525,19 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
       return { tier, storesVisited: tierTotal, markets };
     });
 
+  // ── Stored AI narrative (latest version for this week), if generated ────────
+  const { data: narrRow } = await supabase
+    .from("v_weekly_reports_current")
+    .select("brief_markdown")
+    .eq("week_start", weekStart)
+    .maybeSingle();
+  const narrativeMarkdown = (narrRow as { brief_markdown: string } | null)?.brief_markdown ?? null;
+
   return {
     weekStart,
     weekEnd,
     label,
+    narrativeMarkdown,
     stats: {
       planned,
       executed,
