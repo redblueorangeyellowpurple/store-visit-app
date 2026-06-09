@@ -55,9 +55,10 @@ function groupTodosByStore(fus: RecapData['openFollowUps']): StoreTodos[] {
 }
 
 // Italic due-date line shown under a to-do; null when the follow-up has no due.
+// No emoji — Telegram can't italicise an emoji glyph, so it reads as detached.
 function dueLine(due: string | null, todayISO: string): string | null {
   if (!due) return null;
-  if (due < todayISO) return '⚠️ overdue';
+  if (due < todayISO) return 'overdue';
   if (due === todayISO) return 'due today';
   return `due ${prettyDate(due)}`;
 }
@@ -132,8 +133,11 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
 
     if (d.openFollowUps.length > 0) {
       let shown = 0;
+      let firstStore = true;
       for (const g of groupTodosByStore(d.openFollowUps)) {
         if (shown >= TODO_LIMIT) break;
+        if (!firstStore) lines.push(''); // blank line between stores
+        firstStore = false;
         lines.push(escapeMd(g.store));
         for (const f of g.items) {
           if (shown >= TODO_LIMIT) break;
