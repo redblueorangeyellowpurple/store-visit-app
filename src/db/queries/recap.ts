@@ -1,4 +1,5 @@
 import { supabase } from '../client.js';
+import { storeLabel } from '../../utils/store-label.js';
 
 // Data layer for the daily per-CM recap. All reads are scoped to one CM and one
 // SGT date. Pure DB assembly — formatting lives in notifications/daily-recap.ts.
@@ -16,6 +17,7 @@ export interface RecapData {
   plannedExecuted: string[]; // planned for the date AND visited
   plannedMissed: string[];   // planned for the date but NOT visited
   walkIns: string[];         // visited but not in the plan
+  plannedToday: string[];    // stores planned for TODAY (date + 1) not yet consumed
   // openedDaysAgo / kpiBreach drive the <48h follow-up KPI: kpiBreach is true
   // once a follow-up has been open longer than 48h without being closed.
   openFollowUps: { title: string; store: string; due: string | null; overdue: boolean; openedDaysAgo: number; kpiBreach: boolean }[];
@@ -55,11 +57,6 @@ export async function getRecapRecipients(): Promise<RecapRecipient[]> {
   return (data as RecapRecipient[]) ?? [];
 }
 
-function storeLabel(s: { name: string | null; chain: string | null } | null | undefined): string {
-  const name = s?.name ?? 'a store';
-  return s?.chain ? `${name} @ ${s.chain}` : name;
-}
-
 // Assemble one CM's recap for a given SGT date (YYYY-MM-DD). Returns null only on
 // a hard query error; an empty day returns a RecapData with empty arrays so the
 // caller can decide whether it's worth sending.
@@ -69,9 +66,10 @@ export async function getCMDailyRecap(
 ): Promise<RecapData | null> {
   const start = `${date}T00:00:00+08:00`;
   const end = `${date}T23:59:59.999+08:00`;
+  const todayISO = addDaysISO(date, 1); // the morning the recap is read
 
-  // 1. Visits locked on the date + 2. plans for the date + 4. open follow-ups +
-  // 5. recent visits with unacknowledged AM feedback.
+  // 1. Visits locked on the date + 2. plans for the date AND today (date+1) +
+  // 4. open follow-ups + 5. recent visits with unacknowledged AM feedback.
   const feedbackCutoff = `${addDaysISO(date, -FEEDBACK_WINDOW_DAYS)}T00:00:00+08:00`;
   const [visitsRes, plansRes, fuRes, unackedRes] = await Promise.all([
     supabase
@@ -83,9 +81,9 @@ export async function getCMDailyRecap(
       .lte('locked_at', end),
     supabase
       .from('visit_plans')
-      .select('store_id')
+      .select('store_id, planned_date, consumed_at')
       .eq('cm_telegram_id', telegramId)
-      .eq('planned_date', date),
+      .in('planned_date', [date, todayISO]),
     supabase
       .from('visit_follow_ups')
       .select('title, due_date, store_id, created_at')
@@ -107,7 +105,7 @@ export async function getCMDailyRecap(
   }
 
   const visits = (visitsRes.data ?? []) as { id: string; store_id: string }[];
-  const plans = (plansRes.data ?? []) as { store_id: string }[];
+  const plans = (plansRes.data ?? []) as { store_id: string; planned_date: string; consumed_at: string | null }[];
   const fus = (fuRes.data ?? []) as { title: string; due_date: string | null; store_id: string; created_at: string }[];
   const unackedVisits = (unackedRes.data ?? []) as { id: string; store_id: string }[];
 
@@ -199,14 +197,21 @@ export async function getCMDailyRecap(
     }
   }
 
-  // Planned-vs-executed: compare the set of stores visited against the planned set.
+  // Planned-vs-executed: compare the set of stores visited against the set planned
+  // FOR THE RECAP DATE (yesterday) — today's plans are reported separately below.
   const visitedStoreIds = new Set(visits.map((v) => v.store_id));
-  const plannedStoreIds = new Set(plans.map((p) => p.store_id));
+  const plannedStoreIds = new Set(plans.filter((p) => p.planned_date === date).map((p) => p.store_id));
 
   const visitedStores = [...visitedStoreIds].map(label);
   const plannedExecuted = [...plannedStoreIds].filter((id) => visitedStoreIds.has(id)).map(label);
   const plannedMissed = [...plannedStoreIds].filter((id) => !visitedStoreIds.has(id)).map(label);
   const walkIns = [...visitedStoreIds].filter((id) => !plannedStoreIds.has(id)).map(label);
+
+  // Today's plan: stores planned for the morning the recap is read, not yet
+  // consumed by a logged visit — "what's on for today".
+  const plannedToday = Array.from(
+    new Set(plans.filter((p) => p.planned_date === todayISO && !p.consumed_at).map((p) => p.store_id)),
+  ).map(label);
 
   // Open follow-ups, with overdue flagged against the recap date and age measured
   // against ~09:00 the morning the recap is sent (date + 1) for the 48h KPI.
@@ -232,6 +237,7 @@ export async function getCMDailyRecap(
     plannedExecuted,
     plannedMissed,
     walkIns,
+    plannedToday,
     openFollowUps,
     followUpOpenTotal: fus.length,
     followUpKpiBreaches,

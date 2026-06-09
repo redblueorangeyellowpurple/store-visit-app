@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { createBot } from './bot/bot.js';
 import { getJoinRequestAdmins, listAlertGroups } from './db/queries/alert-groups.js';
 import { registerMorningCrons } from './cron/morning-cron.js';
+import { registerBotCommands } from './bot/set-commands.js';
 
 const bot = createBot();
 // Morning pipeline scheduler: 08:00 SGT preview to Wilson, 09:00 SGT team send
@@ -67,5 +68,6 @@ app.listen(config.webhook.port, async () => {
   await bot.api.setWebhook(webhookUrl, { secret_token: config.telegram.webhookSecret });
   console.log(`Bot server running on port ${config.webhook.port}`);
   console.log(`Webhook set to ${webhookUrl}`);
+  await registerBotCommands(bot);
   await startupHealthCheck();
 });

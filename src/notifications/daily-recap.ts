@@ -32,22 +32,35 @@ function addDaysISO(date: string, n: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-function dueLabel(due: string | null, todayISO: string): string {
-  if (!due) return '';
-  if (due < todayISO) return ' · ⚠️ overdue';
-  if (due === todayISO) return ' · due today';
-  return ` · due ${prettyDate(due)}`;
+const TODO_LIMIT = 12; // show at most this many to-dos inline, then "+N more"
+
+interface StoreTodos {
+  store: string;
+  items: RecapData['openFollowUps'];
 }
 
-// When a follow-up was logged, for the 48h KPI. A breach (>48h still open) gets
-// the ⏰ marker; otherwise just a quiet "logged Nd ago".
-function ageLabel(daysAgo: number, breach: boolean): string {
-  if (breach) return ` · ⏰ ${daysAgo}d open`;
-  if (daysAgo <= 0) return ' · logged today';
-  return ` · logged ${daysAgo}d ago`;
+// Group open follow-ups by store, preserving order: `fus` arrives sorted by due
+// date ascending, so the store carrying the most urgent item lands first.
+function groupTodosByStore(fus: RecapData['openFollowUps']): StoreTodos[] {
+  const order: string[] = [];
+  const byStore = new Map<string, RecapData['openFollowUps']>();
+  for (const f of fus) {
+    if (!byStore.has(f.store)) {
+      byStore.set(f.store, []);
+      order.push(f.store);
+    }
+    byStore.get(f.store)!.push(f);
+  }
+  return order.map((store) => ({ store, items: byStore.get(store) as RecapData['openFollowUps'] }));
 }
 
-const FU_LIMIT = 5; // show at most this many follow-ups inline, then "+N more"
+// Italic due-date line shown under a to-do; null when the follow-up has no due.
+function dueLine(due: string | null, todayISO: string): string | null {
+  if (!due) return null;
+  if (due < todayISO) return '⚠️ overdue';
+  if (due === todayISO) return 'due today';
+  return `due ${prettyDate(due)}`;
+}
 
 // True when there's genuinely nothing worth sending — no visits, no missed
 // plans, no open follow-ups. We skip these so a quiet day isn't a nag.
@@ -55,19 +68,13 @@ export function isRecapEmpty(d: RecapData): boolean {
   return (
     d.visitedStores.length === 0 &&
     d.plannedMissed.length === 0 &&
+    d.plannedToday.length === 0 &&
     d.followUpOpenTotal === 0 &&
     d.pendingFeedback.length === 0
   );
 }
 
-const FB_LIMIT = 5; // show at most this many feedback visits inline, then "+N more"
-
-function feedbackBits(f: RecapData['pendingFeedback'][number]): string {
-  return [
-    f.fixes > 0 ? `${f.fixes} fix${f.fixes !== 1 ? 'es' : ''}` : null,
-    f.comments > 0 ? `${f.comments} comment${f.comments !== 1 ? 's' : ''}` : null,
-  ].filter(Boolean).join(' · ');
-}
+const FB_LIMIT = 5; // show at most this many comment visits inline, then "+N more"
 
 // Inline "open the viewer" buttons for each pending-feedback visit. We use
 // buttons (not a Markdown text link) because the mini-app deep-link URL carries
@@ -78,7 +85,7 @@ export function buildRecapKeyboard(d: RecapData): InlineKeyboard | undefined {
   const kb = new InlineKeyboard();
   for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
     const url = `https://t.me/${config.broadcast.botUsername}/${config.miniapp.shortName}?startapp=visit_${f.visitId}`;
-    kb.url(`⬚ ${f.store}`, url).row();
+    kb.url(`💬 ${f.store}`, url).row();
   }
   return kb;
 }
@@ -87,18 +94,21 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
   const todayISO = addDaysISO(date, 1);
   const lines: string[] = [];
 
-  lines.push(`☀️ *Morning, ${escapeMd(name)}!* Your yesterday — ${prettyDate(date)}`);
+  lines.push(`☀️ *Morning, ${escapeMd(name)}!* — recap for ${prettyDate(date)}`);
 
-  // Stores visited
+  // 🏬 Execution Summary — yesterday's planned-vs-done + walk-ins, in one block.
+  // ✓ done as planned · ＋ walk-in (done, not planned) · ✗ planned but missed.
   lines.push('');
-  if (d.visitedStores.length > 0) {
-    lines.push(`🏬 *Stores visited: ${d.visitedStores.length}*`);
-    for (const s of d.visitedStores) lines.push(`• ${escapeMd(s)}`);
+  lines.push('🏬 *Execution Summary*');
+  if (d.plannedExecuted.length || d.walkIns.length || d.plannedMissed.length) {
+    for (const s of d.plannedExecuted) lines.push(`✓ ${escapeMd(s)}`);
+    for (const s of d.walkIns) lines.push(`＋ ${escapeMd(s)}`);
+    for (const s of d.plannedMissed) lines.push(`✗ ${escapeMd(s)}`);
   } else {
-    lines.push('🏬 *No store visits logged yesterday.*');
+    lines.push('_No visits logged yesterday._');
   }
 
-  // Engagements
+  // 👥 Engagements
   if (d.engagementCount > 0) {
     const ppl = `${d.engagementCount} ${d.engagementCount === 1 ? 'person' : 'people'}`;
     const trained = d.trainedCount > 0 ? ` (${d.trainedCount} trained)` : '';
@@ -106,38 +116,47 @@ export function buildRecapMessage(name: string, date: string, d: RecapData): str
     lines.push(`👥 *Engagements: ${ppl}*${trained}`);
   }
 
-  // Planned vs done — only when there was a plan or a walk-in to report.
-  if (d.plannedExecuted.length || d.plannedMissed.length || d.walkIns.length) {
+  // 📅 Today — what's planned for the morning this recap is read (not yet logged).
+  if (d.plannedToday.length > 0) {
     lines.push('');
-    lines.push('📋 *Planned vs done*');
-    for (const s of d.plannedExecuted) lines.push(`✓ ${escapeMd(s)}`);
-    for (const s of d.walkIns) lines.push(`＋ ${escapeMd(s)} _(walk-in)_`);
-    for (const s of d.plannedMissed) lines.push(`✗ ${escapeMd(s)} _(planned, missed)_`);
+    lines.push(`📅 *Today* — ${prettyDate(todayISO)}`);
+    for (const s of d.plannedToday) lines.push(`• ${escapeMd(s)}`);
   }
 
-  // Open follow-ups — with logged-age + the 48h KPI flag (⏰) so anything left
-  // open past the window is impossible to miss.
-  if (d.followUpOpenTotal > 0) {
+  // 📌 Open Follow-Ups — to-dos grouped by due date (overdue / today / upcoming),
+  // then store comments shown by author. Tap-through buttons for the commented
+  // visits are attached via buildRecapKeyboard at send time.
+  if (d.openFollowUps.length > 0 || d.pendingFeedback.length > 0) {
     lines.push('');
-    const kpi = d.followUpKpiBreaches > 0 ? ` · ⏰ ${d.followUpKpiBreaches} past 48h` : '';
-    lines.push(`📌 *Open follow-ups: ${d.followUpOpenTotal}*${kpi}`);
-    for (const f of d.openFollowUps.slice(0, FU_LIMIT)) {
-      lines.push(`• ${escapeMd(f.title)} · ${escapeMd(f.store)}${dueLabel(f.due, todayISO)}${ageLabel(f.openedDaysAgo, f.kpiBreach)}`);
-    }
-    if (d.followUpOpenTotal > FU_LIMIT) lines.push(`_+${d.followUpOpenTotal - FU_LIMIT} more_`);
-  }
+    lines.push('📌 *Open Follow-Ups*');
 
-  // AM feedback to review — boxed fixes + comments left on your visits. The
-  // tap-through buttons are attached via buildRecapKeyboard at send time.
-  if (d.pendingFeedback.length > 0) {
-    lines.push('');
-    lines.push(`⬚ *Feedback to review: ${d.pendingFeedback.length}*`);
-    for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
-      lines.push(`• ${escapeMd(f.store)} — ${feedbackBits(f)}`);
-      for (const s of f.commentSnippets) lines.push(`   💬 _${escapeMd(s)}_`);
+    if (d.openFollowUps.length > 0) {
+      let shown = 0;
+      for (const g of groupTodosByStore(d.openFollowUps)) {
+        if (shown >= TODO_LIMIT) break;
+        lines.push(escapeMd(g.store));
+        for (const f of g.items) {
+          if (shown >= TODO_LIMIT) break;
+          lines.push(`☐ ${escapeMd(f.title)}`);
+          const dl = dueLine(f.due, todayISO);
+          if (dl) lines.push(`   _${dl}_`);
+          shown++;
+        }
+      }
+      if (d.openFollowUps.length > shown) lines.push(`_+${d.openFollowUps.length - shown} more to-dos_`);
     }
-    if (d.pendingFeedback.length > FB_LIMIT) lines.push(`_+${d.pendingFeedback.length - FB_LIMIT} more_`);
-    lines.push('_Tap a store below to see what to fix._');
+
+    if (d.pendingFeedback.length > 0) {
+      lines.push('');
+      lines.push('💬 *Comments*');
+      for (const f of d.pendingFeedback.slice(0, FB_LIMIT)) {
+        const fixNote = f.fixes > 0 ? ` · 🖌 ${f.fixes} fix${f.fixes !== 1 ? 'es' : ''}` : '';
+        lines.push(`${escapeMd(f.store)}${fixNote}`);
+        for (const s of f.commentSnippets) lines.push(`   _${escapeMd(s)}_`);
+      }
+      if (d.pendingFeedback.length > FB_LIMIT) lines.push(`_+${d.pendingFeedback.length - FB_LIMIT} more_`);
+      lines.push('_Tap a store below to open the visit._');
+    }
   }
 
   lines.push('');

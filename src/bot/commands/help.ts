@@ -6,16 +6,17 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
   const manager = isManager(ctx.user);
 
   const managerBlock = manager
-    ? `\n👥 *Manager commands*\n` +
+    ? `\n👥 *Manager Commands*\n` +
       `/dashboard — open the team dashboard\n` +
       `_(assign stores to CMs in the dashboard → Channel Managers tab)_\n`
     : '';
 
   const adminBlock = isAdmin
-    ? `\n🛠 *Admin commands*\n` +
+    ? `\n🛠 *Admin Commands*\n` +
       `/grantaccess — add a CM\n` +
       `/revokeaccess — remove a CM\n` +
       `/listaccess — list all active CMs\n` +
+      `/testrecap — preview a CM's daily recap, DM'd only to you (optionally pass a date + CM name/id)\n` +
       `/runintelligence — generate today's daily brief (or for a past date)\n` +
       `/stopintelligence — 🛑 kill switch: pause all intelligence (cron + manual). Add a reason after the command.\n` +
       `/resumeintelligence — re-enable intelligence after a pause\n` +
@@ -31,6 +32,7 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
     `🕒 /myvisits — your last 5 visits\n` +
     `🔗 /links — store objective + asset verification links\n` +
     `✏️ /nickname — set your display name\n` +
+    `👤 /myprofile — view your profile\n` +
     `🚫 /cancel — pause the visit (draft saved for 7 days)\n` +
     managerBlock +
     adminBlock + `\n` +
