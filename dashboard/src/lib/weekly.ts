@@ -49,6 +49,16 @@ function weekLabel(weekStart: string, weekEnd: string): string {
 
 // ─── Interface ────────────────────────────────────────────────────────────────
 
+export interface WeeklyEngagementSummary {
+  peopleEngaged: number;
+  newPeople: number;       // first-ever appearance in visit_staff by staff_id (or case-insensitive name within store)
+  returningPeople: number;
+  trainingsDelivered: number;
+  distinctProducts: number;
+  topProducts: string[];   // top 3 by count
+  alliesEngaged: number;
+}
+
 export interface WeeklyReport {
   weekStart: string;
   weekEnd: string;
@@ -65,6 +75,7 @@ export interface WeeklyReport {
     storesCovered: number;
     totalStores: number;
   };
+  engagementSummary: WeeklyEngagementSummary;
   byDay: { dow: string; date: string; count: number }[];
   perCM: { cm: string; market: string; visited: number; engagements: number }[];
   coverageByTier: {
@@ -241,11 +252,22 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
   const allActiveStores = ((storesRes.data ?? []) as any[]);
 
   // ── visit_staff for engagements ───────────────────────────────────────────
-  let staffRows: { id: string; visit_id: string; update_text: string | null; training_response: string | null; was_trained: boolean | null; cm_telegram_id?: number }[] = [];
+  let staffRows: {
+    id: string;
+    visit_id: string;
+    update_text: string | null;
+    training_response: string | null;
+    was_trained: boolean | null;
+    person_name: string | null;
+    staff_id: string | null;
+    // joined from staff table
+    staff: { id: string; is_ally: boolean; store_id: string } | null;
+    cm_telegram_id?: number;
+  }[] = [];
   if (visitIds.length > 0) {
     const { data: vsData } = await supabase
       .from("visit_staff")
-      .select("id, visit_id, update_text, training_response, was_trained")
+      .select("id, visit_id, update_text, training_response, was_trained, person_name, staff_id, staff(id, is_ally, store_id)")
       .in("visit_id", visitIds);
     // Attach cm_telegram_id via the visits map
     const visitCmMap = new Map<string, number>();
@@ -262,16 +284,18 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     return !!(r.update_text?.trim()) || !!(r.training_response?.trim()) || !!(r.was_trained);
   }
 
-  // engagement_trainings count
+  // engagement_trainings count + product names
   let productTrainings = 0;
+  let trainingProductRows: { visit_staff_id: string; product_name: string }[] = [];
   if (visitIds.length > 0) {
     const engagingStaffIds = staffRows.filter(isEngagement).map((r) => r.id);
     if (engagingStaffIds.length > 0) {
-      const { count } = await supabase
+      const { data: etData, count } = await supabase
         .from("engagement_trainings")
-        .select("id", { count: "exact", head: true })
+        .select("visit_staff_id, product_name", { count: "exact" })
         .in("visit_staff_id", engagingStaffIds);
       productTrainings = count ?? 0;
+      trainingProductRows = (etData ?? []) as { visit_staff_id: string; product_name: string }[];
     }
   }
 
@@ -290,6 +314,94 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
   const totalStores = allActiveStores.length;
 
   const engagements = staffRows.filter(isEngagement).length;
+
+  // ── Engagement Summary ────────────────────────────────────────────────────
+  // People engaged = staff rows that qualify as engagement
+  const engagingRows = staffRows.filter(isEngagement);
+
+  // New vs returning: a person is "new" if this is their first-ever appearance in
+  // visit_staff. Keyed by staff_id when set; otherwise by case-insensitive person_name
+  // within the same store (need to look up store per visit).
+  const visitStoreMap = new Map<string, string>(); // visit_id → store_id
+  for (const v of visits) visitStoreMap.set(v.id as string, v.store_id as string);
+
+  // Collect the unique keys for people who appeared this week
+  type PersonKey = string; // "staff:<staff_id>" or "name:<store_id>:<lower_name>"
+  function personKey(r: typeof engagingRows[number]): PersonKey {
+    if (r.staff_id) return `staff:${r.staff_id}`;
+    const sid = visitStoreMap.get(r.visit_id) ?? "";
+    const name = (r.person_name ?? "unknown").toLowerCase();
+    return `name:${sid}:${name}`;
+  }
+
+  const weekPeopleKeys = new Set<PersonKey>();
+  for (const r of engagingRows) weekPeopleKeys.add(personKey(r));
+
+  // Look up prior appearances for these keys (before this week's start)
+  const staffIdKeys = [...weekPeopleKeys].filter((k) => k.startsWith("staff:")).map((k) => k.slice(6));
+  const nameKeys = [...weekPeopleKeys].filter((k) => k.startsWith("name:"));
+
+  const priorPersonKeys = new Set<PersonKey>();
+
+  if (staffIdKeys.length > 0) {
+    const { data: priorByStaff } = await supabase
+      .from("visit_staff")
+      .select("staff_id, visit_id, visits!inner(visit_date)")
+      .in("staff_id", staffIdKeys)
+      .lt("visits.visit_date", weekStart);
+    for (const r of (priorByStaff ?? []) as { staff_id: string }[]) {
+      priorPersonKeys.add(`staff:${r.staff_id}`);
+    }
+  }
+
+  if (nameKeys.length > 0) {
+    // For name-keyed people: fetch all prior name-keyed rows and filter client-side
+    // (Supabase can't do OR on LOWER; prior rows are few, so a broad fetch is fine)
+    const wantedNames = new Set(nameKeys.map((k) => k.split(":")[2])); // the lowercased names
+    const { data: priorByName } = await supabase
+      .from("visit_staff")
+      .select("person_name, visit_id, visits!inner(visit_date, store_id)")
+      .not("person_name", "is", null)
+      .lt("visits.visit_date", weekStart);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (priorByName ?? []) as any[]) {
+      const name = ((r.person_name ?? "") as string).toLowerCase();
+      if (!wantedNames.has(name)) continue;
+      // Supabase returns joined table as array even for !inner joins
+      const visitsJoin = Array.isArray(r.visits) ? r.visits[0] : r.visits;
+      const sid = (visitsJoin?.store_id ?? "") as string;
+      priorPersonKeys.add(`name:${sid}:${name}`);
+    }
+  }
+
+  const newPeople = [...weekPeopleKeys].filter((k) => !priorPersonKeys.has(k)).length;
+  const returningPeople = weekPeopleKeys.size - newPeople;
+
+  // Allies engaged (distinct staff with is_ally = true who appeared in an engagement)
+  const alliesEngaged = new Set(
+    engagingRows.filter((r) => r.staff?.is_ally === true && r.staff_id).map((r) => r.staff_id as string),
+  ).size;
+
+  // Top products by count
+  const productCounts = new Map<string, number>();
+  for (const t of trainingProductRows) {
+    if (t.product_name?.trim()) {
+      productCounts.set(t.product_name, (productCounts.get(t.product_name) ?? 0) + 1);
+    }
+  }
+  const sortedProducts = Array.from(productCounts.entries()).sort((a, b) => b[1] - a[1]);
+  const topProducts = sortedProducts.slice(0, 3).map(([name]) => name);
+  const distinctProducts = productCounts.size;
+
+  const engagementSummary: WeeklyEngagementSummary = {
+    peopleEngaged: weekPeopleKeys.size,
+    newPeople,
+    returningPeople,
+    trainingsDelivered: productTrainings,
+    distinctProducts,
+    topProducts,
+    alliesEngaged,
+  };
 
   // ── byDay ─────────────────────────────────────────────────────────────────
   const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -549,6 +661,7 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
       storesCovered,
       totalStores,
     },
+    engagementSummary,
     byDay,
     perCM,
     coverageByTier,

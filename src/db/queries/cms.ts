@@ -25,8 +25,8 @@ export async function getCMByTelegramId(telegramId: number): Promise<CM | null> 
     .eq('is_active', true)
     .single();
 
-  if (error) console.log('[auth] supabase error:', JSON.stringify(error));
-  if (!data) console.log('[auth] no CM for telegramId:', telegramId);
+  if (error) console.error('[auth] supabase error:', error.message);
+  if (!data) console.error('[auth] no CM for telegramId:', telegramId);
   if (error || !data) return null;
   return data as CM;
 }

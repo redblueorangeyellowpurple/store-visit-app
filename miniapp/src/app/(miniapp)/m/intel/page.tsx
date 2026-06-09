@@ -33,7 +33,7 @@ interface ExecData {
   planned: string; visited: string; engagements: string;
   cms: { name: string; market: string; visited: string; engagements: string }[];
 }
-interface Section { kind: "signals" | "alerts" | "threads" | "other"; body: string }
+interface Section { kind: "signals" | "alerts" | "threads" | "goodnews" | "engagements" | "other"; body: string }
 
 function splitCells(line: string): string[] {
   return line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
@@ -83,39 +83,162 @@ function parseBrief(md: string): { exec: ExecData | null; sections: Section[] } 
     else if (/signals/i.test(head)) sections.push({ kind: "signals", body });
     else if (/alerts/i.test(head)) sections.push({ kind: "alerts", body });
     else if (/threads/i.test(head)) sections.push({ kind: "threads", body });
+    else if (/good\s*news/i.test(head)) sections.push({ kind: "goodnews", body });
+    else if (/engagements/i.test(head)) sections.push({ kind: "engagements", body });
   }
   return { exec, sections };
 }
 
-// Render a "- bullet" line. Tappable chips come from two link forms in the brief:
+// ── Link / chip helpers ───────────────────────────────────────────────────────
+
+// Inline text → React nodes, converting visit/store markdown links to chips.
 //   [name](/visits/store/<store_id>)            → opens the store timeline
 //   [name](/visits/visit/<store_id>/<visit_id>) → opens the actual visit
-// The visit form carries the store id too so the dashboard (store-keyed drawer)
-// and the mini app (visit page) can both resolve the same link.
-function renderBullet(
-  line: string,
+function renderInline(
+  text: string,
   alert: boolean,
   onNav: (kind: "store" | "visit", id: string) => void,
-  key: number,
-) {
-  const text = line.replace(/^[-*]\s+/, "");
+  keyPrefix: string,
+): React.ReactNode[] {
   const re = /\[([^\]]+)\]\(\/visits\/(store|visit)\/([^)]+)\)/g;
   const parts: React.ReactNode[] = [];
   let last = 0, m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
     const kind = m[2] as "store" | "visit";
-    // store: <store_id>; visit: <store_id>/<visit_id> → take the last segment.
     const id = kind === "visit" ? m[3].split("/").pop() ?? m[3] : m[3];
     parts.push(
-      <button key={`c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id)}>
+      <button key={`${keyPrefix}-c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id)}>
         {m[1]}
       </button>,
     );
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
-  return <li key={key}>{parts}</li>;
+  return parts;
+}
+
+// Render rich inline content: **bold** ranges become <strong>, links become chips.
+function renderRichInline(
+  text: string,
+  alert: boolean,
+  onNav: (kind: "store" | "visit", id: string) => void,
+  keyPrefix: string,
+): React.ReactNode[] {
+  // Split on **bold** spans first, then process each chunk for links.
+  const boldRe = /\*\*([^*]+)\*\*/g;
+  const chunks: Array<{ bold: boolean; text: string }> = [];
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = boldRe.exec(text)) !== null) {
+    if (m.index > last) chunks.push({ bold: false, text: text.slice(last, m.index) });
+    chunks.push({ bold: true, text: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) chunks.push({ bold: false, text: text.slice(last) });
+
+  const result: React.ReactNode[] = [];
+  chunks.forEach((chunk, ci) => {
+    const inlined = renderInline(chunk.text, alert, onNav, `${keyPrefix}-ch${ci}`);
+    if (chunk.bold) result.push(<strong key={`${keyPrefix}-b${ci}`}>{inlined}</strong>);
+    else result.push(...inlined);
+  });
+  return result;
+}
+
+// ── Nested bullet renderer ────────────────────────────────────────────────────
+//
+// New format (new reports):
+//   - **Headline** text                     ← top-level bold headline
+//     - Elaboration sub-bullet              ← indented (2+ spaces or tab)
+//     - Sources: [Store A](/visits/...) ... ← "Sources:" → compact chip row
+//
+// Old flat format (legacy reports):
+//   - plain bullet text                     ← no bold, no indented children
+//
+// Both render gracefully. Detection: a line is "indented" if it starts with
+// whitespace before the list marker. A top-level line has a **bold** opener.
+
+interface BulletNode {
+  text: string;          // raw text after stripping the list marker
+  isSource: boolean;     // "Sources:" line → chip row
+  children: BulletNode[];
+}
+
+function parseBulletTree(lines: string[]): BulletNode[] {
+  const roots: BulletNode[] = [];
+  let current: BulletNode | null = null;
+  for (const line of lines) {
+    const isIndented = /^\s{2,}[-*]|\t[-*]/.test(line);
+    const text = line.replace(/^[\s\t]*[-*]\s+/, "");
+    const isSource = /^sources?:/i.test(text);
+    if (!isIndented) {
+      current = { text, isSource, children: [] };
+      roots.push(current);
+    } else if (current) {
+      current.children.push({ text, isSource, children: [] });
+    } else {
+      // Orphaned indented line — treat as root.
+      current = { text, isSource, children: [] };
+      roots.push(current);
+    }
+  }
+  return roots;
+}
+
+function renderBulletNode(
+  node: BulletNode,
+  alert: boolean,
+  onNav: (kind: "store" | "visit", id: string) => void,
+  key: number,
+): React.ReactNode {
+  const hasChildren = node.children.length > 0;
+  const isBoldHeadline = /\*\*/.test(node.text);
+
+  return (
+    <li key={key} className={isBoldHeadline ? "bul-headline" : undefined}>
+      <span className="bul-top">
+        {renderRichInline(node.text, alert, onNav, `r${key}`)}
+      </span>
+      {hasChildren && (
+        <ul className="bul-sub">
+          {node.children.map((child, ci) => {
+            if (child.isSource) {
+              // Strip "Sources: " prefix, render remaining content as chips inline.
+              const srcText = child.text.replace(/^sources?:\s*/i, "");
+              return (
+                <li key={ci} className="bul-sources">
+                  <span className="src-label">Sources:</span>
+                  {renderInline(srcText, false, onNav, `r${key}-s${ci}`)}
+                </li>
+              );
+            }
+            return (
+              <li key={ci} className="bul-elaboration">
+                {renderRichInline(child.text, false, onNav, `r${key}-e${ci}`)}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// Legacy entry-point — renders a block body as a list of BulletNodes.
+// "alert" tints top-level chips red; sub-bullet chips stay neutral.
+function renderBullets(
+  body: string,
+  alert: boolean,
+  onNav: (kind: "store" | "visit", id: string) => void,
+): React.ReactNode {
+  const lines = body.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
+  if (!lines.length) return null;
+  const tree = parseBulletTree(lines);
+  return (
+    <ul className="bul">
+      {tree.map((node, i) => renderBulletNode(node, alert, onNav, i))}
+    </ul>
+  );
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -159,6 +282,8 @@ export default function IntelPage() {
   const exec = parsed?.exec ?? null;
   const signals = parsed?.sections.find((s) => s.kind === "signals");
   const alerts = parsed?.sections.find((s) => s.kind === "alerts");
+  const goodNews = parsed?.sections.find((s) => s.kind === "goodnews");
+  const engagements = parsed?.sections.find((s) => s.kind === "engagements");
   const markets = useMemo(
     () => Array.from(new Set((exec?.cms ?? []).map((c) => c.market).filter(Boolean))),
     [exec],
@@ -166,7 +291,6 @@ export default function IntelPage() {
 
   const onNav = (kind: "store" | "visit", id: string) =>
     router.push(kind === "visit" ? `/m/visit/${id}?from=intel` : `/m/store/${id}`);
-  const bullets = (body: string) => body.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
 
   // ── Date navigation (arrows · dropdown · swipe) ─────────────────────────────
   // Newest first. "Previous" = older day (idx+1), "next" = newer day (idx-1).
@@ -277,19 +401,29 @@ export default function IntelPage() {
               </div>
             )}
 
+            {goodNews?.body && (
+              <div className="card card-gn">
+                <h2 className="gn-h">🌟 Good News</h2>
+                {renderBullets(goodNews.body, false, onNav) ?? <p className="calm">Nothing to highlight.</p>}
+              </div>
+            )}
+
             <div className="card">
               <h2>🔔 Signals</h2>
-              {signals?.body
-                ? <ul className="bul">{bullets(signals.body).map((l, i) => renderBullet(l, false, onNav, i))}</ul>
-                : <p className="calm">No repeated patterns today.</p>}
+              {renderBullets(signals?.body ?? "", false, onNav) ?? <p className="calm">No repeated patterns today.</p>}
             </div>
 
             <div className="card card-emg">
               <h2 className="emg-h">🚨 Alerts</h2>
-              {alerts?.body
-                ? <ul className="bul">{bullets(alerts.body).map((l, i) => renderBullet(l, true, onNav, i))}</ul>
-                : <p className="calm">No alerts today.</p>}
+              {renderBullets(alerts?.body ?? "", true, onNav) ?? <p className="calm">No alerts today.</p>}
             </div>
+
+            {engagements?.body && (
+              <div className="card card-eng">
+                <h2 className="eng-h">🤝 Engagements</h2>
+                {renderBullets(engagements.body, false, onNav) ?? <p className="calm">No engagement notes today.</p>}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -351,4 +485,21 @@ const INTEL_CSS = `
 .intel .chip.visit{padding-left:8px;}
 .intel .chip.visit::before{content:"📍";opacity:.85;font-weight:400;}
 .intel .empty{color:var(--muted);font-size:13.5px;padding:28px 0;text-align:center;}
+
+/* Good News card */
+.intel .card-gn{background:#FDFCF4;border-color:#E8DFA8;}
+.intel .gn-h{color:#7A6A00!important;}
+
+/* Engagements card */
+.intel .card-eng{background:#F4F9F4;border-color:#C8DEC8;}
+.intel .eng-h{color:#3A7040!important;}
+
+/* Nested bullet list */
+.intel ul.bul li.bul-headline{padding-bottom:4px;}
+.intel ul.bul li.bul-headline .bul-top{font-weight:600;}
+.intel ul.bul ul.bul-sub{list-style:none;margin:4px 0 0;padding:0;}
+.intel ul.bul ul.bul-sub li{padding:3px 0;border-top:none;font-size:13px;color:var(--muted);line-height:1.45;}
+.intel ul.bul ul.bul-sub li.bul-sources{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding-top:5px;}
+.intel ul.bul ul.bul-sub li.bul-sources .src-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-right:2px;flex-shrink:0;}
 `;
+

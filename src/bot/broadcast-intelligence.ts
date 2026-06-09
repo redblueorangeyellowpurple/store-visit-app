@@ -85,10 +85,25 @@ export async function broadcastIntelligenceBrief(
       });
       sent++;
     } catch (err) {
-      failed.push({
-        telegram_id: chatId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      // If Telegram rejects due to malformed HTML entities, retry without parse_mode.
+      if (msg.includes("can't parse entities")) {
+        try {
+          await bot.api.sendMessage(chatId, input.telegramSummary, {
+            link_preview_options: { is_disabled: true },
+            ...(keyboard ? { reply_markup: keyboard } : {}),
+          });
+          sent++;
+          return;
+        } catch (retryErr) {
+          failed.push({
+            telegram_id: chatId,
+            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+          });
+          return;
+        }
+      }
+      failed.push({ telegram_id: chatId, error: msg });
     }
   };
 

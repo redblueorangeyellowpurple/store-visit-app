@@ -100,7 +100,19 @@ export async function sendMorningPreview(botApi: Api, date: string, toChatId?: n
       link_preview_options: { is_disabled: true },
     });
   } catch (err) {
-    console.error('[morning] preview DM failed:', err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("can't parse entities")) {
+      try {
+        await botApi.sendMessage(adminId, `${pausedNote}${head}\n\n${recapBlock}`, {
+          link_preview_options: { is_disabled: true },
+        });
+        return;
+      } catch (retryErr) {
+        console.error('[morning] preview DM retry (plain) failed:', retryErr instanceof Error ? retryErr.message : retryErr);
+        return;
+      }
+    }
+    console.error('[morning] preview DM failed:', msg);
   }
 }
 

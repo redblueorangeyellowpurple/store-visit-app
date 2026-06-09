@@ -10,6 +10,8 @@ import { handleStart } from './commands/start.js';
 import { handleHelp } from './commands/help.js';
 import { handleLinks } from './commands/links.js';
 import { handleMyVisits } from './commands/myvisits.js';
+import { handleMyStores } from './commands/mystores.js';
+import { handleStoreVisits, handleStoreVisitsPicked } from './commands/storevisits.js';
 import { handleNickname } from './commands/nickname.js';
 import { handleMyProfile, handleProfileStores, handleProfileVisits, handleProfileBack } from './commands/myprofile.js';
 import { handleCancel } from './commands/cancel.js';
@@ -78,6 +80,14 @@ export function createBot(): Bot<BotContext> {
   bot.command('help', handleHelp);
   bot.command('links', handleLinks);
   bot.command('myvisits', handleMyVisits);
+  bot.command('mystores', handleMyStores);
+  bot.command('storevisits', handleStoreVisits);
+
+  bot.callbackQuery(/^svstore:/, async (ctx) => {
+    const storeId = ctx.callbackQuery.data.replace('svstore:', '');
+    await ctx.answerCallbackQuery();
+    await handleStoreVisitsPicked(ctx, storeId);
+  });
   bot.command('nickname', handleNickname);
   bot.command('myprofile', handleMyProfile);
   bot.command('cancel', handleCancel);

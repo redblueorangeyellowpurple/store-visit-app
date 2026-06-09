@@ -16,6 +16,8 @@ type Command = { command: string; description: string };
 const USER_COMMANDS: Command[] = [
   { command: 'visit', description: 'Log a new store visit' },
   { command: 'myvisits', description: 'Your last 5 visits' },
+  { command: 'mystores', description: 'Your assigned store portfolio' },
+  { command: 'storevisits', description: 'Browse visits for a specific store' },
   { command: 'links', description: 'Store objective + asset links' },
   { command: 'nickname', description: 'Set your display name' },
   { command: 'myprofile', description: 'View your profile' },

@@ -30,6 +30,8 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
     `📱 *Commands*\n\n` +
     `🏪 /visit — log a new store visit\n` +
     `🕒 /myvisits — your last 5 visits\n` +
+    `📋 /mystores — your assigned store portfolio\n` +
+    `🔎 /storevisits — browse visits for a specific store\n` +
     `🔗 /links — store objective + asset verification links\n` +
     `✏️ /nickname — set your display name\n` +
     `👤 /myprofile — view your profile\n` +

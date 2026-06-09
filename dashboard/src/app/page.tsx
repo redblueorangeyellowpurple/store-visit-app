@@ -11,6 +11,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import NavBar from "@/components/NavBar";
 import StoreVisitDrawer from "@/components/StoreVisitDrawer";
+import VisitDrawer from "@/components/VisitDrawer";
 import MemoryNoteDrawer from "@/components/MemoryNoteDrawer";
 import { WeeklyView } from "@/app/WeeklyView";
 import type { WeeklyReport } from "@/lib/weekly";
@@ -81,15 +82,13 @@ function fmtRelative(iso: string): string {
 }
 
 // ─── Brief parsing ────────────────────────────────────────────────────────────
-// The stored brief IS the endorsed data ("content is right"). Parse it rather than
-// re-deriving stats live — single source of truth, no engagements-field drift.
 
 interface MdTable { header: string[]; rows: string[][] }
 interface ExecData {
   planned: string; visited: string; engagements: string;
   cms: { name: string; market: string; visited: string; engagements: string }[];
 }
-interface Section { kind: "signals" | "alerts" | "threads" | "other"; title: string; body: string }
+interface Section { kind: "good_news" | "signals" | "alerts" | "engagements" | "threads" | "other"; title: string; body: string }
 
 function splitCells(line: string): string[] {
   return line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
@@ -100,7 +99,7 @@ function parseTables(block: string): MdTable[] {
   const flush = () => {
     if (cur.length >= 2) {
       const header = splitCells(cur[0]);
-      const rows = cur.slice(2).map(splitCells); // skip the --- separator row
+      const rows = cur.slice(2).map(splitCells);
       tables.push({ header, rows });
     }
     cur = [];
@@ -119,14 +118,13 @@ function parseExecution(block: string): ExecData | null {
   const cmT = tables.find((t) => t.header.some((h) => /channel manager/i.test(h))) ?? tables[tables.length - 1];
   let planned = "—", visited = "—", engagements = "—";
   if (totalsT?.rows[0]) {
-    const r = totalsT.rows[0]; // | All CMs | planned | executed | engagements |
+    const r = totalsT.rows[0];
     planned = r[1] ?? "—"; visited = r[2] ?? "—"; engagements = r[3] ?? "—";
   }
   const cms = (cmT?.rows ?? [])
     .filter((r) => r[0] && !/all cms/i.test(r[0]))
     .map((r) => ({ name: r[0], market: r[1] ?? "", visited: r[2] ?? "0", engagements: r[3] ?? "0" }));
   if (totalsT === undefined && cms.length) {
-    // derive totals from CM rows when no totals table present
     visited = String(cms.reduce((s, c) => s + (parseInt(c.visited) || 0), 0));
     engagements = String(cms.reduce((s, c) => s + (parseInt(c.engagements) || 0), 0));
   }
@@ -141,13 +139,18 @@ function parseBrief(md: string): { exec: ExecData | null; sections: Section[] } 
     const head = (nl === -1 ? chunk : chunk.slice(0, nl)).replace(/^##\s*/, "").trim();
     const body = nl === -1 ? "" : chunk.slice(nl + 1).trim();
     if (/execution/i.test(head)) exec = parseExecution(body);
+    else if (/good\s*news/i.test(head)) { if (body) sections.push({ kind: "good_news", title: head, body }); }
     else if (/signals/i.test(head)) sections.push({ kind: "signals", title: head, body });
     else if (/alerts/i.test(head)) sections.push({ kind: "alerts", title: head, body });
+    else if (/engagements/i.test(head)) { if (body) sections.push({ kind: "engagements", title: head, body }); }
     else if (/threads/i.test(head)) sections.push({ kind: "threads", title: head, body });
     else if (body) sections.push({ kind: "other", title: head, body });
   }
   return { exec, sections };
 }
+
+// ─── Top-level tab ────────────────────────────────────────────────────────────
+type MainTab = "daily" | "weekly" | "memories";
 
 export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
@@ -162,10 +165,13 @@ export default function HomePage() {
   const [saving, setSaving] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
+  const [drawerVisitId, setDrawerVisitId] = useState<string | null>(null);
   const [drawerNoteSlug, setDrawerNoteSlug] = useState<string | null>(null);
 
-  // Week mode state
-  const [mode, setMode] = useState<"day" | "week">("day");
+  // Top-level tab
+  const [mainTab, setMainTab] = useState<MainTab>("daily");
+
+  // Weekly state
   const [weeks, setWeeks] = useState<{ start: string; end: string; label: string }[]>([]);
   const [activeWeek, setActiveWeek] = useState<string | null>(null);
   const [weekReport, setWeekReport] = useState<WeeklyReport | null>(null);
@@ -178,17 +184,23 @@ export default function HomePage() {
 
   useEffect(() => {
     fetch("/api/intelligence/reports").then((r) => r.json()).then((d) => {
-      setReports(d.reports ?? []);
-      if (d.reports?.[0]) setActiveDate(d.reports[0].report_date);
-    });
+      const list: ReportSummary[] = d.reports ?? [];
+      setReports(list);
+      // Honour ?date=YYYY-MM-DD deep-link; fall back to latest.
+      const params = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : ""
+      );
+      const dateParam = params.get("date");
+      const match = dateParam && list.find((r) => r.report_date === dateParam);
+      setActiveDate(match ? dateParam : list[0]?.report_date ?? null);
+    }).catch(() => { setReports([]); });
   }, []);
 
   const loadNotes = useCallback(() => {
-    fetch("/api/intelligence/notes").then((r) => r.json()).then((d) => setNotes(d.notes ?? []));
+    fetch("/api/intelligence/notes").then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => { setNotes([]); });
   }, []);
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
-  // Fetch weeks list on mount
   useEffect(() => {
     setLoadingWeekList(true);
     fetch("/api/intelligence/weekly")
@@ -198,17 +210,18 @@ export default function HomePage() {
         setWeeks(list);
         if (list.length > 0 && !activeWeek) setActiveWeek(list[0].start);
       })
+      .catch(() => { setWeeks([]); })
       .finally(() => setLoadingWeekList(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch week report whenever activeWeek changes
   useEffect(() => {
     if (!activeWeek) return;
     setLoadingWeekReport(true);
     fetch(`/api/intelligence/weekly/${activeWeek}`)
       .then((r) => r.json())
       .then((d) => { setWeekReport(d.report ?? null); })
+      .catch(() => { setWeekReport(null); })
       .finally(() => setLoadingWeekReport(false));
   }, [activeWeek]);
 
@@ -225,7 +238,7 @@ export default function HomePage() {
 
   const refresh = useAutoRefresh(silentRefresh, {
     intervalMs: 60_000,
-    paused: editing || saving || drawerStoreId !== null || drawerNoteSlug !== null,
+    paused: editing || saving || drawerStoreId !== null || drawerVisitId !== null || drawerNoteSlug !== null,
   });
 
   useEffect(() => {
@@ -272,18 +285,24 @@ export default function HomePage() {
     } finally { setSaving(false); }
   }
 
-  // Link interceptor → open the store drawer, styled as a mockup chip.
-  //   /visits/store/<store_id>             — store mention
-  //   /visits/visit/<store_id>/<visit_id>  — visit mention (carries the store id
-  //     so the store-keyed drawer still resolves; the mini app uses the visit id)
+  // ─── Link interceptor ─────────────────────────────────────────────────────
+  // /visits/store/<store_id>                 → StoreVisitDrawer
+  // /visits/visit/<store_id>/<visit_id>      → VisitDrawer  (visit_id is the UUID)
   const mdComponents = (alert: boolean) => ({
     a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
-      const store = href?.match(/^\/visits\/store\/([^/?#]+)/);
-      const visit = href?.match(/^\/visits\/visit\/([^/?#]+)/);
-      const storeId = store?.[1] ?? visit?.[1];
-      if (storeId) {
+      const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
+      if (visitMatch) {
+        const visitId = visitMatch[2];
         return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(storeId)}>
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerVisitId(visitId)}>
+            {children}
+          </button>
+        );
+      }
+      if (storeMatch) {
+        return (
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(storeMatch[1])}>
             {children}
           </button>
         );
@@ -292,17 +311,20 @@ export default function HomePage() {
     },
   });
 
+  const goodNews = parsed?.sections.find((s) => s.kind === "good_news");
   const signals = parsed?.sections.find((s) => s.kind === "signals");
   const alerts = parsed?.sections.find((s) => s.kind === "alerts");
+  const engagements = parsed?.sections.find((s) => s.kind === "engagements");
+  const otherSections = parsed?.sections.filter((s) => s.kind === "threads" || s.kind === "other") ?? [];
   const exec = parsed?.exec;
 
-  // Date navigation — reports are newest-first.
+  // Date navigation
   const activeIdx = activeDate ? reports.findIndex((r) => r.report_date === activeDate) : -1;
   const hasOlder = activeIdx >= 0 && activeIdx < reports.length - 1;
   const hasNewer = activeIdx > 0;
-  const goOlder = () => { if (hasOlder) setActiveDate(reports[activeIdx + 1].report_date); };
-  const goNewer = () => { if (hasNewer) setActiveDate(reports[activeIdx - 1].report_date); };
-  const goLatest = () => { if (reports.length > 0) setActiveDate(reports[0].report_date); };
+  const goOlder = () => { if (hasOlder) { setActiveDate(reports[activeIdx + 1].report_date); setDrawerVisitId(null); setDrawerStoreId(null); } };
+  const goNewer = () => { if (hasNewer) { setActiveDate(reports[activeIdx - 1].report_date); setDrawerVisitId(null); setDrawerStoreId(null); } };
+  const goLatest = () => { if (reports.length > 0) { setActiveDate(reports[0].report_date); setDrawerVisitId(null); setDrawerStoreId(null); } };
 
   return (
     <>
@@ -315,43 +337,42 @@ export default function HomePage() {
             <div className="head-row">
               <div>
                 <div className="kicker">📊 SVA Daily Intelligence</div>
-                <h1>{activeDate ? fmtWeekday(activeDate) : "Daily Intelligence"}</h1>
-                <div className="sub">
-                  {exec ? `${exec.visited} visit${exec.visited === "1" ? "" : "s"}` : "—"}
-                  {markets.length ? ` across ${markets.join(" · ")}` : ""}
-                  {report?.created_at ? ` · v${report.version}${report.edited_by_human ? " · edited" : ""}` : ""}
-                </div>
+                <h1>
+                  {mainTab === "daily" && (activeDate ? fmtWeekday(activeDate) : "Daily")}
+                  {mainTab === "weekly" && "Weekly Report"}
+                  {mainTab === "memories" && "Memory"}
+                </h1>
+                {mainTab === "daily" && (
+                  <div className="sub">
+                    {exec ? `${exec.visited} visit${exec.visited === "1" ? "" : "s"}` : "—"}
+                    {markets.length ? ` across ${markets.join(" · ")}` : ""}
+                    {report?.created_at ? ` · v${report.version}${report.edited_by_human ? " · edited" : ""}` : ""}
+                  </div>
+                )}
               </div>
               <div className="head-actions">
                 <RefreshControl controls={refresh} />
-                {report && !editing && (
+                {mainTab === "daily" && report && !editing && (
                   <button className="btn-edit" onClick={() => setEditing(true)}>Edit brief</button>
                 )}
               </div>
             </div>
 
-            {/* Day / Week toggle */}
+            {/* ── Three-tab toggle ── */}
             <div className="modetoggle">
-              <button
-                className={mode === "day" ? "on" : ""}
-                type="button"
-                onClick={() => setMode("day")}
-              >Day</button>
-              <button
-                className={mode === "week" ? "on" : ""}
-                type="button"
-                onClick={() => setMode("week")}
-              >Week</button>
+              <button className={mainTab === "daily" ? "on" : ""} type="button" onClick={() => setMainTab("daily")}>Daily</button>
+              <button className={mainTab === "weekly" ? "on" : ""} type="button" onClick={() => setMainTab("weekly")}>Weekly</button>
+              <button className={mainTab === "memories" ? "on" : ""} type="button" onClick={() => setMainTab("memories")}>Memories</button>
             </div>
 
-            {/* Day navigator — only in Day mode */}
-            {mode === "day" && (
+            {/* ── Daily navigator ── */}
+            {mainTab === "daily" && (
               <div className="daynav">
                 <button className="arrow" title="Older brief" disabled={!hasOlder} onClick={goOlder}>‹</button>
                 <div className="datepick">
                   <select
                     value={activeDate ?? ""}
-                    onChange={(e) => setActiveDate(e.target.value)}
+                    onChange={(e) => { setActiveDate(e.target.value); setDrawerVisitId(null); setDrawerStoreId(null); }}
                     disabled={reports.length === 0}
                   >
                     {reports.length === 0 && <option value="">No briefs yet</option>}
@@ -367,8 +388,8 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Week navigator — only in Week mode */}
-            {mode === "week" && (() => {
+            {/* ── Weekly navigator ── */}
+            {mainTab === "weekly" && (() => {
               const weekIdx = weeks.findIndex((w) => w.start === activeWeek);
               const hasOlderWeek = weekIdx >= 0 && weekIdx < weeks.length - 1;
               const hasNewerWeek = weekIdx > 0;
@@ -400,27 +421,31 @@ export default function HomePage() {
             })()}
           </header>
 
-          {/* ── Week mode body ── */}
-          {mode === "week" && (
+          {/* ══ WEEKLY TAB ══ */}
+          {mainTab === "weekly" && (
             <>
               {loadingWeekReport && <p className="empty">Loading week…</p>}
               {!loadingWeekReport && !weekReport && !loadingWeekList && (
                 <p className="empty">No weekly data yet. Lock some visits first.</p>
               )}
               {!loadingWeekReport && weekReport && (
-                <WeeklyView report={weekReport} onOpenStore={setDrawerStoreId} />
+                <WeeklyView
+                  report={weekReport}
+                  onOpenStore={setDrawerStoreId}
+                  onOpenVisit={setDrawerVisitId}
+                />
               )}
             </>
           )}
 
-          {/* ── Day mode body ── */}
-          {mode === "day" && loadingReport && <p className="empty">Loading…</p>}
-          {mode === "day" && !loadingReport && !report && (
+          {/* ══ DAILY TAB ══ */}
+          {mainTab === "daily" && loadingReport && <p className="empty">Loading…</p>}
+          {mainTab === "daily" && !loadingReport && !report && (
             <p className="empty">No reports yet. The routine generates one each morning from locked visits.</p>
           )}
 
-          {/* ── Edit mode ── */}
-          {mode === "day" && editing && report && (
+          {/* Edit mode */}
+          {mainTab === "daily" && editing && report && (
             <div className="card">
               <textarea
                 className="editor"
@@ -440,7 +465,7 @@ export default function HomePage() {
           )}
 
           {/* ── Execution summary ── */}
-          {mode === "day" && !editing && report && exec && (
+          {mainTab === "daily" && !editing && report && exec && (
             <div className="card">
               <h2>Execution summary</h2>
               <div className="topline">
@@ -479,8 +504,20 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* ── Good News (new — between Execution and Signals) ── */}
+          {mainTab === "daily" && !editing && report && goodNews?.body && (
+            <div className="card card-good">
+              <h2 className="good-h">🌟 Good News</h2>
+              <div className="md">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(false)}>
+                  {goodNews.body}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
           {/* ── Signals ── */}
-          {mode === "day" && !editing && report && (
+          {mainTab === "daily" && !editing && report && (
             <div className="card">
               <h2>🔔 Signals <span className="h2-note">— patterns across ≥2 visits</span></h2>
               {signals?.body ? (
@@ -493,8 +530,8 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* ── Alerts (always shown) ── */}
-          {mode === "day" && !editing && report && (
+          {/* ── Alerts ── */}
+          {mainTab === "daily" && !editing && report && (
             <div className="card card-emg">
               <h2 className="emg-h">🚨 Alerts <span className="h2-note">— explicit triggers only</span></h2>
               {alerts?.body ? (
@@ -507,9 +544,35 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* ── Memory ── */}
-          {mode === "day" && !editing && (
-            <div className="card mem">
+          {/* ── Engagements (new — after Alerts) ── */}
+          {mainTab === "daily" && !editing && report && engagements?.body && (
+            <div className="card">
+              <h2>🤝 Engagements</h2>
+              <div className="md">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(false)}>
+                  {engagements.body}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {/* ── Other / Threads sections (generic fallback) ── */}
+          {mainTab === "daily" && !editing && report && otherSections.map((s, i) => (
+            <div key={i} className="card">
+              <h2>{s.title}</h2>
+              <div className="md">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(false)}>
+                  {s.body}
+                </ReactMarkdown>
+              </div>
+            </div>
+          ))}
+
+          {mainTab === "daily" && activeDate && <p className="gen">{fmtWeekday(activeDate)} · generated daily from locked store visits</p>}
+
+          {/* ══ MEMORIES TAB ══ */}
+          {mainTab === "memories" && (
+            <div className="card mem mem-full">
               <h2>Memory <span className="h2-note">— what the system remembers</span></h2>
               <div className="chips scopechips">
                 {SCOPE_TABS.map((t) => {
@@ -543,21 +606,39 @@ export default function HomePage() {
               </div>
             </div>
           )}
-
-          {mode === "day" && activeDate && <p className="gen">{fmtWeekday(activeDate)} · generated daily from locked store visits</p>}
         </div>
       </div>
 
+      {/* ── Drawer stack ─────────────────────────────────────────────────────── */}
+      {/* Visit drawer: zIndex 260 — must sit above MemoryNoteDrawer (250), since memory notes can open visit links */}
+      <VisitDrawer
+        visitId={drawerVisitId}
+        onClose={() => setDrawerVisitId(null)}
+        onOpenStore={(storeId) => {
+          // Visit → Store chain: close visit drawer, open store drawer.
+          setDrawerVisitId(null);
+          setDrawerStoreId(storeId);
+        }}
+      />
+      {/* Store drawer: zIndex 200, but when opened from a visit it stacks on top because
+          VisitDrawer calls onClose() first so both are never visually open simultaneously. */}
       <StoreVisitDrawer storeId={drawerStoreId} onClose={() => setDrawerStoreId(null)} onOpenNote={(s) => setDrawerNoteSlug(s)} />
-      <MemoryNoteDrawer slug={drawerNoteSlug} onClose={() => setDrawerNoteSlug(null)} />
+      <MemoryNoteDrawer
+        slug={drawerNoteSlug}
+        onClose={() => setDrawerNoteSlug(null)}
+        onOpenStore={(id) => { setDrawerNoteSlug(null); setDrawerStoreId(id); }}
+        onOpenVisit={(id) => { setDrawerNoteSlug(null); setDrawerVisitId(id); }}
+      />
     </>
   );
 }
 
-// Warm "mockup" palette, scoped to .intel so it never bleeds into other pages.
+// CSS — same warm palette, scoped to .intel
 const INTEL_CSS = `
 .intel{--bg:#F4F1EA;--card:#FFFFFF;--ink:#2A2A27;--muted:#8A857B;--line:#E7E2D8;
   --accent:#3E7C7B;--accent-soft:#E7F0EF;--red:#B23A3A;--red-soft:#F7E3E1;
+  --green:#2a7a45;--green-soft:#E8F4EE;
+  --amber:#92400E;--amber-soft:#FEF3C7;--amber-border:#F6D891;
   background:var(--bg);min-height:100vh;color:var(--ink);
   font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
 .intel .wrap{max-width:760px;margin:0 auto;padding:28px 20px 80px;}
@@ -571,9 +652,6 @@ const INTEL_CSS = `
 .intel .modetoggle button{border:none;background:none;font-family:inherit;font-size:12.5px;font-weight:700;
   color:var(--muted);padding:5px 16px;border-radius:8px;cursor:pointer;}
 .intel .modetoggle button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08);}
-.intel .modetoggle button.soon{cursor:not-allowed;opacity:.55;position:relative;}
-.intel .modetoggle button.soon::after{content:"soon";position:absolute;top:-7px;right:2px;font-size:8px;
-  background:var(--accent);color:#fff;padding:1px 4px;border-radius:6px;letter-spacing:.03em;}
 .intel .daynav{display:flex;align-items:center;gap:10px;margin-top:14px;}
 .intel .arrow{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:#fff;
   font-size:17px;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;
@@ -597,6 +675,8 @@ const INTEL_CSS = `
 .intel .h2-note{font-weight:400;text-transform:none;letter-spacing:0;}
 .intel .card-emg{background:#FDF6F4;border-color:#EBD3CD;}
 .intel .emg-h{color:var(--red)!important;}
+.intel .card-good{background:var(--amber-soft);border-color:var(--amber-border);}
+.intel .good-h{color:var(--amber)!important;}
 .intel .topline{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px;}
 .intel .stat{flex:1;padding:14px 16px;text-align:center;border-right:1px solid var(--line);}
 .intel .stat:last-child{border-right:none;}
@@ -617,9 +697,16 @@ const INTEL_CSS = `
 .intel .footnote{font-size:12px;color:var(--muted);margin-top:12px;}
 .intel .calm{font-size:14px;color:var(--muted);margin:2px 0 0;}
 .intel .md{font-size:15px;color:#3a372f;}
+/* Top-level list: no bullets, rule-separated */
 .intel .md ul{list-style:none;margin:0;padding:0;}
-.intel .md li{padding:12px 0;border-top:1px solid var(--line);line-height:1.5;}
+.intel .md li{padding:10px 0;border-top:1px solid var(--line);line-height:1.5;}
 .intel .md li:first-child{border-top:none;padding-top:2px;}
+/* Bold headline on first strong in a top-level bullet — scan anchor */
+.intel .md li>strong:first-child{font-weight:700;color:var(--ink);}
+/* Sub-bullets: indented, smaller, muted */
+.intel .md li ul{padding-left:16px;margin-top:4px;list-style:disc;}
+.intel .md li ul li{padding:2px 0;border-top:none;font-size:13px;color:var(--muted);list-style:disc;}
+/* Old flat-format: plain li without nested ul — renders same as before */
 .intel .md p{margin:0;}
 .intel .chip{font-size:12.5px;font-weight:600;color:var(--accent);background:var(--accent-soft);
   border:1px solid transparent;border-radius:20px;padding:2px 11px 2px 9px;cursor:pointer;
@@ -628,11 +715,6 @@ const INTEL_CSS = `
 .intel .chip:hover{border-color:var(--accent);}
 .intel .chip.emg{color:var(--red);background:var(--red-soft);}
 .intel .chip.emg:hover{border-color:var(--red);}
-.intel .datechips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;}
-.intel .datechip{font-size:11px;font-weight:500;border:none;cursor:pointer;border-radius:20px;
-  padding:4px 11px;background:#EDE9E0;color:var(--muted);font-family:inherit;}
-.intel .datechip.on{background:var(--accent);color:#fff;font-weight:700;}
-.intel .datechip .ed{margin-left:4px;opacity:.8;}
 .intel .editor{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
   padding:14px;border-radius:12px;border:1px solid var(--line);background:#FBFAF6;color:var(--ink);line-height:1.5;}
 .intel .editbar{display:flex;gap:8px;margin-top:10px;}
@@ -641,6 +723,7 @@ const INTEL_CSS = `
 .intel .btn-save:disabled{opacity:.5;}
 .intel .btn-cancel{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;}
 .intel .empty{color:var(--muted);font-size:14px;padding:24px 0;text-align:center;}
+.intel .mem-full{margin-top:18px;}
 .intel .scopechips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
 .intel .scopechip{font-size:12px;font-weight:500;border:1px solid var(--line);cursor:pointer;border-radius:9px;
   padding:5px 11px;background:transparent;color:var(--muted);font-family:inherit;}

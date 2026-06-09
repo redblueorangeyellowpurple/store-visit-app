@@ -737,6 +737,105 @@ export async function signPhotoUrls(paths: string[], ttlSec = 300): Promise<stri
   return (data as any[]).map((d) => d.signedUrl as string).filter(Boolean);
 }
 
+// ─── VisitDetail ─────────────────────────────────────────────────────────────
+// Shape returned by GET /api/visits/[id] and consumed by VisitDrawer.
+
+export interface VisitDetail {
+  id: string;
+  visit_date: string;
+  cm_name: string;
+  store_id: string;
+  store_name: string;
+  store_chain: string;
+  store_market: string;
+  store_tier: "T1" | "T2" | "T3" | "T4" | null;
+  good_news: string | null;
+  competitors: string | null;
+  display_stock: string | null;
+  follow_up: string | null;
+  buzz_plan: string | null;
+  people_training: string | null;
+  photo_urls: string[];
+  engaged_people: EngagedPersonItem[];
+  follow_up_items: FollowUpItem[];
+}
+
+export async function getVisitDetail(visitId: string): Promise<VisitDetail | null> {
+  const { data: row, error } = await supabase
+    .from("visits")
+    .select("id, visit_date, cm_telegram_id, store_id, good_news, competitors, display_stock, follow_up, buzz_plan, people_training, is_locked, cms!cm_telegram_id(full_name), stores(name, chain, market, tier)")
+    .eq("id", visitId)
+    .single();
+  if (error || !row) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = row as any;
+  const photoUrls = await getVisitPhotos(visitId);
+
+  // Engaged people
+  const { data: staffRows } = await supabase
+    .from("visit_staff")
+    .select("id, person_name, update_text, was_trained, products_trained_on, staff(id, name)")
+    .eq("visit_id", visitId);
+  type StaffLink = { id: string; person_name: string | null; update_text: string | null; was_trained: boolean | null; products_trained_on: string | null; staff: { id: string; name: string } | null };
+  const vsIds = (staffRows ?? []).map((s) => (s as unknown as StaffLink).id);
+  const trainingsByPerson = new Map<string, string[]>();
+  if (vsIds.length > 0) {
+    const { data: etRows } = await supabase
+      .from("engagement_trainings")
+      .select("visit_staff_id, product_name")
+      .in("visit_staff_id", vsIds);
+    for (const t of (etRows ?? []) as { visit_staff_id: string; product_name: string }[]) {
+      const arr = trainingsByPerson.get(t.visit_staff_id) ?? [];
+      arr.push(t.product_name);
+      trainingsByPerson.set(t.visit_staff_id, arr);
+    }
+  }
+  const engaged_people: EngagedPersonItem[] = (staffRows ?? []).map((s) => {
+    const sr = s as unknown as StaffLink;
+    const trainings = trainingsByPerson.get(sr.id) ?? [];
+    const products = trainings.length > 0 ? trainings.join(", ") : (sr.products_trained_on ?? null);
+    return {
+      id: sr.staff?.id ?? "",
+      name: sr.person_name ?? sr.staff?.name ?? "Unknown",
+      update_text: sr.update_text ?? null,
+      was_trained: Boolean(sr.was_trained) || trainings.length > 0 || Boolean(sr.products_trained_on),
+      products,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  // Follow-up items
+  const { data: fuRows } = await supabase
+    .from("visit_follow_ups")
+    .select("id, title, status, due_date")
+    .eq("visit_id", visitId)
+    .order("created_at");
+  const follow_up_items: FollowUpItem[] = (fuRows ?? []).map((f) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fr = f as any;
+    return { id: fr.id, title: fr.title, status: fr.status, due_date: fr.due_date };
+  });
+
+  return {
+    id: r.id,
+    visit_date: r.visit_date,
+    cm_name: r.cms?.full_name ?? "Unknown",
+    store_id: r.store_id,
+    store_name: r.stores?.name ?? "Unknown",
+    store_chain: r.stores?.chain ?? "",
+    store_market: r.stores?.market ?? "",
+    store_tier: r.stores?.tier ?? null,
+    good_news: r.good_news,
+    competitors: r.competitors,
+    display_stock: r.display_stock,
+    follow_up: r.follow_up,
+    buzz_plan: r.buzz_plan,
+    people_training: r.people_training,
+    photo_urls: photoUrls,
+    engaged_people,
+    follow_up_items,
+  };
+}
+
 export async function getVisitPhotos(visitId: string): Promise<string[]> {
   const { data } = await supabase
     .from('visit_photos')

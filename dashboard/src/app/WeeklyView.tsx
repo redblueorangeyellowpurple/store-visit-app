@@ -11,26 +11,62 @@ const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH
 
 const wkSanitize = { ...defaultSchema, tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"] };
 
-// Store links in the narrative (/visits/store/<id> or /visits/visit/<id>/...) open
-// the same drawer the daily report uses, rendered as a source chip.
-function narrativeComponents(onOpenStore: (id: string) => void) {
+// Link interceptor for AI narrative chips:
+//   /visits/store/<store_id>               → store drawer
+//   /visits/visit/<store_id>/<visit_id>    → visit drawer
+function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string) => void) {
   return {
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
-      const m = href?.match(/^\/visits\/(?:store|visit)\/([^/?#]+)/);
-      if (m) return <button className="wk-chip" onClick={() => onOpenStore(m[1])}>{children}</button>;
+      const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
+      if (visitMatch) {
+        const visitId = visitMatch[2];
+        return <button className="wk-chip" onClick={() => onOpenVisit(visitId)}>{children}</button>;
+      }
+      const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      if (storeMatch) {
+        return <button className="wk-chip" onClick={() => onOpenStore(storeMatch[1])}>{children}</button>;
+      }
       return <a href={href}>{children}</a>;
     },
   };
 }
 
+// Hardcoded subtitle notes for old-format narrative sections that lack a kicker line.
+// New-format reports emit an italic kicker under each "## " heading — we use that.
+// Old-format: no kicker → fall back to these.
+const NARRATIVE_FALLBACK_NOTE: Record<string, string> = {
+  signals:     "patterns across ≥2 visits this week",
+  alerts:      "explicit triggers requiring follow-up",
+  engagements: "notable people interactions and training moments",
+};
+
 // Split the stored AI narrative (one markdown blob with `## Signals`, `## Alerts`,
 // `## Engagements`) into one chunk per heading so each renders in its own card.
-// Drops any leading pre-heading preamble and any chunk whose body is empty.
-function splitNarrative(md: string): string[] {
-  return md
-    .split(/\n(?=## )/)
-    .map((p) => p.trim())
-    .filter((p) => p.startsWith("##") && p.replace(/^##.*(\n|$)/, "").trim().length > 0);
+// Returns { heading, note, body } — note is the italic kicker line if present, else a fallback.
+function splitNarrative(md: string): { heading: string; note: string; body: string }[] {
+  const chunks = md.split(/\n(?=## )/);
+  const result: { heading: string; note: string; body: string }[] = [];
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed.startsWith("##")) continue;
+    const firstNl = trimmed.indexOf("\n");
+    if (firstNl === -1) continue;
+    const heading = trimmed.slice(0, firstNl).replace(/^##\s*/, "").trim();
+    const rest = trimmed.slice(firstNl + 1).trim();
+    // Check if the first line of body is a kicker (italic: starts with * or _)
+    const restLines = rest.split("\n");
+    let note = "";
+    let body = rest;
+    if (restLines[0] && /^\*[^*]|^_[^_]/.test(restLines[0].trim())) {
+      note = restLines[0].trim().replace(/^\*|\*$|^_|_$/g, "").trim();
+      body = restLines.slice(1).join("\n").trim();
+    } else {
+      const slug = heading.toLowerCase().replace(/\s+/g, "");
+      note = NARRATIVE_FALLBACK_NOTE[slug] ?? "";
+    }
+    if (body.length > 0) result.push({ heading, note, body });
+  }
+  return result;
 }
 
 function fmtPct(n: number): string { return `${n}%`; }
@@ -42,11 +78,13 @@ function fmtWow(n: number | null): string | null {
 export function WeeklyView({
   report,
   onOpenStore,
+  onOpenVisit,
 }: {
   report: WeeklyReport;
   onOpenStore: (storeId: string) => void;
+  onOpenVisit?: (visitId: string) => void;
 }) {
-  const { stats, byDay, perCM, coverageByTier, displayByTier } = report;
+  const { stats, engagementSummary, byDay, perCM, coverageByTier, displayByTier } = report;
 
   // Fold Display into Coverage: look up the visited stores for each tier|market|chain
   // so the merged "Store Updates" section can list them under each chain.
@@ -57,6 +95,7 @@ export function WeeklyView({
         storesByChain.set(`${tier.tier}|${mkt.market}|${ch.chain}`, ch.stores);
 
   const narrativeSections = report.narrativeMarkdown ? splitNarrative(report.narrativeMarkdown) : [];
+  const eng = engagementSummary;
 
   const maxDayCount = Math.max(...byDay.map((d) => d.count), 1);
   const peakDay = byDay.reduce((best, d) => (d.count > best.count ? d : best), byDay[0]);
@@ -89,10 +128,10 @@ export function WeeklyView({
       <div className="wk-tiles">
         <div className="wk-tile">
           <div className="wk-tile-n">
-            {stats.planned}
-            <span className="wk-tile-of"> / {stats.executed}</span>
+            {stats.executed}
+            <span className="wk-tile-of"> / {stats.planned}</span>
           </div>
-          <div className="wk-tile-l">Planned / Executed</div>
+          <div className="wk-tile-l">Executed / Planned</div>
           {stats.planned === 0 && (
             <div className="wk-tile-d warn">no plans logged</div>
           )}
@@ -160,9 +199,7 @@ export function WeeklyView({
 
       {/* Execution Summary */}
       <section className="wk-section">
-        <h2 className="wk-sh2">
-          🎯 Execution Summary
-        </h2>
+        <h2 className="wk-sh2">🎯 Execution Summary</h2>
         {stats.planned === 0 && (
           <p className="wk-sec-note">
             {perCM.map((c) => `${c.market} ${c.visited}`).join(" · ")}
@@ -197,15 +234,53 @@ export function WeeklyView({
             </tr>
           </tbody>
         </table>
+
+        {/* Engagement Summary strip — sits adjacent to Execution table, same card */}
+        {eng.peopleEngaged > 0 && (
+          <div className="wk-eng-strip">
+            <div className="wk-eng-stat">
+              <span className="wk-eng-n">{eng.peopleEngaged}</span>
+              <span className="wk-eng-l">People engaged</span>
+              <span className="wk-eng-sub">
+                {eng.newPeople > 0 && <span className="wk-eng-new">{eng.newPeople} new</span>}
+                {eng.returningPeople > 0 && <span className="wk-eng-ret">{eng.returningPeople} returning</span>}
+              </span>
+            </div>
+            <div className="wk-eng-divider" />
+            <div className="wk-eng-stat">
+              <span className="wk-eng-n">{eng.trainingsDelivered}</span>
+              <span className="wk-eng-l">Trainings delivered</span>
+              {eng.distinctProducts > 0 && (
+                <span className="wk-eng-sub wk-eng-products">
+                  {eng.distinctProducts} product{eng.distinctProducts !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            {eng.alliesEngaged > 0 && (
+              <>
+                <div className="wk-eng-divider" />
+                <div className="wk-eng-stat">
+                  <span className="wk-eng-n">{eng.alliesEngaged}</span>
+                  <span className="wk-eng-l">Allies engaged</span>
+                </div>
+              </>
+            )}
+            {eng.topProducts.length > 0 && (
+              <div className="wk-eng-products-row">
+                <span className="wk-eng-products-label">Top products:</span>
+                {eng.topProducts.map((p) => (
+                  <span key={p} className="wk-eng-product-chip">{p}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Store Updates — coverage bars (tier → market → chain) folded together with
           per-store photos, display notes & follow-ups. Click a store → drawer. */}
       <section className="wk-section">
-        <h2 className="wk-sh2">
-          🏪 Store Updates{" "}
-          <span className="wk-sub">· coverage, then photos &amp; updates per store</span>
-        </h2>
+        <h2 className="wk-sh2">🏪 Store Updates</h2>
         <p className="wk-sec-note">Tap a tier → market to see chains and their visited stores. Click a store for its photos &amp; updates. Collapsed by default.</p>
 
         {coverageByTier.map((tier) => {
@@ -281,17 +356,25 @@ export function WeeklyView({
 
       {/* AI narrative — one card each for Signals / Alerts / Engagements (stored, editable). */}
       {narrativeSections.length > 0 ? (
-        narrativeSections.map((md, i) => (
-          <section key={i} className="wk-section wk-narrative">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
-              components={narrativeComponents(onOpenStore)}
-            >
-              {md}
-            </ReactMarkdown>
-          </section>
-        ))
+        narrativeSections.map((sec, i) => {
+          const slug = sec.heading.toLowerCase().replace(/\s+/g, "");
+          const isAlert = slug.includes("alert");
+          return (
+            <section key={i} className={`wk-section wk-narrative${isAlert ? " wk-narrative-alert" : ""}`}>
+              <h2 className="wk-sh2">
+                {isAlert ? "🚨" : slug.includes("signal") ? "🔔" : "🤝"} {sec.heading}
+              </h2>
+              {sec.note && <p className="wk-narrative-note">{sec.note}</p>}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
+                components={narrativeComponents(onOpenStore, onOpenVisit ?? (() => undefined))}
+              >
+                {sec.body}
+              </ReactMarkdown>
+            </section>
+          );
+        })
       ) : (
         <div className="wk-ai-placeholder">
           🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
@@ -348,8 +431,10 @@ const WK_CSS = `
 /* sections */
 .wk-section{background:var(--wk-card);border:1px solid var(--wk-line);border-radius:14px;
   padding:17px 19px;margin:14px 0;}
-.wk-sh2{font-size:15px;font-weight:700;margin:0 0 4px;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
-.wk-sub{font-size:12px;font-weight:400;color:var(--wk-muted);}
+/* Unified heading — matches daily's intel h2 kicker style */
+.wk-sh2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--wk-muted);
+  font-weight:700;margin:0 0 12px;display:flex;align-items:center;gap:7px;}
+.wk-sub{font-size:11px;font-weight:400;color:var(--wk-muted);text-transform:none;letter-spacing:0;}
 .wk-sec-note{font-size:12.5px;color:var(--wk-muted);margin:4px 0 14px;}
 
 /* execution table */
@@ -408,16 +493,47 @@ const WK_CSS = `
   padding:2px 9px;border-radius:20px;margin:2px 3px 2px 0;}
 
 /* narrative (Signals / Alerts / Engagements) */
-.wk-narrative h2{font-size:15px;font-weight:700;margin:0 0 8px;}
-.wk-narrative ul{margin:0;padding-left:18px;}
-.wk-narrative li{padding:4px 0;font-size:13.5px;line-height:1.5;}
-.wk-narrative p{font-size:13.5px;margin:6px 0;}
+.wk-narrative-note{font-size:11.5px;color:var(--wk-muted);margin:-4px 0 12px;font-style:italic;}
+.wk-narrative-alert{background:#fdf6f3;border-color:#e8cfc9;}
+.wk-narrative-alert .wk-sh2{color:var(--wk-alert);}
+/* Nested-bullet scannability: bold headline, indented sub-bullets muted + smaller */
+.wk-narrative ul{margin:0;padding:0;list-style:none;}
+.wk-narrative li{padding:9px 0;border-top:1px solid var(--wk-line);line-height:1.5;font-size:14px;}
+.wk-narrative li:first-child{border-top:none;padding-top:2px;}
+.wk-narrative li>strong:first-child{font-weight:700;color:var(--wk-ink);display:block;margin-bottom:2px;}
+/* Sub-bullets: ul inside li */
+.wk-narrative li ul{padding-left:16px;margin-top:4px;list-style:disc;}
+.wk-narrative li ul li{padding:2px 0;border-top:none;font-size:12.5px;color:var(--wk-muted);list-style:disc;}
+/* "Sources:" sub-bullet renders chips inline */
+.wk-narrative li ul li:last-child:has(.wk-chip){border-top:none;padding-top:4px;}
+.wk-narrative p{font-size:14px;margin:6px 0;}
 .wk-narrative strong{font-weight:700;}
 .wk-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--wk-chip-ink);
   background:var(--wk-chip);border:1px solid transparent;padding:1px 9px;border-radius:20px;
-  cursor:pointer;margin:0 1px;transition:.15s;}
+  cursor:pointer;margin:0 2px;transition:.15s;line-height:1.4;vertical-align:baseline;}
 .wk-chip:hover{background:#e1e6ec;border-color:#cdd6df;}
 .wk-chip::before{content:"↗";font-size:10px;opacity:.5;}
+
+/* Engagement Summary strip */
+.wk-eng-strip{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0;
+  border:1px solid var(--wk-line);border-radius:10px;overflow:hidden;margin-top:16px;background:#f9f8f5;}
+.wk-eng-stat{flex:1;min-width:80px;padding:11px 14px;text-align:center;}
+.wk-eng-divider{width:1px;background:var(--wk-line);align-self:stretch;}
+.wk-eng-n{display:block;font-size:20px;font-weight:800;letter-spacing:-.4px;color:var(--wk-ink);}
+.wk-eng-l{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--wk-muted);font-weight:600;margin-top:2px;}
+.wk-eng-sub{display:flex;justify-content:center;gap:5px;margin-top:4px;flex-wrap:wrap;}
+.wk-eng-new{font-size:10px;font-weight:700;background:#e4f1ec;color:var(--wk-accent);
+  padding:1px 6px;border-radius:20px;}
+.wk-eng-ret{font-size:10px;font-weight:600;background:var(--wk-chip);color:var(--wk-chip-ink);
+  padding:1px 6px;border-radius:20px;}
+.wk-eng-products{font-size:10px;color:var(--wk-accent);font-weight:600;display:block;margin-top:4px;}
+.wk-eng-products-row{width:100%;padding:8px 14px;border-top:1px solid var(--wk-line);
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#fff;}
+.wk-eng-products-label{font-size:10.5px;color:var(--wk-muted);font-weight:600;
+  text-transform:uppercase;letter-spacing:.04em;}
+.wk-eng-product-chip{font-size:11.5px;font-weight:600;background:var(--wk-accent-soft);
+  color:var(--wk-accent);padding:2px 9px;border-radius:20px;}
 
 /* placeholder card */
 .wk-ai-placeholder{background:var(--wk-card);border:1px dashed var(--wk-line);border-radius:14px;

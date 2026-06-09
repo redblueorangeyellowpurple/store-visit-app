@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
 
 export const COOKIE_NAME = "sva-dash-session";
@@ -32,8 +32,9 @@ export function verifyTelegramHash(params: Record<string, string>): boolean {
     .sort()
     .map((k) => `${k}=${rest[k]}`)
     .join("\n");
-  const expected = createHmac("sha256", secretKey).update(dataStr).digest("hex");
-  return expected === hash;
+  const expectedHex = createHmac("sha256", secretKey).update(dataStr).digest("hex");
+  if (expectedHex.length !== hash.length) return false;
+  return timingSafeEqual(Buffer.from(expectedHex, "hex"), Buffer.from(hash, "hex"));
 }
 
 export function createSessionCookie(user: Omit<SessionUser, "exp">): string {

@@ -59,6 +59,8 @@ Each service has its own `railway.toml` — the bot's at repo root, the miniapp'
 - `src/bot/conversations/visit-flow.ts` — main visit flow
 - `src/bot/photo-collection.ts` — debounce handler; init with `bot.api`
 - `src/bot/bot.ts` — handler registration + Edit/Delete/Confirm/View callbacks
+- `src/bot/set-commands.ts` — `setMyCommands` registry (populates the `/` menu); called from `index.ts` startup
+- `src/utils/store-label.ts` — store display helper; dedups chain since `stores.name` already carries it ("Chain @ Location")
 - `src/bot/commands/` — start, help, mystores, myvisits, storevisits, visit, cancel, admin/*
 - `src/db/queries/` — cms, visits, stores, photos, visit-plans, staff, **alert-groups** (per-market chat + intelligence mode + join-request admin set)
 - `src/notifications/admin-notify.ts` — DM every flagged `is_join_request_admin` CM; used as fallback when a market has no alert chat
@@ -66,14 +68,14 @@ Each service has its own `railway.toml` — the bot's at repo root, the miniapp'
 
 ### Mini app
 - `miniapp/src/lib/supabase.ts` — lazy-init Supabase client (Proxy)
-- `miniapp/src/lib/miniapp-auth.ts` — Telegram `initData` HMAC verify
+- `miniapp/src/lib/miniapp-auth.ts` — Telegram `initData` HMAC verify + admin view-as (verified-admin `X-View-As` header → identity swap; `realCMFromRequest` never swaps; view-as is read-only — mutation routes guard `if (cm.impersonating)`). Header set client-side by the root-layout `window.fetch` shim from `sessionStorage`.
 - `miniapp/src/lib/queries.ts` — portfolio, store timeline, full visit + signed URLs
 - `miniapp/src/app/(miniapp)/m/*` — portfolio, store/[id], visit/[id], **intel** (daily intelligence view, reached via `?startapp=intel`)
 - `miniapp/src/app/api/m/*` — whoami, portfolio, store/[id], visit/[id], **intelligence** (latest/selected brief, gated to leadership roles or `is_intelligence_recipient`)
 - `miniapp/src/app/health/route.ts` — Railway healthcheck
 
 ### Intelligence routine
-- `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → Signals → Alerts. As of 2026-06-05 the routine **computes + persists only** (`telegram_summary` saved into the report's `stats` jsonb, no team broadcast); the bot's `cron/morning-cron.ts` does the 08:00 preview-to-Wilson + 09:00 team send. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]] + [[scheduler-edit-goes-live-before-deploy]].
+- `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → 🌟 Good News (strict concrete-wins bar) → Signals → Alerts → 🤝 Engagements, scannable nested bullets with visit-level links. As of 2026-06-05 the routine **computes + persists only** (`telegram_summary` saved into the report's `stats` jsonb, no team broadcast); the bot's `cron/morning-cron.ts` does the 08:00 preview-to-Wilson + 09:00 team send. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]] + [[scheduler-edit-goes-live-before-deploy]].
 
 ---
 

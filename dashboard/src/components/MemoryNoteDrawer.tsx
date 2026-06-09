@@ -38,6 +38,8 @@ interface EdgeRow {
 interface Props {
   slug: string | null;
   onClose: () => void;
+  onOpenStore?: (storeId: string) => void;
+  onOpenVisit?: (visitId: string) => void;
 }
 
 const SCOPE_BG: Record<string, string> = {
@@ -54,7 +56,41 @@ function fmtDateTime(iso: string) {
   });
 }
 
-export default function MemoryNoteDrawer({ slug, onClose }: Props) {
+// Link interceptor for body_markdown links inside a memory note.
+function mdLinkComponents(
+  onOpenStore: ((id: string) => void) | undefined,
+  onOpenVisit: ((id: string) => void) | undefined,
+) {
+  return {
+    a({ href, children }: { href?: string; children?: React.ReactNode }) {
+      const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
+      if (visitMatch && onOpenVisit) {
+        return (
+          <button
+            onClick={() => onOpenVisit(visitMatch[2])}
+            style={{ fontSize: "inherit", color: "var(--color-tc-600)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+          >
+            {children}
+          </button>
+        );
+      }
+      const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      if (storeMatch && onOpenStore) {
+        return (
+          <button
+            onClick={() => onOpenStore(storeMatch[1])}
+            style={{ fontSize: "inherit", color: "var(--color-tc-600)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+          >
+            {children}
+          </button>
+        );
+      }
+      return <a href={href}>{children}</a>;
+    },
+  };
+}
+
+export default function MemoryNoteDrawer({ slug, onClose, onOpenStore, onOpenVisit }: Props) {
   const [note, setNote] = useState<Note | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [related, setRelated] = useState<RelatedNote[]>([]);
@@ -244,7 +280,10 @@ export default function MemoryNoteDrawer({ slug, onClose }: Props) {
           <>
             {/* Body markdown */}
             <div className="markdown-brief" style={{ fontSize: 13 }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.body_markdown}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={mdLinkComponents(onOpenStore, onOpenVisit)}
+              >{note.body_markdown}</ReactMarkdown>
             </div>
 
             {/* Related notes */}

@@ -10,6 +10,10 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
   const { week } = await params;
 
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
+    return Response.json({ error: "Invalid week" }, { status: 400 });
+  }
+
   try {
     const report = await getWeeklyReport(week);
     return Response.json({ report });

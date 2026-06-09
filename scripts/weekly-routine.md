@@ -1,6 +1,6 @@
 # SVA Weekly Report — Claude Code Routine
 
-Scheduled Claude Code routine, run **headless on the Max plan** (no API key), same model as the daily `intelligence-routine.md`. Produces the **AI narrative** of the SVA Weekly Report — `## 🔔 Signals`, `## 🚨 Alerts`, `## 🤝 Engagements` — and stores it in `sva.weekly_reports`.
+Scheduled Claude Code routine, run **headless on the Max plan** (no API key), same model as the daily `intelligence-routine.md`. Produces the **AI narrative** of the SVA Weekly Report — `## 🌟 Good News`, `## 🔔 Signals`, `## 🚨 Alerts`, `## 🤝 Engagements` — and stores it in `sva.weekly_reports`.
 
 The **deterministic** sections (stat cards, Visits By Day, Execution Summary, Coverage By Tier, Display) are computed live by the dashboard aggregator (`dashboard/src/lib/weekly.ts`). This routine does NOT recompute them — it only writes the narrative. The dashboard Week view reads the narrative from `sva.weekly_reports` and renders it under the deterministic sections.
 
@@ -51,24 +51,39 @@ WHERE fu.status='open' AND (CURRENT_DATE - fu.created_at::date) > 10 ORDER BY ag
 ```
 
 ## Step 3 — Synthesize `brief_markdown`
-Persona: intelligence layer for AMs / CM-ICs / leadership. **Surface patterns, not advice. No "should". Quote names verbatim.** Three sections, in this order:
+Persona: intelligence layer for AMs / CM-ICs / leadership. **Surface patterns, not advice. No "should". Quote names verbatim.** Four sections, in this order:
 
 ```
+## 🌟 Good News
+_Concrete wins this week — sales closed, space won, allies recruited_
+- **<concrete win headline>**
+  - <one-sentence elaboration of the win>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+
 ## 🔔 Signals
-- **<one-line insight header>** — <punchy elaboration, 1–2 lines>. Sources: [<store>](/visits/store/<store_id>) · [<store>](/visits/store/<store_id>) · [<store>](/visits/store/<store_id>)
+_Patterns across ≥2 visits this week_
+- **<one-line insight header>**
+  - <punchy elaboration, 1–2 lines>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>)
 
 ## 🚨 Alerts
-- **<one-line risk header>** — <what's wrong>. [<store>](/visits/store/<store_id>)
+_Explicit triggers only_
+- **<one-line risk header>**
+  - <what's wrong, 1–2 lines>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
 
 ## 🤝 Engagements
-- ▲ **<store>** — <standout-good engagement, 1 line>. [<store>](/visits/store/<store_id>)
-- ▽ **<store>** — <standout-bad / concerning engagement>. [<store>](/visits/store/<store_id>)
+_Standout staff & ally engagements_
+- ▲ **<person name> @ <store name>** — <standout-good engagement, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>)
+- ▽ **<person name> @ <store name>** — <standout-bad / concerning engagement>. [<store name>](/visits/visit/<store_id>/<visit_id>)
 ```
+
 Rules:
-- **Signals** = good/neutral patterns seen across **≥2 visits** OR multi-week themes (insight into competitors, new spaces, category shifts). Header → punchy → sources at the END. 3 sources where possible; deep-link every claim to its source store(s).
-- **Alerts** = negatives only: brand resistance, competitor conquering shelf/POS, stock-out/display defect at T1/T2, lost demos, a T1 store silent ≥7 days, follow-ups overdue >10 days.
+- **Good News** — concrete wins ONLY. Qualifies: closed sale or large order, won or expanded display space, new ally recruited, competitor displaced. Does NOT qualify: routine positivity, vague momentum, a good conversation. **Omit the section entirely when no item qualifies** — no placeholder or stub.
+- **Signals** = good/neutral patterns seen across **≥2 visits** OR multi-week themes (insight into competitors, new spaces, category shifts). Use nested-bullet structure: bold headline → elaboration sub-bullets → "Sources:" sub-bullet. 3 sources where possible.
+- **Alerts** = negatives only: brand resistance, competitor conquering shelf/POS, stock-out/display defect at T1/T2, lost demos, a T1 store silent ≥7 days, follow-ups overdue >10 days. Same nested-bullet structure.
 - **Engagements** = qualitative standouts only (the count lives in the deterministic Execution Summary). Flag clearly-strong (▲) and clearly-weak/concerning (▽) staff/ally engagements. **Classification bar: pending Wilson's calibration** — until set, mark genuinely strong ones ▲, flag uncertain ones under a `🤔 _Need your good/bad bar_` line rather than guessing. See the `feedback_*` engagement-bar memory once it exists.
-- Link form: `[<store name>](/visits/store/<store_id>)` — renders as a click-to-open chip in the dashboard (opens the store drawer). `<store_id>` must come from Step 2 — never fabricate.
+- **Link forms** — every item grounded in a specific visit must use a visit-level link `[<store name>](/visits/visit/<store_id>/<visit_id>)`. Store-level links `[<store name>](/visits/store/<store_id>)` ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources). All links render as click-to-open chips in the dashboard. `<store_id>` and `<visit_id>` must come from Step 2 — never fabricate.
 
 ## Step 4 — Write (single statement, dollar-quoted)
 ```sql

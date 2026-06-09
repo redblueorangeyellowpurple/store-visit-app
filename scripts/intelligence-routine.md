@@ -105,19 +105,41 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 | --- | --- | --- | --- |
 | <cm> | <market> | <n> | <e> |
 
+## 🌟 Good News
+- **<concrete win headline>**
+  - <one-sentence elaboration of the win>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+
 ## 🔔 Signals
-- <pattern> — **only if seen across ≥2 visits.** Link each to its source store(s): `[<store name>](/visits/store/<store_id>)`. If a single visit is the clearest example, deep-link it instead with `[<store name>](/visits/visit/<store_id>/<visit_id>)`.
+- **<one-line pattern header>**
+  - <elaboration, 1–2 lines>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>)
 
 ## 🚨 Alerts
-- <alert> — **only if it matches the allowlist below.** Deep-link the specific visit that triggered it: `[<store name>](/visits/visit/<store_id>/<visit_id>)`.
+- **<one-line risk header>**
+  - <what's wrong, 1–2 lines>
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+
+## 🤝 Engagements
+- **<person name> @ <store name>** — <what they were trained on / note, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>)
 
 ## 🧵 Threads   _(optional — multi-visit/week patterns from memory; skip if none)_
 - <theme>: <stores/people> — <one-line pattern>
 ```
-- **Alert allowlist** (strict — nothing else qualifies): store staff/manager resisting our brand · competitor conquering shelf/POS space · stock-out or display defect at a T1/T2 store · a T1 store gone silent ≥7 days (from silence-as-signal).
-- Link every signal/alert to its source. Two link forms (both render as click-to-open chips on the dashboard *and* the mini app):
-  - `[<store name>](/visits/store/<store_id>)` — store-level mention (opens the store timeline / visit drawer).
-  - `[<store name>](/visits/visit/<store_id>/<visit_id>)` — deep-link to one visit (the mini app opens the visit page; the dashboard opens its store drawer). Prefer this for alerts and any single-visit signal. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one.
+
+**Section rules:**
+
+**Good News** — concrete wins ONLY. Qualifies: closed sale or large order, won or expanded display space, new ally recruited, competitor displaced. Does NOT qualify: routine positivity, vague momentum, a good conversation. **Omit the section entirely when no item qualifies** — do not include a placeholder or "none today" stub.
+
+**Signals** — patterns seen across ≥2 visits. Use the scannable nested-bullet structure above: bold short headline bullet → indented elaboration sub-bullets → separate "Sources:" sub-bullet. When a body bullet is grounded in ONE specific visit, use a visit-level link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>)` in that bullet. When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)` in the Sources line.
+
+**Alerts** — allowlist (strict — nothing else qualifies): store staff/manager resisting our brand · competitor conquering shelf/POS space · stock-out or display defect at a T1/T2 store · a T1 store gone silent ≥7 days (from silence-as-signal). Same nested-bullet structure as Signals.
+
+**Engagements** — yesterday's staff/ally engagements: person @ store, what they were trained on or notable note, visit link. **Omit the section entirely when none exist.**
+
+**Link forms** (both render as click-to-open chips on the dashboard and the mini app):
+- `[<store name>](/visits/visit/<store_id>/<visit_id>)` — visit-level deep-link. Use for every item grounded in a specific visit. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one.
+- `[<store name>](/visits/store/<store_id>)` — store-level link. Use ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources).
 
 ### B) `telegram_summary` — DM body (sent with `parse_mode=HTML`, ≤900 chars)
 ```
@@ -134,17 +156,23 @@ Executed: <N> Visits (<pct>%)
 
 <b>🚨 Alerts</b>
 • <one-liner>
+
+🌟 <Good News headline>
+🌟 <Good News headline>
 ```
 - **Date** = short weekday, plain (not italic): `Wed 28 May 2026`.
 - **Planned** line: `Planned: <P> Visits` when plans exist; else `Planned: — (no plans logged)`.
 - **Executed** line: append `(<pct>%)` only when `P>0` (e.g. `Executed: 5 Visits (100%)`); otherwise just `Executed: <N> Visits`.
 - Signals/Alerts = concise one-liners, em-dash for the "so what" (e.g. `TV category softening in SG — units down at 2 stores, pushing attach-sells`).
+- **Good News lines:** after the Alerts block, add one `🌟 <headline>` line per qualifying Good News item (headline only, no elaboration). Include only when Good News qualifies (same bar as the brief_markdown Good News section). Omit entirely when none qualify — no placeholder.
 - Skip any empty section (no "none today" stubs). Plain `•` bullets. No tables.
+- **HTML-escape dynamic text:** any store name, CM name, staff name, or free-text field embedded in this string must have `&`, `<`, `>` escaped as `&amp;`, `&lt;`, `&gt;` — the message is sent with `parse_mode=HTML` and unescaped characters will cause Telegram to reject the entire send.
 
 ### C) `note_updates` — memory edits. **Per-scope caps: ≤4 theme · ≤4 store · ≤4 person.**
 - `slug` matches `^(store|person|theme|channel):[a-z0-9-]+$`.
 - **Person notes carry a role.** First body line is `Type: cm | ally | manager | staff`, and the title names it, e.g. `Danson — ally · Harvey Norman Northpoint`. CMs (our own team) are tagged `cm` and **never** described as store allies.
 - `summary` ≤140 chars; `body_markdown` ≤200 tokens — bullets, quote names, date-stamp deltas (`2026-05-28: …`); `related_slugs` array.
+- **Visit links in body bullets:** when a body bullet is grounded in ONE specific visit, embed a markdown visit link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>)` in that bullet. When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)`. `<visit_id>` must come from the snapshot — never fabricate.
 - `version` = prev+1 (existing slug) or 1 (new). Decay notes >30 days old unless restated.
 
 ### D) `edges` — `{from_slug, to_slug, edge_type}`, type ∈ `store_theme | person_store | person_theme | theme_theme`. Dedupe (ON CONFLICT).
