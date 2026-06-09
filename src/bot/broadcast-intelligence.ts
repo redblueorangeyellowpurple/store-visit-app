@@ -79,6 +79,7 @@ export async function broadcastIntelligenceBrief(
   const sendTo = async (chatId: number): Promise<void> => {
     try {
       await bot.api.sendMessage(chatId, input.telegramSummary, {
+        parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
         ...(keyboard ? { reply_markup: keyboard } : {}),
       });
