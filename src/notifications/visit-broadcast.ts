@@ -8,6 +8,7 @@ import { listFollowUpsForVisit } from '../db/queries/visit-follow-ups.js';
 import { getVisitEngagements } from '../db/queries/staff.js';
 import { formatVisitSummaryBody, escapeMd } from '../bot/visit-details.js';
 import { notifyAdmins } from './admin-notify.js';
+import { storeLabel } from '../utils/store-label.js';
 
 interface BroadcastRow {
   id: string;
@@ -87,9 +88,7 @@ export async function broadcastVisitLocked(
     ];
     const namesLabel = joinNames(allNames);
 
-    const storeName = row.stores?.name ?? 'a store';
-    const storeChain = row.stores?.chain;
-    const storeLabel = storeChain ? `${storeName} @ ${storeChain}` : storeName;
+    const storeText = storeLabel(row.stores);
 
     // Full visit as text (no photos — a media-group per lock is slow/rate-limit-
     // prone and clutters the group; photos live behind the View button). Header
@@ -100,7 +99,7 @@ export async function broadcastVisitLocked(
       getVisitEngagements(visitId),
     ]);
 
-    const header = `✅ *${escapeMd(namesLabel)}* visited *${escapeMd(storeLabel)}*`;
+    const header = `✅ *${escapeMd(namesLabel)}* visited *${escapeMd(storeText)}*`;
     const text = fullVisit
       ? `${header}\n\n${formatVisitSummaryBody(fullVisit, followUps, engagedPeople)}`
       : header;

@@ -128,9 +128,13 @@ export async function POST(
   const lead = ctx.cms.find((c) => c.role === "lead");
   const cos = ctx.cms.filter((c) => c.role === "co");
   const allNames = [lead?.name ?? "Someone", ...cos.map((c) => c.name)];
-  const storeLabel = ctx.store_chain
-    ? `${ctx.store_name} @ ${ctx.store_chain}`
-    : ctx.store_name;
+  // stores.name already carries the chain ("Chain @ Location"), so only append
+  // the chain when the name doesn't already start with it — avoids the
+  // "Best Denki @ Vivocity @ Best Denki" duplication. (Mirrors src/utils/store-label.ts.)
+  const storeLabel =
+    ctx.store_chain && !ctx.store_name.toLowerCase().startsWith(ctx.store_chain.toLowerCase())
+      ? `${ctx.store_name} @ ${ctx.store_chain}`
+      : ctx.store_name;
   const broadcastText = `✅ ${joinNames(allNames)} visited ${storeLabel}`;
   const broadcastKb = botUsername
     ? {
