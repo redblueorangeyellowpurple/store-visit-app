@@ -23,6 +23,16 @@ function narrativeComponents(onOpenStore: (id: string) => void) {
   };
 }
 
+// Split the stored AI narrative (one markdown blob with `## Signals`, `## Alerts`,
+// `## Engagements`) into one chunk per heading so each renders in its own card.
+// Drops any leading pre-heading preamble and any chunk whose body is empty.
+function splitNarrative(md: string): string[] {
+  return md
+    .split(/\n(?=## )/)
+    .map((p) => p.trim())
+    .filter((p) => p.startsWith("##") && p.replace(/^##.*(\n|$)/, "").trim().length > 0);
+}
+
 function fmtPct(n: number): string { return `${n}%`; }
 function fmtWow(n: number | null): string | null {
   if (n === null) return null;
@@ -37,6 +47,17 @@ export function WeeklyView({
   onOpenStore: (storeId: string) => void;
 }) {
   const { stats, byDay, perCM, coverageByTier, displayByTier } = report;
+
+  // Fold Display into Coverage: look up the visited stores for each tier|market|chain
+  // so the merged "Store Updates" section can list them under each chain.
+  const storesByChain = new Map<string, typeof displayByTier[number]["markets"][number]["chains"][number]["stores"]>();
+  for (const tier of displayByTier)
+    for (const mkt of tier.markets)
+      for (const ch of mkt.chains)
+        storesByChain.set(`${tier.tier}|${mkt.market}|${ch.chain}`, ch.stores);
+
+  const narrativeSections = report.narrativeMarkdown ? splitNarrative(report.narrativeMarkdown) : [];
+
   const maxDayCount = Math.max(...byDay.map((d) => d.count), 1);
   const peakDay = byDay.reduce((best, d) => (d.count > best.count ? d : best), byDay[0]);
 
@@ -178,13 +199,14 @@ export function WeeklyView({
         </table>
       </section>
 
-      {/* Coverage By Tier */}
+      {/* Store Updates — coverage bars (tier → market → chain) folded together with
+          per-store photos, display notes & follow-ups. Click a store → drawer. */}
       <section className="wk-section">
         <h2 className="wk-sh2">
-          📍 Coverage By Tier{" "}
-          <span className="wk-sub">· stores visited ≥1× this week</span>
+          🏪 Store Updates{" "}
+          <span className="wk-sub">· coverage, then photos &amp; updates per store</span>
         </h2>
-        <p className="wk-sec-note">Tap a tier to drill into market → chain. Collapsed by default.</p>
+        <p className="wk-sec-note">Tap a tier → market to see chains and their visited stores. Click a store for its photos &amp; updates. Collapsed by default.</p>
 
         {coverageByTier.map((tier) => {
           const barPct = tier.total > 0 ? Math.round(tier.visited / tier.total * 100) : 0;
@@ -202,18 +224,52 @@ export function WeeklyView({
                 {tier.markets.map((mkt) => (
                   <details key={mkt.market} className="wk-cov wk-cov-sub">
                     <summary className="wk-cov-sum">
-                      <span className="wk-cv-mk">{mkt.market}</span>
+                      <span className="wk-cv-mk">{MARKET_FLAG[mkt.market] ?? ""} {mkt.market}</span>
                       <span className="wk-cv-n">{mkt.visited} / {mkt.total}</span>
                     </summary>
                     <div className="wk-cv-body">
-                      {mkt.chains.map((ch) => (
-                        <div key={ch.chain} className="wk-cv-chain">
-                          <span>{ch.chain}</span>
-                          <span className={ch.visited === ch.total && ch.total > 0 ? "wk-ok" : ch.visited === 0 ? "wk-bad" : ""}>
-                            {ch.visited} / {ch.total}
-                          </span>
-                        </div>
-                      ))}
+                      {mkt.chains.map((ch) => {
+                        const stores = storesByChain.get(`${tier.tier}|${mkt.market}|${ch.chain}`) ?? [];
+                        return (
+                          <div key={ch.chain} className="wk-su-chain">
+                            <div className="wk-su-chain-hd">
+                              <span>{ch.chain}</span>
+                              <span className={ch.visited === ch.total && ch.total > 0 ? "wk-ok" : ch.visited === 0 ? "wk-bad" : "wk-cv-n"}>
+                                {ch.visited} / {ch.total}
+                              </span>
+                            </div>
+                            {stores.map((store) => (
+                              <div
+                                key={store.storeId}
+                                className="wk-dsp-store"
+                                onClick={() => onOpenStore(store.storeId)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpenStore(store.storeId); }}
+                              >
+                                <div className="wk-ds-name">
+                                  {store.store}
+                                  <span className="wk-ds-cam">
+                                    📷 {store.photos} · ↗
+                                  </span>
+                                </div>
+                                {store.displayNote && (
+                                  <div className="wk-ds-note">{store.displayNote}</div>
+                                )}
+                                {store.followUps.length > 0 && (
+                                  <div className="wk-ds-fu-wrap">
+                                    {store.followUps.map((fu, i) => (
+                                      <span key={i} className="wk-fu">
+                                        {fu.title}{fu.ageDays > 0 ? ` · ${fu.ageDays}d` : ""}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </details>
                 ))}
@@ -223,84 +279,19 @@ export function WeeklyView({
         })}
       </section>
 
-      {/* Display */}
-      <section className="wk-section">
-        <h2 className="wk-sh2">
-          🖼️ Display{" "}
-          <span className="wk-sub">· photos, display notes & open follow-ups — visited stores only</span>
-        </h2>
-        <p className="wk-sec-note">Grouped tier → market → chain. Tap a store to open its full visit. Collapsed by default.</p>
-
-        {displayByTier.map((tier) => (
-          <details key={tier.tier} className="wk-cov">
-            <summary className="wk-cov-sum">
-              <span className="wk-cv-tier">{tier.tier}</span>
-              <span className="wk-dsp-sum">
-                {tier.markets.map((m) => `${m.market} ${m.storesVisited}`).join(" · ")}
-              </span>
-              <span className="wk-cv-n">{tier.storesVisited} stores</span>
-            </summary>
-            <div className="wk-cv-body">
-              {tier.markets.map((mkt) => (
-                <details key={mkt.market} className="wk-cov wk-cov-sub">
-                  <summary className="wk-cov-sum">
-                    <span className="wk-cv-mk">{mkt.market}</span>
-                    <span className="wk-cv-n">{mkt.storesVisited} visited</span>
-                  </summary>
-                  <div className="wk-cv-body">
-                    {mkt.chains.map((ch) => (
-                      <div key={ch.chain}>
-                        <div className="wk-dsp-ch">{ch.chain}</div>
-                        {ch.stores.map((store) => (
-                          <div
-                            key={store.storeId}
-                            className="wk-dsp-store"
-                            onClick={() => onOpenStore(store.storeId)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpenStore(store.storeId); }}
-                          >
-                            <div className="wk-ds-name">
-                              {store.store}
-                              <span className="wk-ds-cam">
-                                📷 {store.photos} · ↗
-                              </span>
-                            </div>
-                            {store.displayNote && (
-                              <div className="wk-ds-note">{store.displayNote}</div>
-                            )}
-                            {store.followUps.length > 0 && (
-                              <div className="wk-ds-fu-wrap">
-                                {store.followUps.map((fu, i) => (
-                                  <span key={i} className="wk-fu">
-                                    {fu.title}{fu.ageDays > 0 ? ` · ${fu.ageDays}d` : ""}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ))}
-            </div>
-          </details>
-        ))}
-      </section>
-
-      {/* AI narrative — Signals / Alerts / Engagements (stored, editable). */}
-      {report.narrativeMarkdown ? (
-        <section className="wk-section wk-narrative">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
-            components={narrativeComponents(onOpenStore)}
-          >
-            {report.narrativeMarkdown}
-          </ReactMarkdown>
-        </section>
+      {/* AI narrative — one card each for Signals / Alerts / Engagements (stored, editable). */}
+      {narrativeSections.length > 0 ? (
+        narrativeSections.map((md, i) => (
+          <section key={i} className="wk-section wk-narrative">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
+              components={narrativeComponents(onOpenStore)}
+            >
+              {md}
+            </ReactMarkdown>
+          </section>
+        ))
       ) : (
         <div className="wk-ai-placeholder">
           🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
@@ -357,7 +348,7 @@ const WK_CSS = `
 /* sections */
 .wk-section{background:var(--wk-card);border:1px solid var(--wk-line);border-radius:14px;
   padding:17px 19px;margin:14px 0;}
-.wk-sh2{font-size:15px;margin:0 0 4px;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
+.wk-sh2{font-size:15px;font-weight:700;margin:0 0 4px;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
 .wk-sub{font-size:12px;font-weight:400;color:var(--wk-muted);}
 .wk-sec-note{font-size:12.5px;color:var(--wk-muted);margin:4px 0 14px;}
 
@@ -388,9 +379,6 @@ const WK_CSS = `
 .wk-cv-n{font-variant-numeric:tabular-nums;color:var(--wk-muted);font-size:12.5px;
   margin-left:auto;font-weight:600;white-space:nowrap;}
 .wk-cv-body{padding:2px 14px 12px;border-top:1px solid var(--wk-line);background:#fbfaf7;}
-.wk-cv-chain{display:flex;justify-content:space-between;font-size:13px;
-  padding:4px 0 4px 10px;border-bottom:1px solid #efece5;}
-.wk-cv-chain:last-child{border-bottom:none;}
 .wk-ok{color:var(--wk-accent);font-weight:600;}
 .wk-bad{color:var(--wk-alert);font-weight:600;}
 .wk-cv-mk{font-size:11px;font-weight:700;color:var(--wk-chip-ink);background:var(--wk-chip);
@@ -402,10 +390,11 @@ const WK_CSS = `
 .wk-cov-sub>.wk-cov-sum{padding:9px 2px;}
 .wk-cov-sub>.wk-cv-body{background:transparent;border-top:1px dashed #e8e4db;padding:2px 2px 8px 12px;}
 
-/* display section */
-.wk-dsp-sum{color:var(--wk-muted);font-size:12.5px;}
-.wk-dsp-ch{font-size:11px;font-weight:700;color:var(--wk-chip-ink);margin:10px 0 1px 2px;
-  text-transform:uppercase;letter-spacing:.3px;}
+/* store-updates: per-chain group with its visited stores */
+.wk-su-chain{padding:2px 0;}
+.wk-su-chain-hd{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
+  color:var(--wk-chip-ink);text-transform:uppercase;letter-spacing:.3px;
+  margin:8px 0 1px 2px;padding-bottom:3px;border-bottom:1px solid #efece5;}
 .wk-dsp-store{padding:7px 0 7px 12px;border-bottom:1px solid #efece5;cursor:pointer;
   transition:background .12s;}
 .wk-dsp-store:last-child{border-bottom:none;}
@@ -419,8 +408,7 @@ const WK_CSS = `
   padding:2px 9px;border-radius:20px;margin:2px 3px 2px 0;}
 
 /* narrative (Signals / Alerts / Engagements) */
-.wk-narrative h2{font-size:15px;margin:18px 0 8px;}
-.wk-narrative h2:first-child{margin-top:0;}
+.wk-narrative h2{font-size:15px;font-weight:700;margin:0 0 8px;}
 .wk-narrative ul{margin:0;padding-left:18px;}
 .wk-narrative li{padding:4px 0;font-size:13.5px;line-height:1.5;}
 .wk-narrative p{font-size:13.5px;margin:6px 0;}
