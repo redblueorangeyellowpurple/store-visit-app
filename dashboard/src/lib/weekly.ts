@@ -101,7 +101,7 @@ export interface WeeklyReport {
   trainingProducts: TrainingProductSummary[];
   byDay: { dow: string; date: string; count: number }[];
   // Per-store × per-day visit counts (Mon..Sun) for the Execution Summary "Stores" heatmap.
-  storeDayMatrix: { storeId: string; store: string; chain: string; market: string; counts: number[]; total: number }[];
+  storeDayMatrix: { storeId: string; store: string; chain: string; market: string; tier: string | null; counts: number[]; total: number }[];
   perCM: { cm: string; market: string; visited: number; engagements: number; engagementDetails: CMEngagementDetail[] }[];
   // Flat list of every store visited this week (Store Updates cards).
   storesVisited: {
@@ -499,6 +499,7 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
         store: (store?.name as string) ?? "Unknown",
         chain: (store?.chain as string) ?? "",
         market: (store?.market as string) ?? "",
+        tier: (store?.tier as string | null) ?? null,
         counts: [0, 0, 0, 0, 0, 0, 0],
         total: 0,
       };

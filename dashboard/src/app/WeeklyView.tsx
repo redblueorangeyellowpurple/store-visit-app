@@ -85,6 +85,7 @@ function fmtWow(n: number | null): string | null {
 type StoreGroupBy = "Market" | "Chain" | "Tier";
 
 type ExecView = "CMs" | "Products" | "Stores";
+type HeatOuter = "Country" | "Tier";
 const EXEC_VIEW_LABEL: Record<ExecView, string> = {
   CMs: "Channel Managers",
   Products: "Products",
@@ -118,7 +119,7 @@ export function WeeklyView({
   onOpenStore: (storeId: string) => void;
   onOpenVisit?: (visitId: string, hl?: string | null) => void;
 }) {
-  const { stats, engagementSummary, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
+  const { stats, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
 
   // Drawer + grouping state
   const [trainingProduct, setTrainingProduct] = useState<TrainingProductSummary | null>(null);
@@ -126,6 +127,16 @@ export function WeeklyView({
   const [photoStore, setPhotoStore] = useState<{ id: string; name: string } | null>(null);
   const [storeGroupBy, setStoreGroupBy] = useState<StoreGroupBy>("Market");
   const [execView, setExecView] = useState<ExecView>("CMs");
+  const [heatOuter, setHeatOuter] = useState<HeatOuter>("Country");
+  const [collapsedChains, setCollapsedChains] = useState<Set<string>>(new Set());
+
+  const toggleChain = (k: string) =>
+    setCollapsedChains((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   // Store cards grouped by the selected dimension, small headers per group.
   const storeGroups = useMemo(() => {
@@ -144,27 +155,51 @@ export function WeeklyView({
     }));
   }, [storesVisited, storeGroupBy]);
 
-  // Stores heatmap rows grouped by market + chain, groups sorted by market then
-  // chain, stores alphabetical within each group.
+  // Stores heatmap: outer groups by Country or Tier (selectable), channel groups
+  // within (always), stores alphabetical. Each level carries per-day totals so
+  // group headers double as aggregate heat rows.
   const heatGroups = useMemo(() => {
-    const map = new Map<string, WeeklyReport["storeDayMatrix"]>();
+    const sumDays = (rows: WeeklyReport["storeDayMatrix"]) => {
+      const t = [0, 0, 0, 0, 0, 0, 0];
+      for (const r of rows) r.counts.forEach((n, i) => { t[i] += n; });
+      return t;
+    };
+    const outer = new Map<string, Map<string, WeeklyReport["storeDayMatrix"]>>();
     for (const s of storeDayMatrix) {
-      const k = `${s.market}|${s.chain}`;
-      const list = map.get(k) ?? [];
-      list.push(s);
-      map.set(k, list);
+      const ok = heatOuter === "Country" ? (s.market || "—") : (s.tier ?? "Untiered");
+      const chain = s.chain || "—";
+      const chains = outer.get(ok) ?? new Map<string, WeeklyReport["storeDayMatrix"]>();
+      const rows = chains.get(chain) ?? [];
+      rows.push(s);
+      chains.set(chain, rows);
+      outer.set(ok, chains);
     }
-    return Array.from(map.entries())
-      .map(([k, rows]) => {
-        const [market, chain] = k.split("|");
-        rows.sort((a, b) => a.store.localeCompare(b.store));
-        return { market, chain, rows };
+    return Array.from(outer.entries())
+      .map(([key, chains]) => {
+        const chainGroups = Array.from(chains.entries())
+          .map(([chain, rows]) => ({
+            chain,
+            rows: rows.sort((a, b) => a.store.localeCompare(b.store)),
+            dayTotals: sumDays(rows),
+          }))
+          .sort((a, b) => a.chain.localeCompare(b.chain));
+        const allRows = chainGroups.flatMap((c) => c.rows);
+        return {
+          key,
+          chainGroups,
+          dayTotals: sumDays(allRows),
+          stores: allRows.length,
+          visits: allRows.reduce((t, r) => t + r.total, 0),
+        };
       })
-      .sort((a, b) => marketRank(a.market) - marketRank(b.market) || a.chain.localeCompare(b.chain));
-  }, [storeDayMatrix]);
+      .sort((a, b) =>
+        heatOuter === "Country"
+          ? marketRank(a.key) - marketRank(b.key) || a.key.localeCompare(b.key)
+          : a.key.localeCompare(b.key),
+      );
+  }, [storeDayMatrix, heatOuter]);
 
   const narrativeSections = report.narrativeMarkdown ? splitNarrative(report.narrativeMarkdown) : [];
-  const eng = engagementSummary;
 
   const maxDayCount = Math.max(...byDay.map((d) => d.count), 1);
   const peakDay = byDay.reduce((best, d) => (d.count > best.count ? d : best), byDay[0]);
@@ -174,29 +209,6 @@ export function WeeklyView({
   // Determine if stores-reach is low (< 40%)
   const reachPct = stats.totalStores > 0 ? Math.round((stats.storesCovered / stats.totalStores) * 100) : 0;
   const reachWarn = reachPct < 40;
-
-  // Engagement headline strip — shown in the CMs view.
-  const engStrip = eng.peopleEngaged > 0 ? (
-    <div className="wk-eng-strip">
-      <div className="wk-eng-stat">
-        <span className="wk-eng-n">{eng.peopleEngaged}</span>
-        <span className="wk-eng-l">People engaged</span>
-        <span className="wk-eng-sub">
-          {eng.newPeople > 0 && <span className="wk-eng-new">{eng.newPeople} new</span>}
-          {eng.returningPeople > 0 && <span className="wk-eng-ret">{eng.returningPeople} returning</span>}
-        </span>
-      </div>
-      {eng.alliesEngaged > 0 && (
-        <>
-          <div className="wk-eng-divider" />
-          <div className="wk-eng-stat">
-            <span className="wk-eng-n">{eng.alliesEngaged}</span>
-            <span className="wk-eng-l">Allies engaged</span>
-          </div>
-        </>
-      )}
-    </div>
-  ) : null;
 
   return (
     <div className="wk">
@@ -348,7 +360,6 @@ export function WeeklyView({
                 </tr>
               </tbody>
             </table>
-            {engStrip}
           </>
         )}
 
@@ -386,6 +397,17 @@ export function WeeklyView({
         {execView === "Stores" && (
           storeDayMatrix.length > 0 ? (
             <div className="wk-hm">
+              <div className="wk-grp-row">
+                {(["Country", "Tier"] as HeatOuter[]).map((g) => (
+                  <button
+                    key={g}
+                    className={`wk-grp-chip${heatOuter === g ? " on" : ""}`}
+                    onClick={() => setHeatOuter(g)}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
               <div className="wk-hm-row wk-hm-head">
                 <span />
                 {byDay.map((d) => (
@@ -393,26 +415,63 @@ export function WeeklyView({
                 ))}
               </div>
               {heatGroups.map((grp) => (
-                <div key={`${grp.market}|${grp.chain}`}>
-                  <div className="wk-grp-hd">
-                    <span>{MARKET_FLAG[grp.market] ?? ""} {grp.market || "—"} · {grp.chain || "—"}</span>
-                    <span className="ct">{grp.rows.length}</span>
+                <div key={grp.key}>
+                  {/* Outer header — group-level stats + aggregate heat row */}
+                  <div className="wk-hm-row wk-hm-outer">
+                    <span className="wk-hm-outer-label" title={grp.key}>
+                      {heatOuter === "Country" ? `${MARKET_FLAG[grp.key] ?? ""} ${grp.key}` : grp.key}
+                      <span className="wk-hm-outer-stats">
+                        {grp.stores} store{grp.stores !== 1 ? "s" : ""} · {grp.visits} visit{grp.visits !== 1 ? "s" : ""}
+                      </span>
+                    </span>
+                    {grp.dayTotals.map((n, i) => (
+                      <span
+                        key={i}
+                        className="wk-hm-cell"
+                        style={{ background: heatColor(n) }}
+                        title={`${grp.key} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
+                      />
+                    ))}
                   </div>
-                  {grp.rows.map((s) => (
-                    <div key={s.storeId} className="wk-hm-row">
-                      <button className="wk-hm-store" onClick={() => onOpenStore(s.storeId)} title={s.store}>
-                        {stripChain(s.store, s.chain)}
-                      </button>
-                      {s.counts.map((n, i) => (
-                        <span
-                          key={i}
-                          className="wk-hm-cell"
-                          style={{ background: heatColor(n) }}
-                          title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
-                        />
-                      ))}
-                    </div>
-                  ))}
+                  {grp.chainGroups.map((cg) => {
+                    const ck = `${grp.key}|${cg.chain}`;
+                    const collapsed = collapsedChains.has(ck);
+                    return (
+                      <div key={ck}>
+                        {/* Chain header — collapsible; shows its aggregate heat row when collapsed */}
+                        <div className="wk-hm-row">
+                          <button className="wk-hm-chain" onClick={() => toggleChain(ck)} title={cg.chain}>
+                            <span className="chev">{collapsed ? "▸" : "▾"}</span>
+                            {cg.chain}
+                            <span className="ct">{cg.rows.length}</span>
+                          </button>
+                          {collapsed && cg.dayTotals.map((n, i) => (
+                            <span
+                              key={i}
+                              className="wk-hm-cell"
+                              style={{ background: heatColor(n) }}
+                              title={`${cg.chain} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
+                            />
+                          ))}
+                        </div>
+                        {!collapsed && cg.rows.map((s) => (
+                          <div key={s.storeId} className="wk-hm-row">
+                            <button className="wk-hm-store ind" onClick={() => onOpenStore(s.storeId)} title={s.store}>
+                              {stripChain(s.store, s.chain)}
+                            </button>
+                            {s.counts.map((n, i) => (
+                              <span
+                                key={i}
+                                className="wk-hm-cell"
+                                style={{ background: heatColor(n) }}
+                                title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
               <div className="wk-hm-legend">
@@ -599,20 +658,6 @@ const WK_CSS = `
 .wk-chip:hover{background:#e1e6ec;border-color:#cdd6df;}
 .wk-chip::before{content:"↗";font-size:10px;opacity:.5;}
 
-/* Engagement Summary strip */
-.wk-eng-strip{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0;
-  border:1px solid var(--wk-line);border-radius:10px;overflow:hidden;margin-top:16px;background:#f9f8f5;}
-.wk-eng-stat{flex:1;min-width:80px;padding:11px 14px;text-align:center;}
-.wk-eng-divider{width:1px;background:var(--wk-line);align-self:stretch;}
-.wk-eng-n{display:block;font-size:20px;font-weight:800;letter-spacing:-.4px;color:var(--wk-ink);}
-.wk-eng-l{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;
-  color:var(--wk-muted);font-weight:600;margin-top:2px;}
-.wk-eng-sub{display:flex;justify-content:center;gap:5px;margin-top:4px;flex-wrap:wrap;}
-.wk-eng-new{font-size:10px;font-weight:700;background:#e4f1ec;color:var(--wk-accent);
-  padding:1px 6px;border-radius:20px;}
-.wk-eng-ret{font-size:10px;font-weight:600;background:var(--wk-chip);color:var(--wk-chip-ink);
-  padding:1px 6px;border-radius:20px;}
-
 /* trainings-by-product table */
 .wk-train-table{margin-top:12px;}
 .wk-view-btn{font-size:11.5px;font-weight:600;color:var(--wk-chip-ink);background:var(--wk-chip);
@@ -647,6 +692,19 @@ const WK_CSS = `
   border:none;padding:0;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;min-width:0;}
 .wk-hm-store:hover{color:var(--wk-accent);}
+.wk-hm-store.ind{padding-left:16px;font-weight:500;}
+/* outer (country/tier) group header — stats + aggregate heat row */
+.wk-hm-outer{margin-top:18px;}
+.wk-hm-outer-label{font-size:11px;font-weight:700;color:var(--wk-chip-ink);text-transform:uppercase;
+  letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.wk-hm-outer-stats{color:var(--wk-faint);font-weight:600;margin-left:7px;text-transform:none;letter-spacing:0;}
+/* chain sub-header — collapsible */
+.wk-hm-chain{font:inherit;font-size:12px;font-weight:700;color:var(--wk-ink);background:none;
+  border:none;padding:0;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0;display:flex;align-items:center;gap:5px;}
+.wk-hm-chain:hover{color:var(--wk-accent);}
+.wk-hm-chain .chev{font-size:9px;color:var(--wk-faint);}
+.wk-hm-chain .ct{color:var(--wk-faint);font-weight:600;font-size:11px;}
 .wk-hm-cell{display:block;height:22px;border-radius:7px;}
 .wk-hm-legend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--wk-muted);margin-top:10px;}
 .wk-hm-swatch{width:20px;height:12px;border-radius:4px;display:inline-block;}
