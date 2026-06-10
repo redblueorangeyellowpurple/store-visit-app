@@ -100,6 +100,8 @@ export interface WeeklyReport {
   engagementSummary: WeeklyEngagementSummary;
   trainingProducts: TrainingProductSummary[];
   byDay: { dow: string; date: string; count: number }[];
+  // Per-store × per-day visit counts (Mon..Sun) for the Execution Summary "Stores" heatmap.
+  storeDayMatrix: { storeId: string; store: string; counts: number[]; total: number }[];
   perCM: { cm: string; market: string; visited: number; engagements: number; engagementDetails: CMEngagementDetail[] }[];
   // Flat list of every store visited this week (Store Updates cards).
   storesVisited: {
@@ -480,6 +482,27 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     byDay.push({ dow: DOW_LABELS[i], date: iso, count: dayCounts.get(iso) ?? 0 });
   }
 
+  // ── storeDayMatrix ────────────────────────────────────────────────────────
+  const dayIdx = new Map<string, number>();
+  byDay.forEach((d, i) => dayIdx.set(d.date, i));
+  const matrixMap = new Map<string, WeeklyReport["storeDayMatrix"][number]>();
+  for (const v of visits) {
+    const idx = dayIdx.get(v.visit_date as string);
+    if (idx === undefined) continue;
+    const sid = v.store_id as string;
+    let row = matrixMap.get(sid);
+    if (!row) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const store = v.stores as any;
+      row = { storeId: sid, store: (store?.name as string) ?? "Unknown", counts: [0, 0, 0, 0, 0, 0, 0], total: 0 };
+      matrixMap.set(sid, row);
+    }
+    row.counts[idx] += 1;
+    row.total += 1;
+  }
+  const storeDayMatrix = Array.from(matrixMap.values())
+    .sort((a, b) => b.total - a.total || a.store.localeCompare(b.store));
+
   // ── perCM ─────────────────────────────────────────────────────────────────
   // Build map of cm_telegram_id -> { cm, market, visitIds, engagements }
   const cmMap = new Map<number, { cm: string; market: string; visitIds: Set<string> }>();
@@ -572,6 +595,7 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     engagementSummary,
     trainingProducts,
     byDay,
+    storeDayMatrix,
     perCM,
     storesVisited,
   };

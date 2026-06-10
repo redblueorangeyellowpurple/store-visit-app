@@ -84,6 +84,17 @@ function fmtWow(n: number | null): string | null {
 
 type StoreGroupBy = "Market" | "Chain" | "Tier";
 
+type ExecView = "CMs" | "Products" | "Stores";
+const EXEC_VIEW_LABEL: Record<ExecView, string> = {
+  CMs: "Channel Managers",
+  Products: "Products",
+  Stores: "Stores",
+};
+
+// Amber heat scale for the Stores view: 0 → neutral, 4+ → deepest.
+const HEAT_SCALE = ["#f1eee7", "#fdedcb", "#fbd9a0", "#f7bd66", "#ef9d1f"];
+const heatColor = (n: number) => HEAT_SCALE[Math.min(n, HEAT_SCALE.length - 1)];
+
 export function WeeklyView({
   report,
   onOpenStore,
@@ -93,13 +104,14 @@ export function WeeklyView({
   onOpenStore: (storeId: string) => void;
   onOpenVisit?: (visitId: string, hl?: string | null) => void;
 }) {
-  const { stats, engagementSummary, trainingProducts, byDay, perCM, storesVisited } = report;
+  const { stats, engagementSummary, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
 
   // Drawer + grouping state
   const [trainingProduct, setTrainingProduct] = useState<TrainingProductSummary | null>(null);
   const [cmDrawer, setCmDrawer] = useState<WeeklyReport["perCM"][number] | null>(null);
   const [photoStore, setPhotoStore] = useState<{ id: string; name: string } | null>(null);
   const [storeGroupBy, setStoreGroupBy] = useState<StoreGroupBy>("Market");
+  const [execView, setExecView] = useState<ExecView>("CMs");
 
   // Store cards grouped by the selected dimension, small headers per group.
   const storeGroups = useMemo(() => {
@@ -129,6 +141,29 @@ export function WeeklyView({
   // Determine if stores-reach is low (< 40%)
   const reachPct = stats.totalStores > 0 ? Math.round((stats.storesCovered / stats.totalStores) * 100) : 0;
   const reachWarn = reachPct < 40;
+
+  // Engagement headline strip — shown in both the CMs and Products views.
+  const engStrip = eng.peopleEngaged > 0 ? (
+    <div className="wk-eng-strip">
+      <div className="wk-eng-stat">
+        <span className="wk-eng-n">{eng.peopleEngaged}</span>
+        <span className="wk-eng-l">People engaged</span>
+        <span className="wk-eng-sub">
+          {eng.newPeople > 0 && <span className="wk-eng-new">{eng.newPeople} new</span>}
+          {eng.returningPeople > 0 && <span className="wk-eng-ret">{eng.returningPeople} returning</span>}
+        </span>
+      </div>
+      {eng.alliesEngaged > 0 && (
+        <>
+          <div className="wk-eng-divider" />
+          <div className="wk-eng-stat">
+            <span className="wk-eng-n">{eng.alliesEngaged}</span>
+            <span className="wk-eng-l">Allies engaged</span>
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="wk">
@@ -221,7 +256,7 @@ export function WeeklyView({
         </div>
       </div>
 
-      {/* Execution Summary */}
+      {/* Execution Summary — one section, three switchable views */}
       <section className="wk-section">
         <h2 className="wk-sh2">🎯 Execution Summary</h2>
         {stats.planned === 0 && (
@@ -230,88 +265,127 @@ export function WeeklyView({
             {perCM.length > 0 ? " · " : ""}no visit plans logged this week.
           </p>
         )}
-        <table className="wk-table">
-          <thead>
-            <tr>
-              <th className="wk-th l">Channel Manager</th>
-              <th className="wk-th c">Market</th>
-              <th className="wk-th c">Visited</th>
-              <th className="wk-th c">Engagements</th>
-            </tr>
-          </thead>
-          <tbody>
-            {perCM.map((cm, i) => (
-              <tr key={i}>
-                <td className="wk-td l">{cm.cm}</td>
-                <td className="wk-td c">
-                  <span className="wk-mk">{MARKET_FLAG[cm.market] ?? ""} {cm.market}</span>
-                </td>
-                <td className="wk-td c wk-num">{cm.visited}</td>
-                <td className="wk-td c wk-num">
-                  {cm.engagements > 0 ? (
-                    <button className="wk-cell-btn" onClick={() => setCmDrawer(cm)}>
-                      {cm.engagements}<span className="wk-cell-chev">›</span>
-                    </button>
-                  ) : (
-                    cm.engagements
-                  )}
-                </td>
-              </tr>
-            ))}
-            <tr className="wk-tr-total">
-              <td className="wk-td l">All CMs</td>
-              <td className="wk-td c">—</td>
-              <td className="wk-td c wk-num">{stats.executed}</td>
-              <td className="wk-td c wk-num">{stats.engagements}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="wk-grp-row">
+          {(["CMs", "Products", "Stores"] as ExecView[]).map((v) => (
+            <button
+              key={v}
+              className={`wk-grp-chip${execView === v ? " on" : ""}`}
+              onClick={() => setExecView(v)}
+            >
+              {EXEC_VIEW_LABEL[v]}
+            </button>
+          ))}
+        </div>
 
-        {/* Engagement Summary — headline strip + trainings-by-product table */}
-        {eng.peopleEngaged > 0 && (
-          <div className="wk-eng-strip">
-            <div className="wk-eng-stat">
-              <span className="wk-eng-n">{eng.peopleEngaged}</span>
-              <span className="wk-eng-l">People engaged</span>
-              <span className="wk-eng-sub">
-                {eng.newPeople > 0 && <span className="wk-eng-new">{eng.newPeople} new</span>}
-                {eng.returningPeople > 0 && <span className="wk-eng-ret">{eng.returningPeople} returning</span>}
-              </span>
-            </div>
-            {eng.alliesEngaged > 0 && (
-              <>
-                <div className="wk-eng-divider" />
-                <div className="wk-eng-stat">
-                  <span className="wk-eng-n">{eng.alliesEngaged}</span>
-                  <span className="wk-eng-l">Allies engaged</span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-        {trainingProducts.length > 0 && (
-          <table className="wk-table wk-train-table">
-            <thead>
-              <tr>
-                <th className="wk-th l">Product</th>
-                <th className="wk-th c">Trainings</th>
-                <th className="wk-th c">People</th>
-                <th className="wk-th c" />
-              </tr>
-            </thead>
-            <tbody>
-              {trainingProducts.map((tp) => (
-                <tr key={tp.product}>
-                  <td className="wk-td l">{tp.product}</td>
-                  <td className="wk-td c wk-num">{tp.trainings}</td>
-                  <td className="wk-td c wk-num">{tp.people}</td>
-                  <td className="wk-td c">
-                    <button className="wk-view-btn" onClick={() => setTrainingProduct(tp)}>view →</button>
-                  </td>
+        {execView === "CMs" && (
+          <>
+            <table className="wk-table">
+              <thead>
+                <tr>
+                  <th className="wk-th l">Channel Manager</th>
+                  <th className="wk-th c">Market</th>
+                  <th className="wk-th c">Visited</th>
+                  <th className="wk-th c">Engagements</th>
                 </tr>
+              </thead>
+              <tbody>
+                {perCM.map((cm, i) => (
+                  <tr key={i}>
+                    <td className="wk-td l">{cm.cm}</td>
+                    <td className="wk-td c">
+                      <span className="wk-mk">{MARKET_FLAG[cm.market] ?? ""} {cm.market}</span>
+                    </td>
+                    <td className="wk-td c wk-num">{cm.visited}</td>
+                    <td className="wk-td c wk-num">
+                      {cm.engagements > 0 ? (
+                        <button className="wk-cell-btn" onClick={() => setCmDrawer(cm)}>
+                          {cm.engagements}<span className="wk-cell-chev">›</span>
+                        </button>
+                      ) : (
+                        cm.engagements
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="wk-tr-total">
+                  <td className="wk-td l">All CMs</td>
+                  <td className="wk-td c">—</td>
+                  <td className="wk-td c wk-num">{stats.executed}</td>
+                  <td className="wk-td c wk-num">{stats.engagements}</td>
+                </tr>
+              </tbody>
+            </table>
+            {engStrip}
+          </>
+        )}
+
+        {execView === "Products" && (
+          <>
+            {engStrip}
+            {trainingProducts.length > 0 ? (
+              <table className="wk-table wk-train-table">
+                <thead>
+                  <tr>
+                    <th className="wk-th l">Product</th>
+                    <th className="wk-th c">Trainings</th>
+                    <th className="wk-th c">People</th>
+                    <th className="wk-th c" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {trainingProducts.map((tp) => (
+                    <tr key={tp.product}>
+                      <td className="wk-td l">{tp.product}</td>
+                      <td className="wk-td c wk-num">{tp.trainings}</td>
+                      <td className="wk-td c wk-num">{tp.people}</td>
+                      <td className="wk-td c">
+                        <button className="wk-view-btn" onClick={() => setTrainingProduct(tp)}>view →</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="wk-sec-note">No product trainings logged this week.</p>
+            )}
+          </>
+        )}
+
+        {execView === "Stores" && (
+          storeDayMatrix.length > 0 ? (
+            <div className="wk-hm">
+              <div className="wk-hm-row wk-hm-head">
+                <span />
+                {byDay.map((d) => (
+                  <span key={d.dow} className="wk-hm-day">{d.dow}</span>
+                ))}
+              </div>
+              {storeDayMatrix.map((s) => (
+                <div key={s.storeId} className="wk-hm-row">
+                  <button className="wk-hm-store" onClick={() => onOpenStore(s.storeId)} title={s.store}>
+                    {s.store}
+                  </button>
+                  {s.counts.map((n, i) => (
+                    <span
+                      key={i}
+                      className="wk-hm-cell"
+                      style={{ background: heatColor(n) }}
+                      title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
+                    />
+                  ))}
+                </div>
               ))}
-            </tbody>
-          </table>
+              <div className="wk-hm-legend">
+                <span>0</span>
+                {HEAT_SCALE.map((c) => (
+                  <span key={c} className="wk-hm-swatch" style={{ background: c }} />
+                ))}
+                <span>4+ visits</span>
+              </div>
+            </div>
+          ) : (
+            <p className="wk-sec-note">No stores visited this week.</p>
+          )
         )}
       </section>
 
@@ -522,6 +596,21 @@ const WK_CSS = `
 .wk-store-meta{font-size:11.5px;color:var(--wk-muted);display:block;margin-top:1px;}
 .wk-store-cam{font-size:11.5px;color:var(--wk-faint);font-weight:500;white-space:nowrap;flex-shrink:0;}
 
+/* stores heatmap (Execution Summary → Stores view) */
+.wk-hm{margin-top:14px;}
+.wk-hm-row{display:grid;grid-template-columns:minmax(120px,1.5fr) repeat(7,minmax(0,1fr));
+  gap:5px;align-items:center;margin-top:5px;}
+.wk-hm-head{margin-top:0;}
+.wk-hm-day{font-size:10px;color:var(--wk-muted);text-align:center;font-weight:600;
+  text-transform:uppercase;letter-spacing:.3px;}
+.wk-hm-store{font:inherit;font-size:12.5px;font-weight:600;color:var(--wk-ink);background:none;
+  border:none;padding:0;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0;}
+.wk-hm-store:hover{color:var(--wk-accent);}
+.wk-hm-cell{display:block;height:22px;border-radius:7px;}
+.wk-hm-legend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--wk-muted);margin-top:10px;}
+.wk-hm-swatch{width:20px;height:12px;border-radius:4px;display:inline-block;}
+
 /* placeholder card */
 .wk-ai-placeholder{background:var(--wk-card);border:1px dashed var(--wk-line);border-radius:14px;
   padding:20px 22px;margin:14px 0;text-align:center;font-size:14px;color:var(--wk-faint);}
@@ -529,5 +618,8 @@ const WK_CSS = `
 @media(max-width:480px){
   .wk-tiles{grid-template-columns:repeat(2,1fr);}
   .wk-tile-n{font-size:19px;}
+  .wk-hm-row{grid-template-columns:minmax(88px,1.2fr) repeat(7,minmax(0,1fr));gap:4px;}
+  .wk-hm-store{font-size:11.5px;}
+  .wk-hm-cell{height:18px;border-radius:5px;}
 }
 `;
