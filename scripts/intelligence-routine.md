@@ -49,13 +49,15 @@ ORDER BY d;
 
 **Stats — deterministic SQL only. Never count visits by hand.**
 ```sql
--- executed + engagements, by CM × market
+-- executed + engagements, by CM × market (engagements = structured sva.visit_staff rows;
+-- NEVER count via the legacy v.people_training text column — it is empty on current visits)
 SELECT c.full_name AS cm, s.market,
-       count(*) AS executed,
-       count(*) FILTER (WHERE btrim(coalesce(v.people_training,'')) <> '') AS engagements
+       count(DISTINCT v.id) AS executed,
+       count(vs.id) AS engagements
 FROM sva.visits v
 JOIN sva.stores s ON s.id = v.store_id
 JOIN sva.cms c ON c.telegram_id = v.cm_telegram_id
+LEFT JOIN sva.visit_staff vs ON vs.visit_id = v.id
 WHERE v.is_locked AND v.analyzed_at IS NULL
   AND (v.locked_at AT TIME ZONE 'Asia/Singapore')::date = '<D>'
 GROUP BY c.full_name, s.market;
@@ -63,9 +65,20 @@ GROUP BY c.full_name, s.market;
 -- planned (may be 0 — planning flow is new)
 SELECT count(*) AS planned FROM sva.visit_plans WHERE planned_date = '<D>';
 ```
-`engagements` = visits with a `people_training` note. `executed%` = round(executed/planned*100) when planned>0, else omit.
+`engagements` = `visit_staff` rows for the day's visits — one logged person interaction each (training or update note). `executed%` = round(executed/planned*100) when planned>0, else omit.
 
-**Visit content** (same WHERE as the stats query): `v.id, s.name, s.market, s.tier, c.full_name, v.good_news, v.people_training, v.training, v.competitors, v.display_stock, v.follow_up`.
+**Visit content** (same WHERE as the stats query): `v.id, s.name, s.market, s.tier, c.full_name, v.good_news, v.competitors, v.display_stock, v.follow_up` (`v.people_training` / `v.training` are legacy free-text, empty on current visits — don't rely on them).
+
+**Engagement detail — structured rows, the real people/training source:**
+```sql
+SELECT vs.visit_id, coalesce(st.name, vs.person_name) AS person, st.is_ally,
+       vs.was_trained, vs.products_trained_on, vs.training_response, vs.update_text,
+       et.product_name, et.response AS product_response
+FROM sva.visit_staff vs
+LEFT JOIN sva.staff st ON st.id = vs.staff_id
+LEFT JOIN sva.engagement_trainings et ON et.visit_staff_id = vs.id
+WHERE vs.visit_id IN (<day D visit ids>);
+```
 
 **Memory — progressive disclosure (load light, then deep):**
 ```sql
@@ -132,7 +145,7 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 
 **Alerts** — BAD / needs attention: risks, problems, deteriorations, broken follow-ups, competitor threats (e.g. conquering shelf/POS space), store staff/manager resisting our brand, stock-out or display defect at a T1/T2 store, silence alerts (a T1 store gone silent ≥7 days, from silence-as-signal). Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure as Signals.
 
-**Engagements** — yesterday's staff/ally engagements: person @ store, what they were trained on or notable note, visit link. **Omit the section entirely when none exist.**
+**Engagements** — yesterday's staff/ally engagements from the structured engagement-detail rows (never the legacy `people_training` text): person @ store — products trained / notable note + response, visit link with `?hl=people_training`. **Omit the section entirely when none exist.**
 
 **Link forms** (both render as click-to-open chips on the dashboard and the mini app):
 - `[<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)` — visit-level deep-link. Use for every item grounded in a specific visit. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one. Every visit-level link MUST append `?hl=<section>`, where `<section>` identifies which of the 5 visit sections the item primarily drew from: `good_news` | `people_training` | `competitors` | `display_stock` | `follow_up`. Example: a Signals item built on a visit's competitor notes → `[Best Denki Funan](/visits/visit/<store_id>/<visit_id>?hl=competitors)`.
