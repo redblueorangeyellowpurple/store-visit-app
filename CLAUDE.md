@@ -6,12 +6,13 @@ Owner: Wilson Tan (TC Acoustic) · Active project
 
 ## What's Here
 
-Two services in one repo, both deploy off `wilson/sva-bot-v2`:
+Three services in one repo, all deploy off `main` (each builds its own folder via its Railway Root Directory):
 
 - **Bot** at repo root (`src/`) — TypeScript + grammY. Capture engine: ≤2-min visit logging via `/visit` (5-section template + photos + auto-lock). Auth via `sva.cms` allowlist by `telegram_id`.
 - **Mini app** at `miniapp/` — Next.js 16 + Tailwind 4. Richer CM views: portfolio, per-store timeline, full visit + photo lightbox. Telegram `initData` HMAC auth against the same `sva.cms` table.
+- **Dashboard** at `dashboard/` — Next.js 16, live as its own Railway service. AM/Admin desk-time views: weekly reports, payroll grid, daily intelligence brief. Same `sva.cms` auth.
 
-Decision rule: see `[[surface-tiers]]` in claude-os-knowledge. **Bot = chat-fast capture. Mini app = mobile-but-richer thinking. Future web dashboard = AM/IC desk-time.**
+Decision rule: see `[[surface-tiers]]` in claude-os-knowledge. **Bot = chat-fast capture. Mini app = mobile-but-richer thinking. Web dashboard = AM/IC desk-time.**
 
 ---
 
@@ -42,12 +43,15 @@ When adding new env-dependent code in the miniapp, **match these names** — don
 
 ## Deployment
 
-Both services live in the same Railway project but as **separate services**:
+**One repo, one trunk (`main`), three Railway services** in the same project — each builds a different folder via its Root Directory, all tracking `main`:
 
 - Bot — Root Directory `/`, watches all paths, runs `node dist/index.js`
 - Miniapp — Root Directory `/miniapp`, watch paths `miniapp/**`, runs `npm start`
+- Dashboard — Root Directory `/dashboard`, rebuilds on `dashboard/**`, runs `next start` (Next.js 16)
 
-Each service has its own `railway.toml` — the bot's at repo root, the miniapp's at `miniapp/railway.toml`. Without the second toml, Railway leaks the bot's `startCommand` to the miniapp service.
+Each service has its own `railway.toml` (bot at repo root, miniapp at `miniapp/railway.toml`, dashboard at `dashboard/railway.toml`) — without a per-service toml, Railway leaks the bot's `startCommand` to the other services.
+
+**Branch model:** branch off `main` → merge back to `main`; the relevant service auto-deploys (Railway only rebuilds a service when its own folder changes). Don't create long-lived per-app branches — that's what left `main` stale for 3 months before the 2026-06-10 consolidation. The pre-rewrite Google Apps Script version that used to live on `main` is archived under git tags `legacy/apps-script-*`.
 
 **Webhook + I/O timeouts:** `webhookCallback` is configured `onTimeout: 'return'` + `timeoutMilliseconds: 60_000` (grammY's 10s default throws on expiry → Telegram retry-storm → per-CM freeze on slow connections). All I/O is timeout-bounded at the client layer — 30s on the Supabase client (`db/client.ts` `global.fetch` wrapper) and 30s on every Telegram call (`bot.ts` `bot.api.config.use` transformer). Keep any in-flow wait below the 60s webhook window. See `grammy-webhook-timeout-freeze` insight.
 
@@ -73,6 +77,9 @@ Each service has its own `railway.toml` — the bot's at repo root, the miniapp'
 - `miniapp/src/app/(miniapp)/m/*` — portfolio, store/[id], visit/[id], **intel** (daily intelligence view, reached via `?startapp=intel`)
 - `miniapp/src/app/api/m/*` — whoami, portfolio, store/[id], visit/[id], **intelligence** (latest/selected brief, gated to leadership roles or `is_intelligence_recipient`)
 - `miniapp/src/app/health/route.ts` — Railway healthcheck
+
+### Intel inbox (local-only tool)
+- `scripts/intel-inbox/` — dedicated-token Telegram bot run on Wilson's Mac via `npm run inbox` (long polling, never deployed): forward promoter store updates from the group chat → locked into `promotchi.intel_updates`, tagged via inline buttons (store / promoter / date / shift). Store picker teaches `promotchi.intel_store_aliases` ("CWP" → store) so later forwards auto-resolve. `INTEL_BOT_TOKEN` lives only in local `.env`, never Railway. Feature test (stubbed Telegram, real DB): `npm run inbox:test`. The 7am routine later parses `raw_content` → `promotchi.intel_interactions` (pending). Tables belong to the SVA intelligence system, not the Promotchi app — see `supabase/migrations/promotchi/001_intel_tables.sql`.
 
 ### Intelligence routine
 - `scripts/intelligence-routine.md` — the daily report spec, run **headless on Wilson's Max plan** by LaunchAgent `com.wilson.sva-intelligence` (07:00 SGT, date injected by the plist shell). Format = stats → 🌟 Good News (strict concrete-wins bar) → Signals → Alerts → 🤝 Engagements, scannable nested bullets with visit-level links (Signals = good/neutral patterns + notable one-offs, Alerts = bad/needs attention — no Threads section; visit links carry `?hl=<section>` so drawers highlight the source section). As of 2026-06-05 the routine **computes + persists only** (`telegram_summary` saved into the report's `stats` jsonb, no team broadcast); the bot's `cron/morning-cron.ts` does the 08:00 preview-to-Wilson + 09:00 team send. Dashboard `/intelligence` + mini-app `m/intel` both parse the stored `brief_markdown`. See `project_sva_workflow` memory + [[headless-routine-determinism]] + [[scheduler-edit-goes-live-before-deploy]].
