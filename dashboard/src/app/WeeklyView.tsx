@@ -87,13 +87,13 @@ type StoreGroupBy = "Market" | "Chain" | "Tier";
 type ExecView = "CMs" | "Products" | "Stores";
 type HeatOuter = "Country" | "Tier";
 const EXEC_VIEW_LABEL: Record<ExecView, string> = {
-  CMs: "Channel Managers",
-  Products: "Products",
-  Stores: "Stores",
+  CMs: "👥 Channel Managers",
+  Products: "📦 Products",
+  Stores: "🏪 Stores",
 };
 
-// Amber heat scale for the Stores view: 0 → neutral, 4+ → deepest.
-const HEAT_SCALE = ["#f1eee7", "#fdedcb", "#fbd9a0", "#f7bd66", "#ef9d1f"];
+// Amber heat scale for the Stores view: 0 → near-invisible (so activity pops), 4+ → deepest.
+const HEAT_SCALE = ["#f6f4ee", "#fdedcb", "#fbd9a0", "#f7bd66", "#ef9d1f"];
 const heatColor = (n: number) => HEAT_SCALE[Math.min(n, HEAT_SCALE.length - 1)];
 
 // Heatmap group order: SG first, unknown markets last.
@@ -128,10 +128,11 @@ export function WeeklyView({
   const [storeGroupBy, setStoreGroupBy] = useState<StoreGroupBy>("Market");
   const [execView, setExecView] = useState<ExecView>("CMs");
   const [heatOuter, setHeatOuter] = useState<HeatOuter>("Country");
-  const [collapsedChains, setCollapsedChains] = useState<Set<string>>(new Set());
+  // Chains collapsed by default — track the expanded ones.
+  const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
 
   const toggleChain = (k: string) =>
-    setCollapsedChains((prev) => {
+    setExpandedChains((prev) => {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k);
       else next.add(k);
@@ -310,11 +311,11 @@ export function WeeklyView({
             {perCM.length > 0 ? " · " : ""}no visit plans logged this week.
           </p>
         )}
-        <div className="wk-grp-row">
+        <div className="wk-seg">
           {(["CMs", "Products", "Stores"] as ExecView[]).map((v) => (
             <button
               key={v}
-              className={`wk-grp-chip${execView === v ? " on" : ""}`}
+              className={`wk-seg-btn${execView === v ? " on" : ""}`}
               onClick={() => setExecView(v)}
             >
               {EXEC_VIEW_LABEL[v]}
@@ -413,6 +414,7 @@ export function WeeklyView({
                 {byDay.map((d) => (
                   <span key={d.dow} className="wk-hm-day">{d.dow}</span>
                 ))}
+                <span className="wk-hm-day">Tot</span>
               </div>
               {heatGroups.map((grp) => (
                 <div key={grp.key}>
@@ -421,7 +423,7 @@ export function WeeklyView({
                     <span className="wk-hm-outer-label" title={grp.key}>
                       {heatOuter === "Country" ? `${MARKET_FLAG[grp.key] ?? ""} ${grp.key}` : grp.key}
                       <span className="wk-hm-outer-stats">
-                        {grp.stores} store{grp.stores !== 1 ? "s" : ""} · {grp.visits} visit{grp.visits !== 1 ? "s" : ""}
+                        {grp.stores} store{grp.stores !== 1 ? "s" : ""}
                       </span>
                     </span>
                     {grp.dayTotals.map((n, i) => (
@@ -430,12 +432,15 @@ export function WeeklyView({
                         className="wk-hm-cell"
                         style={{ background: heatColor(n) }}
                         title={`${grp.key} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
-                      />
+                      >
+                        {n > 0 ? n : ""}
+                      </span>
                     ))}
+                    <span className="wk-hm-total">{grp.visits}</span>
                   </div>
                   {grp.chainGroups.map((cg) => {
                     const ck = `${grp.key}|${cg.chain}`;
-                    const collapsed = collapsedChains.has(ck);
+                    const collapsed = !expandedChains.has(ck);
                     return (
                       <div key={ck}>
                         {/* Chain header — collapsible; shows its aggregate heat row when collapsed */}
@@ -451,8 +456,13 @@ export function WeeklyView({
                               className="wk-hm-cell"
                               style={{ background: heatColor(n) }}
                               title={`${cg.chain} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
-                            />
+                            >
+                              {n > 0 ? n : ""}
+                            </span>
                           ))}
+                          <span className="wk-hm-total">
+                            {cg.dayTotals.reduce((a, b) => a + b, 0)}
+                          </span>
                         </div>
                         {!collapsed && cg.rows.map((s) => (
                           <div key={s.storeId} className="wk-hm-row">
@@ -465,8 +475,11 @@ export function WeeklyView({
                                 className="wk-hm-cell"
                                 style={{ background: heatColor(n) }}
                                 title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
-                              />
+                              >
+                                {n > 0 ? n : ""}
+                              </span>
                             ))}
+                            <span className="wk-hm-total">{s.total}</span>
                           </div>
                         ))}
                       </div>
@@ -493,9 +506,10 @@ export function WeeklyView({
         narrativeSections.map((sec, i) => {
           const slug = sec.heading.toLowerCase().replace(/\s+/g, "");
           const isAlert = slug.includes("alert");
-          const emoji = isAlert ? "🚨" : slug.includes("signal") ? "🔔" : slug.includes("good") ? "🌟" : "🤝";
+          const isGood = slug.includes("good");
+          const emoji = isAlert ? "🚨" : slug.includes("signal") ? "🔔" : isGood ? "🌟" : "🤝";
           return (
-            <section key={i} className={`wk-section wk-narrative${isAlert ? " wk-narrative-alert" : ""}`}>
+            <section key={i} className={`wk-section wk-narrative${isAlert ? " wk-narrative-alert" : ""}${isGood ? " wk-narrative-good" : ""}`}>
               <h2 className="wk-sh2">
                 {emoji} {sec.heading}
                 {sec.note && <span className="wk-sub">— {sec.note}</span>}
@@ -640,6 +654,10 @@ const WK_CSS = `
 /* narrative (Good News / Signals / Alerts / Engagements) */
 .wk-narrative-alert{background:#fdf6f3;border-color:#e8cfc9;}
 .wk-narrative-alert .wk-sh2{color:var(--wk-alert);}
+/* Good News — same amber treatment as the Daily report's card-good */
+.wk-narrative-good{background:#fef3c7;border-color:#f6d891;}
+.wk-narrative-good .wk-sh2{color:#92400e;}
+.wk-narrative-good li{border-top-color:#f1e0a8;}
 /* Nested-bullet scannability: bold headline, indented sub-bullets muted + smaller */
 .wk-narrative ul{margin:0;padding:0;list-style:none;}
 .wk-narrative li{padding:9px 0;border-top:1px solid var(--wk-line);line-height:1.5;font-size:14px;}
@@ -664,6 +682,14 @@ const WK_CSS = `
   border:none;border-radius:20px;padding:2px 10px;cursor:pointer;font-family:inherit;transition:.15s;}
 .wk-view-btn:hover{background:#e1e6ec;}
 
+/* execution summary — segmented view switcher (tabs, not filters) */
+.wk-seg{display:flex;background:#edeae1;border-radius:11px;padding:3px;gap:2px;margin:4px 0 14px;}
+.wk-seg-btn{flex:1;font:inherit;font-size:12.5px;font-weight:600;color:var(--wk-muted);
+  background:none;border:none;border-radius:9px;padding:7px 6px;cursor:pointer;
+  transition:.15s;white-space:nowrap;}
+.wk-seg-btn:hover{color:var(--wk-ink);}
+.wk-seg-btn.on{background:#fff;color:var(--wk-ink);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.1);}
+
 /* store updates — group chips + flat store cards */
 .wk-grp-row{display:flex;gap:6px;margin:2px 0 4px;}
 .wk-grp-chip{font-size:11.5px;font-weight:600;border:1px solid var(--wk-line);background:#fff;
@@ -683,7 +709,7 @@ const WK_CSS = `
 
 /* stores heatmap (Execution Summary → Stores view) */
 .wk-hm{margin-top:14px;}
-.wk-hm-row{display:grid;grid-template-columns:minmax(120px,1.5fr) repeat(7,minmax(0,1fr));
+.wk-hm-row{display:grid;grid-template-columns:minmax(120px,1.5fr) repeat(7,minmax(0,1fr)) 36px;
   gap:5px;align-items:center;margin-top:5px;}
 .wk-hm-head{margin-top:0;}
 .wk-hm-day{font-size:10px;color:var(--wk-muted);text-align:center;font-weight:600;
@@ -705,7 +731,12 @@ const WK_CSS = `
 .wk-hm-chain:hover{color:var(--wk-accent);}
 .wk-hm-chain .chev{font-size:9px;color:var(--wk-faint);}
 .wk-hm-chain .ct{color:var(--wk-faint);font-weight:600;font-size:11px;}
-.wk-hm-cell{display:block;height:22px;border-radius:7px;}
+.wk-hm-cell{display:flex;align-items:center;justify-content:center;height:22px;border-radius:7px;
+  font-size:11px;font-weight:700;color:#8a5a0e;font-variant-numeric:tabular-nums;}
+/* week-total column — pinned to the last grid track so it stays aligned even when
+   a row renders no day cells (expanded chain headers) */
+.wk-hm-total{grid-column:9;font-size:12.5px;font-weight:700;text-align:center;
+  color:var(--wk-ink);font-variant-numeric:tabular-nums;}
 .wk-hm-legend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--wk-muted);margin-top:10px;}
 .wk-hm-swatch{width:20px;height:12px;border-radius:4px;display:inline-block;}
 
@@ -716,8 +747,10 @@ const WK_CSS = `
 @media(max-width:480px){
   .wk-tiles{grid-template-columns:repeat(2,1fr);}
   .wk-tile-n{font-size:19px;}
-  .wk-hm-row{grid-template-columns:minmax(88px,1.2fr) repeat(7,minmax(0,1fr));gap:4px;}
+  .wk-seg-btn{font-size:11px;padding:6px 3px;}
+  .wk-hm-row{grid-template-columns:minmax(88px,1.2fr) repeat(7,minmax(0,1fr)) 26px;gap:4px;}
   .wk-hm-store{font-size:11.5px;}
-  .wk-hm-cell{height:18px;border-radius:5px;}
+  .wk-hm-cell{height:18px;border-radius:5px;font-size:10px;}
+  .wk-hm-total{font-size:11.5px;}
 }
 `;
