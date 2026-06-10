@@ -11,7 +11,9 @@
     "seed": "tsx scripts/seed-stores.ts",
     "intelligence": "tsx scripts/daily-intelligence.ts",
     "intelligence:seed": "tsx scripts/seed-intelligence-dryrun.ts",
-    "intelligence:cleanup": "tsx scripts/cleanup-intelligence-dryrun.ts"
+    "intelligence:cleanup": "tsx scripts/cleanup-intelligence-dryrun.ts",
+    "inbox": "tsx scripts/intel-inbox/index.ts",
+    "inbox:test": "tsx scripts/intel-inbox/test-drive.ts"
   },
   "engines": {
     "node": ">=20"
