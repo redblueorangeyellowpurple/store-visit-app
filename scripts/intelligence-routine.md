@@ -108,38 +108,35 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 ## 🌟 Good News
 - **<concrete win headline>**
   - <one-sentence elaboration of the win>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🔔 Signals
-- **<one-line pattern header>**
+- **<one-line signal header>**
   - <elaboration, 1–2 lines>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>) · [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🚨 Alerts
 - **<one-line risk header>**
   - <what's wrong, 1–2 lines>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🤝 Engagements
-- **<person name> @ <store name>** — <what they were trained on / note, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>)
-
-## 🧵 Threads   _(optional — multi-visit/week patterns from memory; skip if none)_
-- <theme>: <stores/people> — <one-line pattern>
+- **<person name> @ <store name>** — <what they were trained on / note, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training)
 ```
 
 **Section rules:**
 
 **Good News** — concrete wins ONLY. Qualifies: closed sale or large order, won or expanded display space, new ally recruited, competitor displaced. Does NOT qualify: routine positivity, vague momentum, a good conversation. **Omit the section entirely when no item qualifies** — do not include a placeholder or "none today" stub.
 
-**Signals** — patterns seen across ≥2 visits. Use the scannable nested-bullet structure above: bold short headline bullet → indented elaboration sub-bullets → separate "Sources:" sub-bullet. When a body bullet is grounded in ONE specific visit, use a visit-level link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>)` in that bullet. When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)` in the Sources line.
+**Signals** — noteworthy GOOD-or-NEUTRAL intelligence. Two kinds qualify: (1) repeating patterns — themes seen across ≥2 visits, recurring across weeks, or backed by memory notes; (2) notable one-off observations — e.g. market intel such as gaining access to another brand's sales data. Bad news NEVER goes in Signals — anything bad belongs in Alerts. Use the scannable nested-bullet structure above: bold short headline bullet → indented elaboration sub-bullets → separate "Sources:" sub-bullet. When a body bullet is grounded in ONE specific visit, use a visit-level link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>?hl=<section>)` in that bullet. When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)` in the Sources line.
 
-**Alerts** — allowlist (strict — nothing else qualifies): store staff/manager resisting our brand · competitor conquering shelf/POS space · stock-out or display defect at a T1/T2 store · a T1 store gone silent ≥7 days (from silence-as-signal). Same nested-bullet structure as Signals.
+**Alerts** — BAD / needs attention: risks, problems, deteriorations, broken follow-ups, competitor threats (e.g. conquering shelf/POS space), store staff/manager resisting our brand, stock-out or display defect at a T1/T2 store, silence alerts (a T1 store gone silent ≥7 days, from silence-as-signal). Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure as Signals.
 
 **Engagements** — yesterday's staff/ally engagements: person @ store, what they were trained on or notable note, visit link. **Omit the section entirely when none exist.**
 
 **Link forms** (both render as click-to-open chips on the dashboard and the mini app):
-- `[<store name>](/visits/visit/<store_id>/<visit_id>)` — visit-level deep-link. Use for every item grounded in a specific visit. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one.
-- `[<store name>](/visits/store/<store_id>)` — store-level link. Use ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources).
+- `[<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)` — visit-level deep-link. Use for every item grounded in a specific visit. `<visit_id>` must come from the snapshot's `visit_ids` for day D — never fabricate one. Every visit-level link MUST append `?hl=<section>`, where `<section>` identifies which of the 5 visit sections the item primarily drew from: `good_news` | `people_training` | `competitors` | `display_stock` | `follow_up`. Example: a Signals item built on a visit's competitor notes → `[Best Denki Funan](/visits/visit/<store_id>/<visit_id>?hl=competitors)`.
+- `[<store name>](/visits/store/<store_id>)` — store-level link (unchanged, no `?hl`). Use ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources).
 
 ### B) `telegram_summary` — DM body (sent with `parse_mode=HTML`, ≤900 chars)
 ```
@@ -172,7 +169,7 @@ Executed: <N> Visits (<pct>%)
 - `slug` matches `^(store|person|theme|channel):[a-z0-9-]+$`.
 - **Person notes carry a role.** First body line is `Type: cm | ally | manager | staff`, and the title names it, e.g. `Danson — ally · Harvey Norman Northpoint`. CMs (our own team) are tagged `cm` and **never** described as store allies.
 - `summary` ≤140 chars; `body_markdown` ≤200 tokens — bullets, quote names, date-stamp deltas (`2026-05-28: …`); `related_slugs` array.
-- **Visit links in body bullets:** when a body bullet is grounded in ONE specific visit, embed a markdown visit link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>)` in that bullet. When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)`. `<visit_id>` must come from the snapshot — never fabricate.
+- **Visit links in body bullets:** when a body bullet is grounded in ONE specific visit, embed a markdown visit link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>?hl=<section>)` in that bullet (same `?hl=<section>` rule as Link forms). When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)`. `<visit_id>` must come from the snapshot — never fabricate.
 - `version` = prev+1 (existing slug) or 1 (new). Decay notes >30 days old unless restated.
 
 ### D) `edges` — `{from_slug, to_slug, edge_type}`, type ∈ `store_theme | person_store | person_theme | theme_theme`. Dedupe (ON CONFLICT).

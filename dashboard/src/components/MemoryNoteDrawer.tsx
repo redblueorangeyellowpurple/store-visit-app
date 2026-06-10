@@ -39,7 +39,7 @@ interface Props {
   slug: string | null;
   onClose: () => void;
   onOpenStore?: (storeId: string) => void;
-  onOpenVisit?: (visitId: string) => void;
+  onOpenVisit?: (visitId: string, hl?: string | null) => void;
 }
 
 const SCOPE_BG: Record<string, string> = {
@@ -57,17 +57,19 @@ function fmtDateTime(iso: string) {
 }
 
 // Link interceptor for body_markdown links inside a memory note.
+// Visit links may carry ?hl=<section> — passed through so VisitDrawer can highlight it.
 function mdLinkComponents(
   onOpenStore: ((id: string) => void) | undefined,
-  onOpenVisit: ((id: string) => void) | undefined,
+  onOpenVisit: ((id: string, hl?: string | null) => void) | undefined,
 ) {
   return {
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
       const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
       if (visitMatch && onOpenVisit) {
+        const hl = href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
         return (
           <button
-            onClick={() => onOpenVisit(visitMatch[2])}
+            onClick={() => onOpenVisit(visitMatch[2], hl)}
             style={{ fontSize: "inherit", color: "var(--color-tc-600)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
           >
             {children}

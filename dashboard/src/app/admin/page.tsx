@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import NavBar from "@/components/NavBar";
 
 type Role = "cm" | "cmic" | "am" | "admin";
@@ -1108,6 +1109,14 @@ export default function AdminPage() {
             </table>
           </div>
         </section>
+
+        {/* ── More tools ────────────────────────────────────────────────────── */}
+        <p className="admin-footnote">
+          More tools:{" "}
+          <Link href="/staff" style={{ color: "inherit", textDecoration: "underline" }}>Staff &amp; Allies</Link>
+          {" · "}
+          <Link href="/channel-managers" style={{ color: "inherit", textDecoration: "underline" }}>Channel Managers</Link>
+        </p>
       </div>
     </>
   );

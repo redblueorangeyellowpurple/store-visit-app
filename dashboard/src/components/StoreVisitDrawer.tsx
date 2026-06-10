@@ -316,10 +316,10 @@ export default function StoreVisitDrawer({ storeId, onClose, onOpenNote }: Props
                 </div>
               )}
 
-              {/* What we know */}
+              {/* Memories (store-scoped + store-linked notes) */}
               {memoryNotes.length > 0 && (
                 <>
-                  <SectionHeader style={{ marginTop: 24 }}>🧠 What we know<Count>{memoryNotes.length}</Count></SectionHeader>
+                  <SectionHeader style={{ marginTop: 24 }}>🧠 Memories<Count>{memoryNotes.length}</Count></SectionHeader>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {memoryNotes.map(n => (
                       <button

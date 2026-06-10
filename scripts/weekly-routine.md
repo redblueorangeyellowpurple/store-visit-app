@@ -58,32 +58,33 @@ Persona: intelligence layer for AMs / CM-ICs / leadership. **Surface patterns, n
 _Concrete wins this week — sales closed, space won, allies recruited_
 - **<concrete win headline>**
   - <one-sentence elaboration of the win>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🔔 Signals
-_Patterns across ≥2 visits this week_
+_Noteworthy good-or-neutral intelligence — repeating patterns & notable observations_
 - **<one-line insight header>**
   - <punchy elaboration, 1–2 lines>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>) · [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>) · [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>) · [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🚨 Alerts
-_Explicit triggers only_
+_Bad / needs attention_
 - **<one-line risk header>**
   - <what's wrong, 1–2 lines>
-  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>)
+  - Sources: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)
 
 ## 🤝 Engagements
 _Standout staff & ally engagements_
-- ▲ **<person name> @ <store name>** — <standout-good engagement, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>)
-- ▽ **<person name> @ <store name>** — <standout-bad / concerning engagement>. [<store name>](/visits/visit/<store_id>/<visit_id>)
+- ▲ **<person name> @ <store name>** — <standout-good engagement, 1 line>. [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training)
+- ▽ **<person name> @ <store name>** — <standout-bad / concerning engagement>. [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training)
+- ◆ **Consensus** — <general sentiment/awareness insight across the week's engagements, e.g. floor staff broadly aware of the new promo; product familiarity low in MY chains>
 ```
 
 Rules:
 - **Good News** — concrete wins ONLY. Qualifies: closed sale or large order, won or expanded display space, new ally recruited, competitor displaced. Does NOT qualify: routine positivity, vague momentum, a good conversation. **Omit the section entirely when no item qualifies** — no placeholder or stub.
-- **Signals** = good/neutral patterns seen across **≥2 visits** OR multi-week themes (insight into competitors, new spaces, category shifts). Use nested-bullet structure: bold headline → elaboration sub-bullets → "Sources:" sub-bullet. 3 sources where possible.
-- **Alerts** = negatives only: brand resistance, competitor conquering shelf/POS, stock-out/display defect at T1/T2, lost demos, a T1 store silent ≥7 days, follow-ups overdue >10 days. Same nested-bullet structure.
-- **Engagements** = qualitative standouts only (the count lives in the deterministic Execution Summary). Flag clearly-strong (▲) and clearly-weak/concerning (▽) staff/ally engagements. **Classification bar: pending Wilson's calibration** — until set, mark genuinely strong ones ▲, flag uncertain ones under a `🤔 _Need your good/bad bar_` line rather than guessing. See the `feedback_*` engagement-bar memory once it exists.
-- **Link forms** — every item grounded in a specific visit must use a visit-level link `[<store name>](/visits/visit/<store_id>/<visit_id>)`. Store-level links `[<store name>](/visits/store/<store_id>)` ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources). All links render as click-to-open chips in the dashboard. `<store_id>` and `<visit_id>` must come from Step 2 — never fabricate.
+- **Signals** = noteworthy GOOD-or-NEUTRAL intelligence. Two kinds qualify: (1) repeating patterns — themes across **≥2 visits**, multi-week themes, or memory-backed themes (competitor insight, new spaces, category shifts); (2) notable one-off observations — e.g. market intel such as gaining access to another brand's sales data. Bad news NEVER goes in Signals — it belongs in Alerts. Use nested-bullet structure: bold headline → elaboration sub-bullets → "Sources:" sub-bullet. 3 sources where possible for pattern items.
+- **Alerts** = BAD / needs attention: risks, problems, deteriorations, broken or overdue follow-ups (>10 days), competitor threats (conquering shelf/POS), brand resistance, stock-out/display defect at T1/T2, lost demos, a T1 store silent ≥7 days. Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure.
+- **Engagements** = qualitative standouts only (the count lives in the deterministic Execution Summary). High bar for ▲/▽ — only genuinely standout engagements qualify: clearly-strong (▲) or clearly-weak/concerning (▽); an ordinary decent training session does not make the list. Plus 1–3 `◆ **Consensus**` lines per week — general sentiment/awareness insights read across the week's engagements (e.g. floor staff broadly aware of the new promo; product familiarity low in MY chains); no visit link required.
+- **Link forms** — every item grounded in a specific visit must use a visit-level link `[<store name>](/visits/visit/<store_id>/<visit_id>?hl=<section>)`, and MUST append `?hl=<section>` where `<section>` identifies which of the 5 visit sections the item primarily drew from: `good_news` | `people_training` | `competitors` | `display_stock` | `follow_up`. Example: an Alerts item built on a visit's display notes → `[Best Denki Funan](/visits/visit/<store_id>/<visit_id>?hl=display_stock)`. Store-level links `[<store name>](/visits/store/<store_id>)` (unchanged, no `?hl`) ONLY for items with no single source visit (store-silence alerts, multi-visit pattern sources). All links render as click-to-open chips in the dashboard. `<store_id>` and `<visit_id>` must come from Step 2 — never fabricate.
 
 ## Step 4 — Write (single statement, dollar-quoted)
 ```sql

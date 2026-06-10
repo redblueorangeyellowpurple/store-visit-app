@@ -94,10 +94,13 @@ function parseBrief(md: string): { exec: ExecData | null; sections: Section[] } 
 // Inline text → React nodes, converting visit/store markdown links to chips.
 //   [name](/visits/store/<store_id>)            → opens the store timeline
 //   [name](/visits/visit/<store_id>/<visit_id>) → opens the actual visit
+// Visit links may carry ?hl=<section> (good_news | people_training |
+// competitors | display_stock | follow_up) marking which visit section the
+// report item drew from — passed through so the visit page can highlight it.
 function renderInline(
   text: string,
   alert: boolean,
-  onNav: (kind: "store" | "visit", id: string) => void,
+  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
   keyPrefix: string,
 ): React.ReactNode[] {
   const re = /\[([^\]]+)\]\(\/visits\/(store|visit)\/([^)]+)\)/g;
@@ -106,9 +109,11 @@ function renderInline(
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
     const kind = m[2] as "store" | "visit";
-    const id = kind === "visit" ? m[3].split("/").pop() ?? m[3] : m[3];
+    const [path, query = ""] = m[3].split("?");
+    const hl = new URLSearchParams(query).get("hl");
+    const id = kind === "visit" ? path.split("/").pop() ?? path : path;
     parts.push(
-      <button key={`${keyPrefix}-c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id)}>
+      <button key={`${keyPrefix}-c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id, hl)}>
         {m[1]}
       </button>,
     );
@@ -122,7 +127,7 @@ function renderInline(
 function renderRichInline(
   text: string,
   alert: boolean,
-  onNav: (kind: "store" | "visit", id: string) => void,
+  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
   keyPrefix: string,
 ): React.ReactNode[] {
   // Split on **bold** spans first, then process each chunk for links.
@@ -188,7 +193,7 @@ function parseBulletTree(lines: string[]): BulletNode[] {
 function renderBulletNode(
   node: BulletNode,
   alert: boolean,
-  onNav: (kind: "store" | "visit", id: string) => void,
+  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
   key: number,
 ): React.ReactNode {
   const hasChildren = node.children.length > 0;
@@ -229,7 +234,7 @@ function renderBulletNode(
 function renderBullets(
   body: string,
   alert: boolean,
-  onNav: (kind: "store" | "visit", id: string) => void,
+  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
 ): React.ReactNode {
   const lines = body.split("\n").filter((l) => /^\s*[-*]\s+/.test(l));
   if (!lines.length) return null;
@@ -281,6 +286,10 @@ export default function IntelPage() {
   const parsed = useMemo(() => (report ? parseBrief(report.brief_markdown) : null), [report]);
   const exec = parsed?.exec ?? null;
   const signals = parsed?.sections.find((s) => s.kind === "signals");
+  // Legacy-compat shim: Threads no longer exists as a section — fold any
+  // "Threads" bullets from older reports into the Signals card.
+  const threads = parsed?.sections.find((s) => s.kind === "threads");
+  const signalsBody = [signals?.body, threads?.body].filter(Boolean).join("\n");
   const alerts = parsed?.sections.find((s) => s.kind === "alerts");
   const goodNews = parsed?.sections.find((s) => s.kind === "goodnews");
   const engagements = parsed?.sections.find((s) => s.kind === "engagements");
@@ -289,8 +298,12 @@ export default function IntelPage() {
     [exec],
   );
 
-  const onNav = (kind: "store" | "visit", id: string) =>
-    router.push(kind === "visit" ? `/m/visit/${id}?from=intel` : `/m/store/${id}`);
+  const onNav = (kind: "store" | "visit", id: string, hl?: string | null) =>
+    router.push(
+      kind === "visit"
+        ? `/m/visit/${id}?from=intel${hl ? `&hl=${encodeURIComponent(hl)}` : ""}`
+        : `/m/store/${id}`,
+    );
 
   // ── Date navigation (arrows · dropdown · swipe) ─────────────────────────────
   // Newest first. "Previous" = older day (idx+1), "next" = newer day (idx-1).
@@ -410,7 +423,7 @@ export default function IntelPage() {
 
             <div className="card">
               <h2>🔔 Signals</h2>
-              {renderBullets(signals?.body ?? "", false, onNav) ?? <p className="calm">No repeated patterns today.</p>}
+              {renderBullets(signalsBody, false, onNav) ?? <p className="calm">No repeated patterns today.</p>}
             </div>
 
             <div className="card card-emg">

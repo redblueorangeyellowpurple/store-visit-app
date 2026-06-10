@@ -7,7 +7,6 @@ const BASE_TABS = [
   { href: "/",           label: "Reports"       },
   { href: "/statistics", label: "Statistics"    },
   { href: "/visits",     label: "Store Updates" },
-  { href: "/staff",      label: "Staff & Allies" },
 ];
 
 const ADMIN_TAB = { href: "/admin", label: "Admin" };

@@ -166,6 +166,7 @@ export default function HomePage() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
   const [drawerVisitId, setDrawerVisitId] = useState<string | null>(null);
+  const [drawerVisitHl, setDrawerVisitHl] = useState<string | null>(null);
   const [drawerNoteSlug, setDrawerNoteSlug] = useState<string | null>(null);
 
   // Top-level tab
@@ -285,17 +286,26 @@ export default function HomePage() {
     } finally { setSaving(false); }
   }
 
+  // Open a visit drawer, optionally highlighting one of its 5 sections
+  // (good_news | people_training | competitors | display_stock | follow_up).
+  const openVisit = useCallback((visitId: string, hl?: string | null) => {
+    setDrawerVisitHl(hl ?? null);
+    setDrawerVisitId(visitId);
+  }, []);
+
   // ─── Link interceptor ─────────────────────────────────────────────────────
-  // /visits/store/<store_id>                 → StoreVisitDrawer
-  // /visits/visit/<store_id>/<visit_id>      → VisitDrawer  (visit_id is the UUID)
+  // /visits/store/<store_id>                      → StoreVisitDrawer
+  // /visits/visit/<store_id>/<visit_id>[?hl=...]  → VisitDrawer  (visit_id is the UUID)
+  const extractHl = (href?: string): string | null => href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
   const mdComponents = (alert: boolean) => ({
     a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
       const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
       const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
       if (visitMatch) {
         const visitId = visitMatch[2];
+        const hl = extractHl(href);
         return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerVisitId(visitId)}>
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openVisit(visitId, hl)}>
             {children}
           </button>
         );
@@ -315,7 +325,10 @@ export default function HomePage() {
   const signals = parsed?.sections.find((s) => s.kind === "signals");
   const alerts = parsed?.sections.find((s) => s.kind === "alerts");
   const engagements = parsed?.sections.find((s) => s.kind === "engagements");
-  const otherSections = parsed?.sections.filter((s) => s.kind === "threads" || s.kind === "other") ?? [];
+  // Legacy briefs may carry a Threads section — fold its bullets into the Signals card.
+  const threadsBodies = (parsed?.sections ?? []).filter((s) => s.kind === "threads" && s.body).map((s) => s.body);
+  const signalsBody = [signals?.body, ...threadsBodies].filter(Boolean).join("\n\n");
+  const otherSections = parsed?.sections.filter((s) => s.kind === "other") ?? [];
   const exec = parsed?.exec;
 
   // Date navigation
@@ -432,7 +445,7 @@ export default function HomePage() {
                 <WeeklyView
                   report={weekReport}
                   onOpenStore={setDrawerStoreId}
-                  onOpenVisit={setDrawerVisitId}
+                  onOpenVisit={openVisit}
                 />
               )}
             </>
@@ -519,14 +532,14 @@ export default function HomePage() {
           {/* ── Signals ── */}
           {mainTab === "daily" && !editing && report && (
             <div className="card">
-              <h2>🔔 Signals <span className="h2-note">— patterns across ≥2 visits</span></h2>
-              {signals?.body ? (
+              <h2>🔔 Signals <span className="h2-note">— patterns &amp; notable observations</span></h2>
+              {signalsBody ? (
                 <div className="md">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={mdComponents(false)}>
-                    {signals.body}
+                    {signalsBody}
                   </ReactMarkdown>
                 </div>
-              ) : <p className="calm">No repeated patterns today.</p>}
+              ) : <p className="calm">No signals today.</p>}
             </div>
           )}
 
@@ -556,7 +569,7 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* ── Other / Threads sections (generic fallback) ── */}
+          {/* ── Other sections (generic fallback) ── */}
           {mainTab === "daily" && !editing && report && otherSections.map((s, i) => (
             <div key={i} className="card">
               <h2>{s.title}</h2>
@@ -613,11 +626,19 @@ export default function HomePage() {
       {/* Visit drawer: zIndex 260 — must sit above MemoryNoteDrawer (250), since memory notes can open visit links */}
       <VisitDrawer
         visitId={drawerVisitId}
-        onClose={() => setDrawerVisitId(null)}
+        highlight={drawerVisitHl}
+        onClose={() => { setDrawerVisitId(null); setDrawerVisitHl(null); }}
         onOpenStore={(storeId) => {
           // Visit → Store chain: close visit drawer, open store drawer.
           setDrawerVisitId(null);
+          setDrawerVisitHl(null);
           setDrawerStoreId(storeId);
+        }}
+        onOpenNote={(slug) => {
+          // Visit → Memory chain: close visit drawer, open memory note drawer.
+          setDrawerVisitId(null);
+          setDrawerVisitHl(null);
+          setDrawerNoteSlug(slug);
         }}
       />
       {/* Store drawer: zIndex 200, but when opened from a visit it stacks on top because
@@ -627,7 +648,7 @@ export default function HomePage() {
         slug={drawerNoteSlug}
         onClose={() => setDrawerNoteSlug(null)}
         onOpenStore={(id) => { setDrawerNoteSlug(null); setDrawerStoreId(id); }}
-        onOpenVisit={(id) => { setDrawerNoteSlug(null); setDrawerVisitId(id); }}
+        onOpenVisit={(id, hl) => { setDrawerNoteSlug(null); openVisit(id, hl); }}
       />
     </>
   );

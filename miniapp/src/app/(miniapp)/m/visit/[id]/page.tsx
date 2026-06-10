@@ -160,15 +160,28 @@ function fmtDate(dateStr: string): string {
   });
 }
 
+// Sections the intel brief can deep-link to via ?hl= — the 4 text-section
+// cards plus the Follow-ups card.
+const HL_SECTIONS = new Set([
+  "good_news",
+  "people_training",
+  "competitors",
+  "display_stock",
+  "follow_up",
+]);
+
 export default function VisitPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; hl?: string }>;
 }) {
   const { id } = use(params);
-  const fromIntel = use(searchParams).from === "intel";
+  const sp = use(searchParams);
+  const fromIntel = sp.from === "intel";
+  // ?hl=<section> from the intel brief — highlight + scroll to that section.
+  const hlSection = sp.hl && HL_SECTIONS.has(sp.hl) ? sp.hl : null;
   const router = useRouter();
   const [data, setData] = useState<VisitPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +226,15 @@ export default function VisitPage({
     setEditingTraining(true);
     window.history.replaceState(null, "", window.location.pathname);
   }, [data]);
+
+  // Deep-link from the intel brief: ?hl=<section> scrolls the matching
+  // section card into view once the visit has rendered.
+  useEffect(() => {
+    if (!data || !hlSection) return;
+    document
+      .getElementById(`hl-${hlSection}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [data, hlSection]);
 
   function openCMEditor() {
     if (!data || !initData) return;
@@ -490,7 +512,13 @@ export default function VisitPage({
               ? (photosBySection.get(s.photoSection) ?? [])
               : [];
             return (
-              <div key={s.key} className="rounded-[18px] border border-ink-100 bg-white p-4">
+              <div
+                key={s.key}
+                id={`hl-${s.key}`}
+                className={`rounded-[18px] border p-4 ${
+                  hlSection === s.key ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"
+                }`}
+              >
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${s.iconBgClass}`}>
                     {s.icon}
@@ -552,7 +580,12 @@ export default function VisitPage({
         )}
 
         {/* Follow-ups card */}
-        <div className="rounded-[18px] border border-ink-100 bg-white p-4">
+        <div
+          id="hl-follow_up"
+          className={`rounded-[18px] border p-4 ${
+            hlSection === "follow_up" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"
+          }`}
+        >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-section-pink-bg)] text-sm">

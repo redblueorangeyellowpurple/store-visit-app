@@ -53,10 +53,32 @@ export interface WeeklyEngagementSummary {
   peopleEngaged: number;
   newPeople: number;       // first-ever appearance in visit_staff by staff_id (or case-insensitive name within store)
   returningPeople: number;
-  trainingsDelivered: number;
-  distinctProducts: number;
-  topProducts: string[];   // top 3 by count
   alliesEngaged: number;
+}
+
+// One person-training entry inside a product's drawer list.
+export interface TrainedPersonDetail {
+  person: string;
+  store: string;
+  date: string;            // visit_date ISO
+  response: string | null; // per-product response if present, else the person's training_response
+}
+
+// One row of the "trainings by product" table, with its drawer list precomputed.
+export interface TrainingProductSummary {
+  product: string;
+  trainings: number;       // training entries this week
+  people: number;          // distinct people trained on it
+  persons: TrainedPersonDetail[];
+}
+
+// One engagement row inside a CM's drawer list.
+export interface CMEngagementDetail {
+  person: string;
+  store: string;
+  products: string | null; // products trained, comma-joined; null if none
+  response: string | null;
+  date: string;            // visit_date ISO
 }
 
 export interface WeeklyReport {
@@ -76,37 +98,17 @@ export interface WeeklyReport {
     totalStores: number;
   };
   engagementSummary: WeeklyEngagementSummary;
+  trainingProducts: TrainingProductSummary[];
   byDay: { dow: string; date: string; count: number }[];
-  perCM: { cm: string; market: string; visited: number; engagements: number }[];
-  coverageByTier: {
-    tier: string;
-    visited: number;
-    total: number;
-    pct: number;
-    markets: {
-      market: string;
-      visited: number;
-      total: number;
-      chains: { chain: string; visited: number; total: number }[];
-    }[];
-  }[];
-  displayByTier: {
-    tier: string;
-    storesVisited: number;
-    markets: {
-      market: string;
-      storesVisited: number;
-      chains: {
-        chain: string;
-        stores: {
-          store: string;
-          storeId: string;
-          photos: number;
-          displayNote: string | null;
-          followUps: { title: string; ageDays: number }[];
-        }[];
-      }[];
-    }[];
+  perCM: { cm: string; market: string; visited: number; engagements: number; engagementDetails: CMEngagementDetail[] }[];
+  // Flat list of every store visited this week (Store Updates cards).
+  storesVisited: {
+    storeId: string;
+    store: string;
+    chain: string;
+    market: string;
+    tier: string | null;
+    photos: number;
   }[];
 }
 
@@ -209,7 +211,7 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     // All locked visits in the week, with store + CM info
     supabase
       .from("visits")
-      .select("id, visit_date, cm_telegram_id, store_id, display_stock, stores(name, chain, market, tier), cms!cm_telegram_id(full_name, market)")
+      .select("id, visit_date, cm_telegram_id, store_id, stores(name, chain, market, tier), cms!cm_telegram_id(full_name, market)")
       .eq("is_locked", true)
       .gte("visit_date", weekStart)
       .lte("visit_date", weekEnd),
@@ -258,16 +260,17 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     update_text: string | null;
     training_response: string | null;
     was_trained: boolean | null;
+    products_trained_on: string | null;
     person_name: string | null;
     staff_id: string | null;
     // joined from staff table
-    staff: { id: string; is_ally: boolean; store_id: string } | null;
+    staff: { id: string; name: string; is_ally: boolean; store_id: string } | null;
     cm_telegram_id?: number;
   }[] = [];
   if (visitIds.length > 0) {
     const { data: vsData } = await supabase
       .from("visit_staff")
-      .select("id, visit_id, update_text, training_response, was_trained, person_name, staff_id, staff(id, is_ally, store_id)")
+      .select("id, visit_id, update_text, training_response, was_trained, products_trained_on, person_name, staff_id, staff(id, name, is_ally, store_id)")
       .in("visit_id", visitIds);
     // Attach cm_telegram_id via the visits map
     const visitCmMap = new Map<string, number>();
@@ -284,18 +287,18 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     return !!(r.update_text?.trim()) || !!(r.training_response?.trim()) || !!(r.was_trained);
   }
 
-  // engagement_trainings count + product names
+  // engagement_trainings count + product names + per-product responses
   let productTrainings = 0;
-  let trainingProductRows: { visit_staff_id: string; product_name: string }[] = [];
+  let trainingProductRows: { visit_staff_id: string; product_name: string; response: string | null }[] = [];
   if (visitIds.length > 0) {
     const engagingStaffIds = staffRows.filter(isEngagement).map((r) => r.id);
     if (engagingStaffIds.length > 0) {
       const { data: etData, count } = await supabase
         .from("engagement_trainings")
-        .select("visit_staff_id, product_name", { count: "exact" })
+        .select("visit_staff_id, product_name, response", { count: "exact" })
         .in("visit_staff_id", engagingStaffIds);
       productTrainings = count ?? 0;
-      trainingProductRows = (etData ?? []) as { visit_staff_id: string; product_name: string }[];
+      trainingProductRows = (etData ?? []) as { visit_staff_id: string; product_name: string; response: string | null }[];
     }
   }
 
@@ -382,26 +385,85 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     engagingRows.filter((r) => r.staff?.is_ally === true && r.staff_id).map((r) => r.staff_id as string),
   ).size;
 
-  // Top products by count
-  const productCounts = new Map<string, number>();
-  for (const t of trainingProductRows) {
-    if (t.product_name?.trim()) {
-      productCounts.set(t.product_name, (productCounts.get(t.product_name) ?? 0) + 1);
-    }
-  }
-  const sortedProducts = Array.from(productCounts.entries()).sort((a, b) => b[1] - a[1]);
-  const topProducts = sortedProducts.slice(0, 3).map(([name]) => name);
-  const distinctProducts = productCounts.size;
-
   const engagementSummary: WeeklyEngagementSummary = {
     peopleEngaged: weekPeopleKeys.size,
     newPeople,
     returningPeople,
-    trainingsDelivered: productTrainings,
-    distinctProducts,
-    topProducts,
     alliesEngaged,
   };
+
+  // ── trainingProducts + per-CM engagement detail ───────────────────────────
+  // Per-product breakdown: one entry per training delivered this week, with the
+  // drawer person-list precomputed. Where a trained person has no
+  // engagement_trainings rows, fall back to parsing the legacy CSV
+  // (products_trained_on), with training_response as the response.
+  const visitInfo = new Map<string, { store: string; date: string }>(); // visit_id → store name + date
+  for (const v of visits) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const store = v.stores as any;
+    visitInfo.set(v.id as string, { store: (store?.name as string) ?? "—", date: v.visit_date as string });
+  }
+
+  const etByStaff = new Map<string, { product: string; response: string | null }[]>();
+  for (const t of trainingProductRows) {
+    if (!t.product_name?.trim()) continue;
+    const list = etByStaff.get(t.visit_staff_id) ?? [];
+    list.push({ product: t.product_name.trim(), response: t.response?.trim() || null });
+    etByStaff.set(t.visit_staff_id, list);
+  }
+
+  const productAgg = new Map<string, { trainings: number; people: Set<string>; persons: TrainedPersonDetail[] }>();
+  const detailsByCm = new Map<number, CMEngagementDetail[]>();
+  for (const r of engagingRows) {
+    const ets = etByStaff.get(r.id) ?? [];
+    // Per-training entries: child rows first; legacy CSV fallback for trained rows.
+    let entries: { product: string; response: string | null }[] = ets;
+    if (entries.length === 0 && (r.was_trained || r.products_trained_on?.trim())) {
+      entries = (r.products_trained_on ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((product) => ({ product, response: r.training_response?.trim() || null }));
+    }
+    const info = visitInfo.get(r.visit_id);
+    const person = r.person_name ?? r.staff?.name ?? "Unknown";
+    const key = personKey(r);
+    for (const e of entries) {
+      const agg = productAgg.get(e.product) ?? { trainings: 0, people: new Set<string>(), persons: [] };
+      agg.trainings += 1;
+      agg.people.add(key);
+      agg.persons.push({
+        person,
+        store: info?.store ?? "—",
+        date: info?.date ?? "",
+        response: e.response ?? r.training_response?.trim() ?? null,
+      });
+      productAgg.set(e.product, agg);
+    }
+    // Per-CM engagement detail (every engagement, trained or not)
+    const cmId = r.cm_telegram_id;
+    if (cmId !== undefined) {
+      const list = detailsByCm.get(cmId) ?? [];
+      list.push({
+        person,
+        store: info?.store ?? "—",
+        products: entries.length > 0 ? entries.map((e) => e.product).join(", ") : null,
+        response: r.update_text?.trim() || r.training_response?.trim() || null,
+        date: info?.date ?? "",
+      });
+      detailsByCm.set(cmId, list);
+    }
+  }
+  for (const list of detailsByCm.values()) list.sort((a, b) => b.date.localeCompare(a.date) || a.person.localeCompare(b.person));
+
+  const trainingProducts: TrainingProductSummary[] = Array.from(productAgg.entries())
+    .map(([product, agg]) => ({
+      product,
+      trainings: agg.trainings,
+      people: agg.people.size,
+      persons: agg.persons.sort((a, b) => b.date.localeCompare(a.date) || a.person.localeCompare(b.person)),
+    }))
+    .sort((a, b) => b.trainings - a.trainings || a.product.localeCompare(b.product));
 
   // ── byDay ─────────────────────────────────────────────────────────────────
   const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -442,116 +504,14 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     }
   }
 
-  const perCM: WeeklyReport["perCM"] = Array.from(cmMap.entries()).map(([, v]) => {
+  const perCM: WeeklyReport["perCM"] = Array.from(cmMap.entries()).map(([cmId, v]) => {
     let engCount = 0;
     for (const vid of v.visitIds) engCount += engByVisit.get(vid) ?? 0;
-    return { cm: v.cm, market: v.market, visited: v.visitIds.size, engagements: engCount };
+    return { cm: v.cm, market: v.market, visited: v.visitIds.size, engagements: engCount, engagementDetails: detailsByCm.get(cmId) ?? [] };
   }).sort((a, b) => b.visited - a.visited || a.cm.localeCompare(b.cm));
 
-  // ── coverageByTier ─────────────────────────────────────────────────────────
-  const TIER_ORDER = ["T1", "T2", "T3", "T4"];
-
-  // Build active-store lookup by tier → market → chain
-  type StoreInfo = { id: string; name: string; chain: string; market: string; tier: string | null };
-  const tieredStores = (allActiveStores as StoreInfo[]).filter((s) => s.tier !== null && s.tier !== "");
-
-  // Group all tiered active stores by tier → market → chain → { total }
-  const tierMarketChain = new Map<string, Map<string, Map<string, { total: number }>>>();
-
-  for (const s of tieredStores) {
-    const tier = s.tier!;
-    if (!tierMarketChain.has(tier)) tierMarketChain.set(tier, new Map());
-    const mkt = tierMarketChain.get(tier)!;
-    if (!mkt.has(s.market)) mkt.set(s.market, new Map());
-    const ch = mkt.get(s.market)!;
-    if (!ch.has(s.chain)) ch.set(s.chain, { total: 0 });
-    ch.get(s.chain)!.total += 1;
-  }
-
-  // Count distinct store_ids visited per tier/market/chain
-  const visitedPerChain = new Map<string, Set<string>>(); // key: "tier|market|chain" → Set<store_id>
-  for (const v of visits) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const store = v.stores as any;
-    if (!store || !store.tier) continue;
-    const key = `${store.tier as string}|${store.market as string}|${store.chain as string}`;
-    if (!visitedPerChain.has(key)) visitedPerChain.set(key, new Set());
-    visitedPerChain.get(key)!.add(v.store_id as string);
-  }
-
-  // Also track visited per tier|market for market-level rollup
-  const visitedPerMarket = new Map<string, Set<string>>(); // "tier|market" → Set<store_id>
-  const visitedPerTier = new Map<string, Set<string>>();    // "tier" → Set<store_id>
-  for (const v of visits) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const store = v.stores as any;
-    if (!store || !store.tier) continue;
-    const mkKey = `${store.tier as string}|${store.market as string}`;
-    if (!visitedPerMarket.has(mkKey)) visitedPerMarket.set(mkKey, new Set());
-    visitedPerMarket.get(mkKey)!.add(v.store_id as string);
-    if (!visitedPerTier.has(store.tier as string)) visitedPerTier.set(store.tier as string, new Set());
-    visitedPerTier.get(store.tier as string)!.add(v.store_id as string);
-  }
-
-  // Also need total per tier|market|chain from active stores
-  // Already built in tierMarketChain above but needs visited counts corrected
-  // Rebuild with the visited sets
-  const coverageByTier: WeeklyReport["coverageByTier"] = TIER_ORDER
-    .filter((tier) => tierMarketChain.has(tier))
-    .map((tier) => {
-      const mktMap = tierMarketChain.get(tier)!;
-      const tierVisited = visitedPerTier.get(tier)?.size ?? 0;
-      const tierTotal = Array.from(mktMap.values()).reduce((acc, cMap) =>
-        acc + Array.from(cMap.values()).reduce((a, c) => a + c.total, 0), 0);
-
-      const markets = Array.from(mktMap.entries()).map(([market, chainMap]) => {
-        const mkKey = `${tier}|${market}`;
-        const mktVisited = visitedPerMarket.get(mkKey)?.size ?? 0;
-        const mktTotal = Array.from(chainMap.values()).reduce((a, c) => a + c.total, 0);
-
-        const chains = Array.from(chainMap.entries()).map(([chain, info]) => {
-          const cKey = `${tier}|${market}|${chain}`;
-          const chainVisited = visitedPerChain.get(cKey)?.size ?? 0;
-          return { chain, visited: chainVisited, total: info.total };
-        }).sort((a, b) => b.visited - a.visited || a.chain.localeCompare(b.chain));
-
-        return { market, visited: mktVisited, total: mktTotal, chains };
-      }).sort((a, b) => b.visited - a.visited || a.market.localeCompare(b.market));
-
-      return {
-        tier,
-        visited: tierVisited,
-        total: tierTotal,
-        pct: tierTotal > 0 ? Math.round(tierVisited / tierTotal * 100) : 0,
-        markets,
-      };
-    });
-
-  // ── displayByTier ─────────────────────────────────────────────────────────
-  // Only visited stores this week, grouped tier→market→chain
-  // Need: photos count, displayNote, open follow-ups
-
-  // Collect distinct stores visited with their store info
-  type VisitedStore = { storeId: string; name: string; chain: string; market: string; tier: string; displayNotes: string[] };
-  const visitedStoreMap = new Map<string, VisitedStore>();
-  for (const v of visits) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const store = v.stores as any;
-    if (!store || !store.tier) continue; // skip untiered
-    const sid = v.store_id as string;
-    if (!visitedStoreMap.has(sid)) {
-      visitedStoreMap.set(sid, {
-        storeId: sid,
-        name: store.name as string,
-        chain: store.chain as string,
-        market: store.market as string,
-        tier: store.tier as string,
-        displayNotes: [],
-      });
-    }
-    const ds = v.display_stock as string | null;
-    if (ds?.trim()) visitedStoreMap.get(sid)!.displayNotes.push(ds.trim());
-  }
+  // ── storesVisited ─────────────────────────────────────────────────────────
+  // Flat list of every store visited this week, with its photo count.
 
   // Photos per store (from visits this week)
   const photosPerStore = new Map<string, number>();
@@ -568,74 +528,22 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     }
   }
 
-  // Open follow-ups per store (all open, not week-limited)
-  const followUpsPerStore = new Map<string, { title: string; ageDays: number }[]>();
-  if (visitedStoreMap.size > 0) {
-    const storeIds = Array.from(visitedStoreMap.keys());
-    const { data: fuRows } = await supabase
-      .from("visit_follow_ups")
-      .select("id, store_id, title, status, created_at")
-      .in("store_id", storeIds)
-      .eq("status", "open");
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    for (const fu of (fuRows ?? []) as { id: string; store_id: string; title: string; status: string; created_at: string }[]) {
-      const created = new Date(fu.created_at);
-      created.setHours(0, 0, 0, 0);
-      const ageDays = Math.floor((today.getTime() - created.getTime()) / 86400000);
-      const list = followUpsPerStore.get(fu.store_id) ?? [];
-      list.push({ title: fu.title, ageDays });
-      followUpsPerStore.set(fu.store_id, list);
-    }
-  }
-
-  // Build displayByTier
-  // Group: tier → market → chain → stores[]
-  type DspTierMap = Map<string, Map<string, Map<string, VisitedStore[]>>>;
-  const dspTierMap: DspTierMap = new Map();
-  for (const [, vs] of visitedStoreMap) {
-    if (!dspTierMap.has(vs.tier)) dspTierMap.set(vs.tier, new Map());
-    const mktMap = dspTierMap.get(vs.tier)!;
-    if (!mktMap.has(vs.market)) mktMap.set(vs.market, new Map());
-    const chMap = mktMap.get(vs.market)!;
-    if (!chMap.has(vs.chain)) chMap.set(vs.chain, []);
-    chMap.get(vs.chain)!.push(vs);
-  }
-
-  const displayByTier: WeeklyReport["displayByTier"] = TIER_ORDER
-    .filter((tier) => dspTierMap.has(tier))
-    .map((tier) => {
-      const mktMap = dspTierMap.get(tier)!;
-      let tierTotal = 0;
-
-      const markets = Array.from(mktMap.entries()).map(([market, chMap]) => {
-        let mktTotal = 0;
-
-        const chains = Array.from(chMap.entries()).map(([chain, stores]) => {
-          const storeRows = stores.map((vs) => {
-            const displayNotes = vs.displayNotes;
-            let displayNote: string | null = null;
-            if (displayNotes.length > 0) {
-              const combined = [...new Set(displayNotes)].join(" · ");
-              displayNote = combined.length > 160 ? combined.slice(0, 157) + "…" : combined;
-            }
-            return {
-              store: vs.name,
-              storeId: vs.storeId,
-              photos: photosPerStore.get(vs.storeId) ?? 0,
-              displayNote,
-              followUps: followUpsPerStore.get(vs.storeId) ?? [],
-            };
-          }).sort((a, b) => a.store.localeCompare(b.store));
-          mktTotal += storeRows.length;
-          return { chain, stores: storeRows };
-        }).sort((a, b) => a.chain.localeCompare(b.chain));
-
-        tierTotal += mktTotal;
-        return { market, storesVisited: mktTotal, chains };
-      }).sort((a, b) => b.storesVisited - a.storesVisited || a.market.localeCompare(b.market));
-
-      return { tier, storesVisited: tierTotal, markets };
+  const storesVisitedMap = new Map<string, WeeklyReport["storesVisited"][number]>();
+  for (const v of visits) {
+    const sid = v.store_id as string;
+    if (storesVisitedMap.has(sid)) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const store = v.stores as any;
+    storesVisitedMap.set(sid, {
+      storeId: sid,
+      store: (store?.name as string) ?? "Unknown",
+      chain: (store?.chain as string) ?? "",
+      market: (store?.market as string) ?? "",
+      tier: (store?.tier as string | null) ?? null,
+      photos: photosPerStore.get(sid) ?? 0,
     });
+  }
+  const storesVisited = Array.from(storesVisitedMap.values()).sort((a, b) => a.store.localeCompare(b.store));
 
   // ── Stored AI narrative (latest version for this week), if generated ────────
   const { data: narrRow } = await supabase
@@ -662,9 +570,9 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
       totalStores,
     },
     engagementSummary,
+    trainingProducts,
     byDay,
     perCM,
-    coverageByTier,
-    displayByTier,
+    storesVisited,
   };
 }

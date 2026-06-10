@@ -1,26 +1,31 @@
 "use client";
 
 import type React from "react";
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import type { WeeklyReport } from "@/lib/weekly";
+import type { TrainingProductSummary, WeeklyReport } from "@/lib/weekly";
+import TrainingProductDrawer from "@/components/TrainingProductDrawer";
+import CMEngagementsDrawer from "@/components/CMEngagementsDrawer";
+import StorePhotosDrawer from "@/components/StorePhotosDrawer";
 
 const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
 
 const wkSanitize = { ...defaultSchema, tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"] };
 
 // Link interceptor for AI narrative chips:
-//   /visits/store/<store_id>               → store drawer
-//   /visits/visit/<store_id>/<visit_id>    → visit drawer
-function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string) => void) {
+//   /visits/store/<store_id>                     → store drawer
+//   /visits/visit/<store_id>/<visit_id>?hl=<v>   → visit drawer (hl = source section)
+function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string, hl?: string | null) => void) {
   return {
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
       const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
       if (visitMatch) {
         const visitId = visitMatch[2];
-        return <button className="wk-chip" onClick={() => onOpenVisit(visitId)}>{children}</button>;
+        const hl = href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
+        return <button className="wk-chip" onClick={() => onOpenVisit(visitId, hl)}>{children}</button>;
       }
       const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
       if (storeMatch) {
@@ -35,14 +40,17 @@ function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id
 // New-format reports emit an italic kicker under each "## " heading — we use that.
 // Old-format: no kicker → fall back to these.
 const NARRATIVE_FALLBACK_NOTE: Record<string, string> = {
-  signals:     "patterns across ≥2 visits this week",
-  alerts:      "explicit triggers requiring follow-up",
+  goodnews:    "concrete wins only",
+  signals:     "noteworthy patterns & one-off observations",
+  alerts:      "risks & issues needing attention",
   engagements: "notable people interactions and training moments",
 };
 
-// Split the stored AI narrative (one markdown blob with `## Signals`, `## Alerts`,
-// `## Engagements`) into one chunk per heading so each renders in its own card.
-// Returns { heading, note, body } — note is the italic kicker line if present, else a fallback.
+// Split the stored AI narrative (one markdown blob with `## Good News`, `## Signals`,
+// `## Alerts`, `## Engagements`) into one chunk per heading so each renders in its own
+// card. Returns { heading, note, body } — note is the italic kicker line if present,
+// else a fallback. Any leading emoji/symbols in the stored heading are stripped — the
+// card injects exactly one emoji itself (works for both legacy and new reports).
 function splitNarrative(md: string): { heading: string; note: string; body: string }[] {
   const chunks = md.split(/\n(?=## )/);
   const result: { heading: string; note: string; body: string }[] = [];
@@ -51,7 +59,7 @@ function splitNarrative(md: string): { heading: string; note: string; body: stri
     if (!trimmed.startsWith("##")) continue;
     const firstNl = trimmed.indexOf("\n");
     if (firstNl === -1) continue;
-    const heading = trimmed.slice(0, firstNl).replace(/^##\s*/, "").trim();
+    const heading = trimmed.slice(0, firstNl).replace(/^##\s*/, "").replace(/^[^A-Za-z0-9]+/, "").trim();
     const rest = trimmed.slice(firstNl + 1).trim();
     // Check if the first line of body is a kicker (italic: starts with * or _)
     const restLines = rest.split("\n");
@@ -69,11 +77,12 @@ function splitNarrative(md: string): { heading: string; note: string; body: stri
   return result;
 }
 
-function fmtPct(n: number): string { return `${n}%`; }
 function fmtWow(n: number | null): string | null {
   if (n === null) return null;
   return n >= 0 ? `▲ +${n}% visits vs last wk` : `▼ ${Math.abs(n)}% visits vs last wk`;
 }
+
+type StoreGroupBy = "Market" | "Chain" | "Tier";
 
 export function WeeklyView({
   report,
@@ -82,17 +91,32 @@ export function WeeklyView({
 }: {
   report: WeeklyReport;
   onOpenStore: (storeId: string) => void;
-  onOpenVisit?: (visitId: string) => void;
+  onOpenVisit?: (visitId: string, hl?: string | null) => void;
 }) {
-  const { stats, engagementSummary, byDay, perCM, coverageByTier, displayByTier } = report;
+  const { stats, engagementSummary, trainingProducts, byDay, perCM, storesVisited } = report;
 
-  // Fold Display into Coverage: look up the visited stores for each tier|market|chain
-  // so the merged "Store Updates" section can list them under each chain.
-  const storesByChain = new Map<string, typeof displayByTier[number]["markets"][number]["chains"][number]["stores"]>();
-  for (const tier of displayByTier)
-    for (const mkt of tier.markets)
-      for (const ch of mkt.chains)
-        storesByChain.set(`${tier.tier}|${mkt.market}|${ch.chain}`, ch.stores);
+  // Drawer + grouping state
+  const [trainingProduct, setTrainingProduct] = useState<TrainingProductSummary | null>(null);
+  const [cmDrawer, setCmDrawer] = useState<WeeklyReport["perCM"][number] | null>(null);
+  const [photoStore, setPhotoStore] = useState<{ id: string; name: string } | null>(null);
+  const [storeGroupBy, setStoreGroupBy] = useState<StoreGroupBy>("Market");
+
+  // Store cards grouped by the selected dimension, small headers per group.
+  const storeGroups = useMemo(() => {
+    const keyOf = (s: WeeklyReport["storesVisited"][number]) =>
+      storeGroupBy === "Market" ? s.market : storeGroupBy === "Chain" ? s.chain : (s.tier ?? "Untiered");
+    const map = new Map<string, WeeklyReport["storesVisited"][number][]>();
+    for (const s of storesVisited) {
+      const k = keyOf(s) || "—";
+      const list = map.get(k) ?? [];
+      list.push(s);
+      map.set(k, list);
+    }
+    return Array.from(map.keys()).sort().map((key) => ({
+      key,
+      stores: map.get(key)!, // already sorted by store name from the payload
+    }));
+  }, [storesVisited, storeGroupBy]);
 
   const narrativeSections = report.narrativeMarkdown ? splitNarrative(report.narrativeMarkdown) : [];
   const eng = engagementSummary;
@@ -223,7 +247,15 @@ export function WeeklyView({
                   <span className="wk-mk">{MARKET_FLAG[cm.market] ?? ""} {cm.market}</span>
                 </td>
                 <td className="wk-td c wk-num">{cm.visited}</td>
-                <td className="wk-td c wk-num">{cm.engagements}</td>
+                <td className="wk-td c wk-num">
+                  {cm.engagements > 0 ? (
+                    <button className="wk-cell-btn" onClick={() => setCmDrawer(cm)}>
+                      {cm.engagements}<span className="wk-cell-chev">›</span>
+                    </button>
+                  ) : (
+                    cm.engagements
+                  )}
+                </td>
               </tr>
             ))}
             <tr className="wk-tr-total">
@@ -235,7 +267,7 @@ export function WeeklyView({
           </tbody>
         </table>
 
-        {/* Engagement Summary strip — sits adjacent to Execution table, same card */}
+        {/* Engagement Summary — headline strip + trainings-by-product table */}
         {eng.peopleEngaged > 0 && (
           <div className="wk-eng-strip">
             <div className="wk-eng-stat">
@@ -246,16 +278,6 @@ export function WeeklyView({
                 {eng.returningPeople > 0 && <span className="wk-eng-ret">{eng.returningPeople} returning</span>}
               </span>
             </div>
-            <div className="wk-eng-divider" />
-            <div className="wk-eng-stat">
-              <span className="wk-eng-n">{eng.trainingsDelivered}</span>
-              <span className="wk-eng-l">Trainings delivered</span>
-              {eng.distinctProducts > 0 && (
-                <span className="wk-eng-sub wk-eng-products">
-                  {eng.distinctProducts} product{eng.distinctProducts !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
             {eng.alliesEngaged > 0 && (
               <>
                 <div className="wk-eng-divider" />
@@ -265,106 +287,46 @@ export function WeeklyView({
                 </div>
               </>
             )}
-            {eng.topProducts.length > 0 && (
-              <div className="wk-eng-products-row">
-                <span className="wk-eng-products-label">Top products:</span>
-                {eng.topProducts.map((p) => (
-                  <span key={p} className="wk-eng-product-chip">{p}</span>
-                ))}
-              </div>
-            )}
           </div>
+        )}
+        {trainingProducts.length > 0 && (
+          <table className="wk-table wk-train-table">
+            <thead>
+              <tr>
+                <th className="wk-th l">Product</th>
+                <th className="wk-th c">Trainings</th>
+                <th className="wk-th c">People</th>
+                <th className="wk-th c" />
+              </tr>
+            </thead>
+            <tbody>
+              {trainingProducts.map((tp) => (
+                <tr key={tp.product}>
+                  <td className="wk-td l">{tp.product}</td>
+                  <td className="wk-td c wk-num">{tp.trainings}</td>
+                  <td className="wk-td c wk-num">{tp.people}</td>
+                  <td className="wk-td c">
+                    <button className="wk-view-btn" onClick={() => setTrainingProduct(tp)}>view →</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </section>
 
-      {/* Store Updates — coverage bars (tier → market → chain) folded together with
-          per-store photos, display notes & follow-ups. Click a store → drawer. */}
-      <section className="wk-section">
-        <h2 className="wk-sh2">🏪 Store Updates</h2>
-        <p className="wk-sec-note">Tap a tier → market to see chains and their visited stores. Click a store for its photos &amp; updates. Collapsed by default.</p>
-
-        {coverageByTier.map((tier) => {
-          const barPct = tier.total > 0 ? Math.round(tier.visited / tier.total * 100) : 0;
-          const isLow = barPct < 30;
-          return (
-            <details key={tier.tier} className="wk-cov">
-              <summary className="wk-cov-sum">
-                <span className="wk-cv-tier">{tier.tier}</span>
-                <span className="wk-cv-bar">
-                  <i className={isLow ? "lo" : ""} style={{ width: `${barPct}%` }} />
-                </span>
-                <span className="wk-cv-n">{tier.visited} / {tier.total} · {fmtPct(barPct)}</span>
-              </summary>
-              <div className="wk-cv-body">
-                {tier.markets.map((mkt) => (
-                  <details key={mkt.market} className="wk-cov wk-cov-sub">
-                    <summary className="wk-cov-sum">
-                      <span className="wk-cv-mk">{MARKET_FLAG[mkt.market] ?? ""} {mkt.market}</span>
-                      <span className="wk-cv-n">{mkt.visited} / {mkt.total}</span>
-                    </summary>
-                    <div className="wk-cv-body">
-                      {mkt.chains.map((ch) => {
-                        const stores = storesByChain.get(`${tier.tier}|${mkt.market}|${ch.chain}`) ?? [];
-                        return (
-                          <div key={ch.chain} className="wk-su-chain">
-                            <div className="wk-su-chain-hd">
-                              <span>{ch.chain}</span>
-                              <span className={ch.visited === ch.total && ch.total > 0 ? "wk-ok" : ch.visited === 0 ? "wk-bad" : "wk-cv-n"}>
-                                {ch.visited} / {ch.total}
-                              </span>
-                            </div>
-                            {stores.map((store) => (
-                              <div
-                                key={store.storeId}
-                                className="wk-dsp-store"
-                                onClick={() => onOpenStore(store.storeId)}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpenStore(store.storeId); }}
-                              >
-                                <div className="wk-ds-name">
-                                  {store.store}
-                                  <span className="wk-ds-cam">
-                                    📷 {store.photos} · ↗
-                                  </span>
-                                </div>
-                                {store.displayNote && (
-                                  <div className="wk-ds-note">{store.displayNote}</div>
-                                )}
-                                {store.followUps.length > 0 && (
-                                  <div className="wk-ds-fu-wrap">
-                                    {store.followUps.map((fu, i) => (
-                                      <span key={i} className="wk-fu">
-                                        {fu.title}{fu.ageDays > 0 ? ` · ${fu.ageDays}d` : ""}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </details>
-                ))}
-              </div>
-            </details>
-          );
-        })}
-      </section>
-
-      {/* AI narrative — one card each for Signals / Alerts / Engagements (stored, editable). */}
+      {/* AI narrative — one card per section (stored, editable). */}
       {narrativeSections.length > 0 ? (
         narrativeSections.map((sec, i) => {
           const slug = sec.heading.toLowerCase().replace(/\s+/g, "");
           const isAlert = slug.includes("alert");
+          const emoji = isAlert ? "🚨" : slug.includes("signal") ? "🔔" : slug.includes("good") ? "🌟" : "🤝";
           return (
             <section key={i} className={`wk-section wk-narrative${isAlert ? " wk-narrative-alert" : ""}`}>
               <h2 className="wk-sh2">
-                {isAlert ? "🚨" : slug.includes("signal") ? "🔔" : "🤝"} {sec.heading}
+                {emoji} {sec.heading}
+                {sec.note && <span className="wk-sub">— {sec.note}</span>}
               </h2>
-              {sec.note && <p className="wk-narrative-note">{sec.note}</p>}
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
@@ -377,9 +339,56 @@ export function WeeklyView({
         })
       ) : (
         <div className="wk-ai-placeholder">
-          🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
+          🌟 Good News · 🔔 Signals · 🚨 Alerts · 🤝 Engagements — AI narrative generates weekly (coming soon)
         </div>
       )}
+
+      {/* Store Updates — every store visited this week, grouped by the selected
+          dimension. Click a card → photo-history drawer. */}
+      <section className="wk-section">
+        <h2 className="wk-sh2">🏪 Store Updates</h2>
+        <p className="wk-sec-note">Every store visited this week — tap a card for its photo history.</p>
+        <div className="wk-grp-row">
+          {(["Market", "Chain", "Tier"] as StoreGroupBy[]).map((g) => (
+            <button
+              key={g}
+              className={`wk-grp-chip${storeGroupBy === g ? " on" : ""}`}
+              onClick={() => setStoreGroupBy(g)}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+        {storeGroups.map((grp) => (
+          <div key={grp.key}>
+            <div className="wk-grp-hd">
+              <span>{storeGroupBy === "Market" ? `${MARKET_FLAG[grp.key] ?? ""} ${grp.key}` : grp.key}</span>
+              <span className="ct">{grp.stores.length}</span>
+            </div>
+            {grp.stores.map((s) => (
+              <button
+                key={s.storeId}
+                className="wk-store-card"
+                onClick={() => setPhotoStore({ id: s.storeId, name: s.store })}
+              >
+                <span className="wk-store-main">
+                  <span className="wk-store-name">{s.store}</span>
+                  <span className="wk-store-meta">{s.chain} · {s.market} · {s.tier ?? "—"}</span>
+                </span>
+                <span className="wk-store-cam">📷 {s.photos} ›</span>
+              </button>
+            ))}
+          </div>
+        ))}
+        {storesVisited.length === 0 && (
+          <p className="wk-sec-note">No stores visited this week.</p>
+        )}
+      </section>
+
+      {/* Drawers */}
+      <TrainingProductDrawer product={trainingProduct} onClose={() => setTrainingProduct(null)} />
+      <CMEngagementsDrawer cm={cmDrawer} onClose={() => setCmDrawer(null)} />
+      <StorePhotosDrawer store={photoStore} onClose={() => setPhotoStore(null)} />
     </div>
   );
 }
@@ -449,51 +458,13 @@ const WK_CSS = `
 .wk-num{font-variant-numeric:tabular-nums;}
 .wk-mk{font-size:11px;font-weight:700;color:var(--wk-chip-ink);background:var(--wk-chip);
   padding:2px 8px;border-radius:5px;display:inline-block;}
+/* clickable engagements cell */
+.wk-cell-btn{font:inherit;font-variant-numeric:tabular-nums;background:none;border:none;
+  color:var(--wk-ink);cursor:pointer;padding:0;display:inline-flex;align-items:baseline;gap:3px;}
+.wk-cell-btn:hover{color:var(--wk-accent);}
+.wk-cell-chev{color:var(--wk-faint);font-size:12px;}
 
-/* coverage by tier */
-.wk-cov{border:1px solid var(--wk-line);border-radius:10px;margin:8px 0;overflow:hidden;}
-.wk-cov-sum{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;
-  padding:11px 14px;font-size:13.5px;}
-.wk-cov-sum::-webkit-details-marker{display:none;}
-.wk-cov-sum::before{content:"\\25B8";color:var(--wk-faint);transition:.2s;font-size:11px;flex-shrink:0;}
-.wk-cov[open]>.wk-cov-sum::before{transform:rotate(90deg);}
-.wk-cv-tier{font-weight:700;width:26px;flex-shrink:0;}
-.wk-cv-bar{flex:1;height:8px;background:var(--wk-line);border-radius:6px;overflow:hidden;max-width:230px;}
-.wk-cv-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--wk-accent2),var(--wk-accent));border-radius:6px;}
-.wk-cv-bar i.lo{background:linear-gradient(90deg,#d79a86,#b4621f);}
-.wk-cv-n{font-variant-numeric:tabular-nums;color:var(--wk-muted);font-size:12.5px;
-  margin-left:auto;font-weight:600;white-space:nowrap;}
-.wk-cv-body{padding:2px 14px 12px;border-top:1px solid var(--wk-line);background:#fbfaf7;}
-.wk-ok{color:var(--wk-accent);font-weight:600;}
-.wk-bad{color:var(--wk-alert);font-weight:600;}
-.wk-cv-mk{font-size:11px;font-weight:700;color:var(--wk-chip-ink);background:var(--wk-chip);
-  padding:2px 8px;border-radius:5px;}
-
-/* nested sub-details within coverage */
-.wk-cov-sub{border:0;border-radius:0;margin:0;border-bottom:1px solid #efece5;}
-.wk-cov-sub:last-child{border-bottom:none;}
-.wk-cov-sub>.wk-cov-sum{padding:9px 2px;}
-.wk-cov-sub>.wk-cv-body{background:transparent;border-top:1px dashed #e8e4db;padding:2px 2px 8px 12px;}
-
-/* store-updates: per-chain group with its visited stores */
-.wk-su-chain{padding:2px 0;}
-.wk-su-chain-hd{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
-  color:var(--wk-chip-ink);text-transform:uppercase;letter-spacing:.3px;
-  margin:8px 0 1px 2px;padding-bottom:3px;border-bottom:1px solid #efece5;}
-.wk-dsp-store{padding:7px 0 7px 12px;border-bottom:1px solid #efece5;cursor:pointer;
-  transition:background .12s;}
-.wk-dsp-store:last-child{border-bottom:none;}
-.wk-dsp-store:hover{background:#f4f1ea;}
-.wk-ds-name{font-size:13.5px;font-weight:600;display:flex;justify-content:space-between;
-  gap:8px;align-items:baseline;}
-.wk-ds-cam{font-size:11px;color:var(--wk-faint);font-weight:500;white-space:nowrap;}
-.wk-ds-note{font-size:12.5px;color:var(--wk-muted);margin-top:2px;}
-.wk-ds-fu-wrap{margin-top:4px;}
-.wk-fu{display:inline-block;font-size:12px;background:var(--wk-warn-soft);color:var(--wk-warn);
-  padding:2px 9px;border-radius:20px;margin:2px 3px 2px 0;}
-
-/* narrative (Signals / Alerts / Engagements) */
-.wk-narrative-note{font-size:11.5px;color:var(--wk-muted);margin:-4px 0 12px;font-style:italic;}
+/* narrative (Good News / Signals / Alerts / Engagements) */
 .wk-narrative-alert{background:#fdf6f3;border-color:#e8cfc9;}
 .wk-narrative-alert .wk-sh2{color:var(--wk-alert);}
 /* Nested-bullet scannability: bold headline, indented sub-bullets muted + smaller */
@@ -527,13 +498,29 @@ const WK_CSS = `
   padding:1px 6px;border-radius:20px;}
 .wk-eng-ret{font-size:10px;font-weight:600;background:var(--wk-chip);color:var(--wk-chip-ink);
   padding:1px 6px;border-radius:20px;}
-.wk-eng-products{font-size:10px;color:var(--wk-accent);font-weight:600;display:block;margin-top:4px;}
-.wk-eng-products-row{width:100%;padding:8px 14px;border-top:1px solid var(--wk-line);
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#fff;}
-.wk-eng-products-label{font-size:10.5px;color:var(--wk-muted);font-weight:600;
-  text-transform:uppercase;letter-spacing:.04em;}
-.wk-eng-product-chip{font-size:11.5px;font-weight:600;background:var(--wk-accent-soft);
-  color:var(--wk-accent);padding:2px 9px;border-radius:20px;}
+
+/* trainings-by-product table */
+.wk-train-table{margin-top:12px;}
+.wk-view-btn{font-size:11.5px;font-weight:600;color:var(--wk-chip-ink);background:var(--wk-chip);
+  border:none;border-radius:20px;padding:2px 10px;cursor:pointer;font-family:inherit;transition:.15s;}
+.wk-view-btn:hover{background:#e1e6ec;}
+
+/* store updates — group chips + flat store cards */
+.wk-grp-row{display:flex;gap:6px;margin:2px 0 4px;}
+.wk-grp-chip{font-size:11.5px;font-weight:600;border:1px solid var(--wk-line);background:#fff;
+  color:var(--wk-muted);border-radius:20px;padding:4px 12px;cursor:pointer;font-family:inherit;transition:.15s;}
+.wk-grp-chip.on{background:var(--wk-accent-soft);color:var(--wk-accent);border-color:transparent;font-weight:700;}
+.wk-grp-hd{font-size:10.5px;font-weight:700;color:var(--wk-chip-ink);text-transform:uppercase;
+  letter-spacing:.4px;margin:14px 2px 4px;display:flex;justify-content:space-between;align-items:baseline;}
+.wk-grp-hd .ct{color:var(--wk-faint);font-weight:600;}
+.wk-store-card{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;
+  text-align:left;background:#fff;border:1px solid var(--wk-line);border-radius:10px;
+  padding:10px 14px;margin:6px 0;cursor:pointer;font-family:inherit;transition:background .12s,border-color .12s;}
+.wk-store-card:hover{background:#f4f1ea;border-color:#d8d3c8;}
+.wk-store-main{min-width:0;}
+.wk-store-name{font-size:13.5px;font-weight:600;color:var(--wk-ink);display:block;}
+.wk-store-meta{font-size:11.5px;color:var(--wk-muted);display:block;margin-top:1px;}
+.wk-store-cam{font-size:11.5px;color:var(--wk-faint);font-weight:500;white-space:nowrap;flex-shrink:0;}
 
 /* placeholder card */
 .wk-ai-placeholder{background:var(--wk-card);border:1px dashed var(--wk-line);border-radius:14px;

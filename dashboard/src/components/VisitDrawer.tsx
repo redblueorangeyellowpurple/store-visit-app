@@ -6,9 +6,13 @@ import { SECTIONS, TIER_STYLE } from "@/lib/visit-shared";
 
 interface Props {
   visitId: string | null;
+  /** Visit section to highlight + scroll to: good_news | people_training | competitors | display_stock | follow_up. */
+  highlight?: string | null;
   onClose: () => void;
-  /** Called when the user clicks "Open store →"; parent should open StoreVisitDrawer. */
+  /** Called when the user clicks the store name; parent should open StoreVisitDrawer. */
   onOpenStore: (storeId: string) => void;
+  /** Called when the user clicks a memory note; parent should open MemoryNoteDrawer. */
+  onOpenNote?: (slug: string) => void;
 }
 
 function fmtDate(d: string) {
@@ -28,11 +32,14 @@ const VISIT_SECTIONS = [
 
 const TIER_FALLBACK = { bg: "var(--color-ink-100)", color: "var(--color-ink-500)" };
 
-export default function VisitDrawer({ visitId, onClose, onOpenStore }: Props) {
+export default function VisitDrawer({ visitId, highlight, onClose, onOpenStore, onOpenNote }: Props) {
   const [visit, setVisit] = useState<VisitDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [storeHover, setStoreHover] = useState(false);
   const prevId = useRef<string | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const highlightRef = useRef<HTMLDivElement | null>(null);
 
   const isOpen = visitId !== null;
 
@@ -57,6 +64,14 @@ export default function VisitDrawer({ visitId, onClose, onOpenStore }: Props) {
     if (isOpen) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose, lightbox]);
+
+  // Scroll the highlighted section into view once the visit has loaded.
+  useEffect(() => {
+    if (!visit || !highlight) return;
+    const el = highlightRef.current;
+    const body = bodyRef.current;
+    if (el && body) body.scrollTo({ top: Math.max(0, el.offsetTop - body.offsetTop - 12), behavior: "smooth" });
+  }, [visit, highlight]);
 
   const tierStyle = visit?.store_tier ? (TIER_STYLE[visit.store_tier] ?? TIER_FALLBACK) : TIER_FALLBACK;
 
@@ -98,10 +113,23 @@ export default function VisitDrawer({ visitId, onClose, onOpenStore }: Props) {
                       {visit.store_chain} · {visit.store_market}
                     </span>
                   </div>
-                  {/* Store name */}
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--color-ink-900)", lineHeight: 1.2, marginBottom: 2 }}>
+                  {/* Store name — quietly clickable, opens the store drawer */}
+                  <button
+                    onClick={() => { onClose(); onOpenStore(visit.store_id); }}
+                    onMouseEnter={() => setStoreHover(true)}
+                    onMouseLeave={() => setStoreHover(false)}
+                    title="Open store"
+                    style={{
+                      display: "inline-flex", alignItems: "baseline", gap: 5,
+                      background: "none", border: "none", padding: 0, cursor: "pointer",
+                      fontFamily: "inherit", textAlign: "left",
+                      fontSize: 18, fontWeight: 800, color: "var(--color-ink-900)", lineHeight: 1.2, marginBottom: 2,
+                      textDecoration: storeHover ? "underline" : "none", textUnderlineOffset: 3,
+                    }}
+                  >
                     {visit.store_name}
-                  </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink-300)" }}>↗</span>
+                  </button>
                   {/* CM + date */}
                   <div style={{ fontSize: 13, color: "var(--color-ink-500)", marginTop: 4 }}>
                     {visit.cm_name} · {fmtDate(visit.visit_date)}
@@ -118,37 +146,23 @@ export default function VisitDrawer({ visitId, onClose, onOpenStore }: Props) {
               }}
             >✕</button>
           </div>
-
-          {/* "Open store" action */}
-          {visit && (
-            <button
-              onClick={() => { onClose(); onOpenStore(visit.store_id); }}
-              style={{
-                marginTop: 12, width: "100%", padding: "9px 14px",
-                border: "1px solid var(--color-tc-100)", borderRadius: 10,
-                background: "var(--color-tc-50)", color: "var(--color-tc-600)",
-                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-                textAlign: "left",
-              }}
-            >
-              Open store → {visit.store_name}
-            </button>
-          )}
         </div>
 
         {/* ── Scrollable body ── */}
-        <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px 40px" }}>
+        <div ref={bodyRef} style={{ overflowY: "auto", flex: 1, padding: "16px 20px 40px" }}>
           {!loading && visit && (
             <>
               {/* Visit sections */}
               {VISIT_SECTIONS.map(({ key, label, icon }) => {
                 const text = visit[key as keyof VisitDetail] as string | null;
                 if (!text) return null;
+                const isHighlighted = highlight === key;
                 return (
-                  <div key={key} style={{
+                  <div key={key} ref={isHighlighted ? highlightRef : undefined} style={{
                     marginBottom: 14, padding: "12px 14px",
-                    background: "var(--color-ink-50)",
-                    border: "1px solid var(--color-border)", borderRadius: 12,
+                    background: isHighlighted ? "var(--color-section-amber-bg)" : "var(--color-ink-50)",
+                    border: isHighlighted ? "1px solid var(--color-section-amber-border)" : "1px solid var(--color-border)",
+                    borderRadius: 12,
                   }}>
                     <div style={{
                       fontSize: 10.5, fontWeight: 700, textTransform: "uppercase",
@@ -231,6 +245,41 @@ export default function VisitDrawer({ visitId, onClose, onOpenStore }: Props) {
                           </span>
                         )}
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Memory notes referencing this visit */}
+              {visit.memory_notes.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={sectionHdStyle}>
+                    🧠 Memories
+                    <span style={countBadgeStyle}>{visit.memory_notes.length}</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {visit.memory_notes.map((n) => (
+                      <button
+                        key={n.slug}
+                        onClick={() => onOpenNote?.(n.slug)}
+                        style={{
+                          textAlign: "left", padding: "9px 12px", borderRadius: 10,
+                          background: "var(--color-ink-50)", border: "1px solid var(--color-border)",
+                          cursor: onOpenNote ? "pointer" : "default", font: "inherit",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{
+                            fontSize: 9.5, fontWeight: 800, padding: "1px 7px", borderRadius: 999, flexShrink: 0,
+                            background: "var(--color-ink-100)", color: "var(--color-ink-500)",
+                            textTransform: "uppercase", letterSpacing: "0.04em",
+                          }}>{n.scope}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink-900)" }}>{n.title}</span>
+                        </div>
+                        {n.summary && (
+                          <div style={{ fontSize: 12, color: "var(--color-ink-500)", marginTop: 3, lineHeight: 1.4 }}>{n.summary}</div>
+                        )}
+                      </button>
                     ))}
                   </div>
                 </div>

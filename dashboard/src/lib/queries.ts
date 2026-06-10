@@ -740,6 +740,13 @@ export async function signPhotoUrls(paths: string[], ttlSec = 300): Promise<stri
 // ─── VisitDetail ─────────────────────────────────────────────────────────────
 // Shape returned by GET /api/visits/[id] and consumed by VisitDrawer.
 
+export interface VisitMemoryNote {
+  slug: string;
+  scope: "store" | "person" | "theme" | "channel";
+  title: string;
+  summary: string;
+}
+
 export interface VisitDetail {
   id: string;
   visit_date: string;
@@ -758,6 +765,7 @@ export interface VisitDetail {
   photo_urls: string[];
   engaged_people: EngagedPersonItem[];
   follow_up_items: FollowUpItem[];
+  memory_notes: VisitMemoryNote[];
 }
 
 export async function getVisitDetail(visitId: string): Promise<VisitDetail | null> {
@@ -815,6 +823,14 @@ export async function getVisitDetail(visitId: string): Promise<VisitDetail | nul
     return { id: fr.id, title: fr.title, status: fr.status, due_date: fr.due_date };
   });
 
+  // Memory notes whose current body references this visit (by visit id in a link)
+  const { data: noteRows } = await supabase
+    .from("v_memory_notes_current")
+    .select("slug, scope, title, summary")
+    .ilike("body_markdown", `%${visitId}%`)
+    .order("last_touched_at", { ascending: false });
+  const memory_notes = (noteRows ?? []) as VisitMemoryNote[];
+
   return {
     id: r.id,
     visit_date: r.visit_date,
@@ -833,6 +849,7 @@ export async function getVisitDetail(visitId: string): Promise<VisitDetail | nul
     photo_urls: photoUrls,
     engaged_people,
     follow_up_items,
+    memory_notes,
   };
 }
 
@@ -848,7 +865,7 @@ export async function getVisitPhotos(visitId: string): Promise<string[]> {
 }
 
 export async function getStoreDashboard(storeId: string): Promise<{ store: StoreInfo | null; visits: StoreVisitSummary[]; memory_notes: StoreMemoryNote[]; staff: StaffRow[]; open_tasks: StoreOpenTask[] }> {
-  const [storeRes, visitsRes, notesRes, staff, tasksRes] = await Promise.all([
+  const [storeRes, visitsRes, notesRes, linkedNotesRes, staff, tasksRes] = await Promise.all([
     supabase.from('stores').select('id, name, chain, market, tier').eq('id', storeId).single(),
     supabase
       .from('visits')
@@ -862,6 +879,12 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
       .eq('scope', 'store')
       .eq('scope_ref', storeId)
       .order('last_touched_at', { ascending: false }),
+    // Notes of any scope whose current body links to this store
+    supabase
+      .from('v_memory_notes_current')
+      .select('slug, scope, title, summary, version, last_touched_at')
+      .ilike('body_markdown', `%/visits/store/${storeId}%`)
+      .order('last_touched_at', { ascending: false }),
     getStoreStaff(storeId),
     supabase
       .from('visit_follow_ups')
@@ -874,8 +897,16 @@ export async function getStoreDashboard(storeId: string): Promise<{ store: Store
   const store = (storeRes.data as any) as StoreInfo | null ?? null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visitRows = (visitsRes.data ?? []) as any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const memory_notes = (notesRes.data ?? []) as StoreMemoryNote[];
+  // Store-scoped notes + store-linked notes, deduped by slug, newest first
+  const notesBySlug = new Map<string, StoreMemoryNote>();
+  for (const n of [
+    ...((notesRes.data ?? []) as StoreMemoryNote[]),
+    ...((linkedNotesRes.data ?? []) as StoreMemoryNote[]),
+  ]) {
+    if (!notesBySlug.has(n.slug)) notesBySlug.set(n.slug, n);
+  }
+  const memory_notes = [...notesBySlug.values()]
+    .sort((a, b) => b.last_touched_at.localeCompare(a.last_touched_at));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const open_tasks: StoreOpenTask[] = (tasksRes.data ?? []).map((t: any) => ({
