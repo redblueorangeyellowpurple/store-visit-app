@@ -33,6 +33,7 @@ export const PRODUCT_CATALOGUE: Record<string, string[]> = {
   Marshall: [
     "Marshall Acton III",
     "Marshall Stanmore III",
+    "Marshall Stockwell III",
     "Marshall Woburn III",
     "Marshall Emberton II",
     "Marshall Willen",
@@ -42,7 +43,7 @@ export const PRODUCT_CATALOGUE: Record<string, string[]> = {
     "Marshall Major V",
     "Marshall Motif II",
     "Marshall Monitor III A.N.C",
-    "Marshall Milton A.N.C",
+    "Marshall Milton A.N.C.",
   ],
   "B&W": [
     "B&W Px7 S2e",

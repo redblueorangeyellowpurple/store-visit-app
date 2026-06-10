@@ -95,6 +95,20 @@ const EXEC_VIEW_LABEL: Record<ExecView, string> = {
 const HEAT_SCALE = ["#f1eee7", "#fdedcb", "#fbd9a0", "#f7bd66", "#ef9d1f"];
 const heatColor = (n: number) => HEAT_SCALE[Math.min(n, HEAT_SCALE.length - 1)];
 
+// Heatmap group order: SG first, unknown markets last.
+const MARKET_ORDER = ["SG", "MY", "TH", "HK"];
+const marketRank = (m: string) => {
+  const i = MARKET_ORDER.indexOf(m);
+  return i === -1 ? MARKET_ORDER.length : i;
+};
+
+// Store names carry "Chain @ Location" — under a chain group header the prefix
+// is redundant, so show just the location.
+const stripChain = (name: string, chain: string) =>
+  chain && name.toLowerCase().startsWith(chain.toLowerCase() + " @ ")
+    ? name.slice(chain.length + 3)
+    : name;
+
 export function WeeklyView({
   report,
   onOpenStore,
@@ -130,6 +144,25 @@ export function WeeklyView({
     }));
   }, [storesVisited, storeGroupBy]);
 
+  // Stores heatmap rows grouped by market + chain, groups sorted by market then
+  // chain, stores alphabetical within each group.
+  const heatGroups = useMemo(() => {
+    const map = new Map<string, WeeklyReport["storeDayMatrix"]>();
+    for (const s of storeDayMatrix) {
+      const k = `${s.market}|${s.chain}`;
+      const list = map.get(k) ?? [];
+      list.push(s);
+      map.set(k, list);
+    }
+    return Array.from(map.entries())
+      .map(([k, rows]) => {
+        const [market, chain] = k.split("|");
+        rows.sort((a, b) => a.store.localeCompare(b.store));
+        return { market, chain, rows };
+      })
+      .sort((a, b) => marketRank(a.market) - marketRank(b.market) || a.chain.localeCompare(b.chain));
+  }, [storeDayMatrix]);
+
   const narrativeSections = report.narrativeMarkdown ? splitNarrative(report.narrativeMarkdown) : [];
   const eng = engagementSummary;
 
@@ -142,7 +175,7 @@ export function WeeklyView({
   const reachPct = stats.totalStores > 0 ? Math.round((stats.storesCovered / stats.totalStores) * 100) : 0;
   const reachWarn = reachPct < 40;
 
-  // Engagement headline strip — shown in both the CMs and Products views.
+  // Engagement headline strip — shown in the CMs view.
   const engStrip = eng.peopleEngaged > 0 ? (
     <div className="wk-eng-strip">
       <div className="wk-eng-stat">
@@ -321,7 +354,6 @@ export function WeeklyView({
 
         {execView === "Products" && (
           <>
-            {engStrip}
             {trainingProducts.length > 0 ? (
               <table className="wk-table wk-train-table">
                 <thead>
@@ -360,18 +392,26 @@ export function WeeklyView({
                   <span key={d.dow} className="wk-hm-day">{d.dow}</span>
                 ))}
               </div>
-              {storeDayMatrix.map((s) => (
-                <div key={s.storeId} className="wk-hm-row">
-                  <button className="wk-hm-store" onClick={() => onOpenStore(s.storeId)} title={s.store}>
-                    {s.store}
-                  </button>
-                  {s.counts.map((n, i) => (
-                    <span
-                      key={i}
-                      className="wk-hm-cell"
-                      style={{ background: heatColor(n) }}
-                      title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
-                    />
+              {heatGroups.map((grp) => (
+                <div key={`${grp.market}|${grp.chain}`}>
+                  <div className="wk-grp-hd">
+                    <span>{MARKET_FLAG[grp.market] ?? ""} {grp.market || "—"} · {grp.chain || "—"}</span>
+                    <span className="ct">{grp.rows.length}</span>
+                  </div>
+                  {grp.rows.map((s) => (
+                    <div key={s.storeId} className="wk-hm-row">
+                      <button className="wk-hm-store" onClick={() => onOpenStore(s.storeId)} title={s.store}>
+                        {stripChain(s.store, s.chain)}
+                      </button>
+                      {s.counts.map((n, i) => (
+                        <span
+                          key={i}
+                          className="wk-hm-cell"
+                          style={{ background: heatColor(n) }}
+                          title={`${s.store} — ${byDay[i]?.dow}: ${n} visit${n === 1 ? "" : "s"}`}
+                        />
+                      ))}
+                    </div>
                   ))}
                 </div>
               ))}
