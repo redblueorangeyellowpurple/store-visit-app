@@ -334,6 +334,15 @@ Write the file (get today's date from `TZ=Asia/Singapore date +%Y-%m-%d` — nev
 - daily → `/Users/wilsontan/Claude/tc_promoter-dept_q3-bot/snapshots/PD-DAILY-<YYYY-MM-DD>.md`
 - weekly → `/Users/wilsontan/Claude/tc_promoter-dept_q3-bot/snapshots/PD-WEEKLY-<YYYY-MM-DD>.md` (dated the Monday)
 
+**Then persist the same markdown to `promotchi.pd_snapshots`** — the Promotchi bot DMs admins at 08:00 SGT with a mini-app button; no row = no DM, so a skipped day stays silent end to end:
+```sql
+INSERT INTO promotchi.pd_snapshots (snapshot_date, kind, markdown, stats)
+VALUES ($body$<today>$body$, $body$<daily|weekly>$body$, $body$<markdown>$body$, $json$<stats>$json$::jsonb)
+ON CONFLICT (snapshot_date, kind) DO UPDATE
+  SET markdown = EXCLUDED.markdown, stats = EXCLUDED.stats, created_at = now();
+```
+`stats` = `{kind, updates, promoters, stores, customers, sales, headline}` — `headline` is ONE plain-text line (≤120 chars, no markdown) capturing the day's strongest insight; the bot uses it as the DM body.
+
 Promoter person-note updates (≤3 per run, `audience='promoter_dept'`, body starts `Type: promoter`) ride the same validation + transaction as Step 5.5.
 
 ---
