@@ -6,6 +6,8 @@ Self-contained — execute end to end, no human in the loop.
 
 **Two lenses, one memory.** CM visits (`sva.*`) and promoter store updates (`promotchi.intel_*`) feed the SAME memory graph. Every note version carries `audience` — `cm` | `promoter_dept` | `shared` — which controls who reads it: the CM brief reads `cm`+`shared`, the PD snapshot reads `promoter_dept`+`shared`. Never leak across (promoter performance never reaches the CM brief; CM-only intel never reaches PD output).
 
+**INTEL→CM GATE: OFF.** While OFF, promoter intel may NOT ground any claim in `brief_markdown` or `telegram_summary` — it flows only into memory notes, hypotheses (Step 5.5) and the PD snapshot (Step 5.6). The team-facing report stays CM-visit-evidence only until the parse has proven stable (criterion: ~2 weeks / 10+ updates parsed with no manual corrections from Wilson — then Wilson flips this line to ON).
+
 ---
 
 ## Invocation
@@ -193,7 +195,7 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 - **Annotate recurrence.** If the prior-7-day briefs (Step 2) already carried this signal, say so in the elaboration — "first flagged 3 Jun, 3rd sighting" — instead of presenting it as new. Persistent ≠ new; both matter, but the reader must know which they're looking at.
 
 **Correlation pass (run while drafting Signals/Alerts — cross-source questions, the multiplicative layer):**
-- **Lens corroboration.** For each store visited on D that also has promoter intel within ±7 days (Step 2 query): do the two lenses agree or conflict on a product, competitor, or stock claim? Agreement = a Signal citing BOTH sources (visit link + a "promoter intel, <name> <D Mon>" mention); conflict = an Alert stating both versions plainly. Cross-lens corroboration is strong evidence — also feed it to Step 5.5.
+- **Lens corroboration.** For each store visited on D that also has promoter intel within ±7 days (Step 2 query): do the two lenses agree or conflict on a product, competitor, or stock claim? **While the INTEL→CM GATE is OFF, run the comparison but route findings ONLY to Step 5.5 (hypothesis evidence) and the PD snapshot — never into Signals/Alerts.** Gate ON: agreement = a Signal citing BOTH sources (visit link + a "promoter intel, <name> <D Mon>" mention); conflict = an Alert stating both versions plainly.
 - **Training follow-through.** For products trained at a store within the last 14 days (engagement detail + memory notes): does today's evidence show movement — sales, pitches, displays shifted, staff quoting the training? Cite the training source AND today's evidence. Only surface when there IS something to say; absence of follow-through becomes reportable only at the 14-day mark, stated with its denominator.
 
 **Alerts** — BAD / needs attention: risks, problems, deteriorations, broken follow-ups, competitor threats (e.g. conquering shelf/POS space), store staff/manager resisting our brand, stock-out or display defect at a T1/T2 store, silence alerts (a T1 store gone silent ≥7 days, from silence-as-signal). Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure and analyst discipline (full evidence set · quantified base · recurrence) as Signals.
@@ -255,7 +257,7 @@ Executed: <N> Visits (<pct>%)
 ---
 
 ## Step 3.5 — Validate (hard stops; write NOTHING if any fail)
-- every `slug` matches the regex · every `body_markdown` non-empty and ≤~1500 chars · every edge endpoint exists in the snapshot or new notes (no dangling) · every store named in the brief was visited on D (no hallucinated stores) · `telegram_summary` ≤900 chars · `brief_markdown` non-empty · every `audience` ∈ {cm, promoter_dept, shared} · every `status` ∈ {watch, confirmed, actioned, dead} or absent · no `promoter_dept` note content quoted in `brief_markdown` or `telegram_summary`.
+- every `slug` matches the regex · every `body_markdown` non-empty and ≤~1500 chars · every edge endpoint exists in the snapshot or new notes (no dangling) · every store named in the brief was visited on D (no hallucinated stores) · `telegram_summary` ≤900 chars · `brief_markdown` non-empty · every `audience` ∈ {cm, promoter_dept, shared} · every `status` ∈ {watch, confirmed, actioned, dead} or absent · no `promoter_dept` note content quoted in `brief_markdown` or `telegram_summary` · while the INTEL→CM GATE is OFF, `brief_markdown` and `telegram_summary` contain zero promoter-intel-derived claims (the string "promoter intel" must not appear in either).
 
 Log the failed invariant and abort the date if any check fails. No partial writes.
 
@@ -307,7 +309,7 @@ FROM sva.v_memory_notes_current WHERE status IN ('watch','confirmed','actioned')
 ```
 Check EVERY open hypothesis against THIS RUN's evidence (all visits processed + all intel parsed). Then:
 - **New supporting sighting** → bump the note version: add a date-stamped bullet citing the source (visit link or `promoter intel, <name>, <D Mon>`), carry audience + status forward.
-- **Promote `watch` → `confirmed`** when sightings span 3+ distinct days OR both lenses corroborate (CM visit + promoter intel). A newly confirmed hypothesis leads the next CM brief Signals (if audience cm/shared) and/or PD snapshot.
+- **Promote `watch` → `confirmed`** when sightings span 3+ distinct days OR both lenses corroborate (CM visit + promoter intel). A newly confirmed hypothesis leads the next PD snapshot, and the next CM brief Signals only if audience is cm/shared AND (its CM-side evidence stands on its own, or the INTEL→CM GATE is ON).
 - **Contradicting evidence** → record it as a dated bullet; when refutation outweighs support → `status='dead'` with a closing bullet stating why.
 - **Expiry:** no sighting in 30 days (`last_touched_at`) → `status='dead'`, closing bullet `expired — no sighting since <date>`. Dead hypotheses get one farewell mention in the next Monday PD weekly (or CM brief if cm-audience), then silence.
 - **`actioned` is human-set only** (Wilson / dashboard) — the routine NEVER sets it, but checks actioned hypotheses for outcome evidence ("restocked 14 Jun — sold 3 more that week") and records what it finds. That closes the action loop.
