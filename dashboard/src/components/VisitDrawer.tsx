@@ -238,18 +238,44 @@ export default function VisitDrawer({ visitId, highlight, quote, onClose, onOpen
                 </div>
               )}
 
-              {/* Engaged people */}
-              {visit.engaged_people.length > 0 && (
-                <div style={{ marginBottom: 14 }}>
+              {/* Engaged people. Current visits keep people_training (the legacy text
+                  section) empty, so an ?hl=people_training source link highlights THIS
+                  structured block instead — and the person whose text matches `quote`. */}
+              {visit.engaged_people.length > 0 && (() => {
+                const engHighlighted = highlight === "people_training" && !visit.people_training;
+                return (
+                <div ref={engHighlighted ? highlightRef : undefined} style={{
+                  marginBottom: 14,
+                  ...(engHighlighted ? {
+                    padding: "12px 14px", borderRadius: 12,
+                    background: "var(--color-section-amber-bg)",
+                    border: "2px solid var(--color-section-amber-border)",
+                    animation: "vdSourcePulse 1.3s ease-out 2",
+                  } : {}),
+                }}>
                   <div style={sectionHdStyle}>
                     🤝 Engagements
                     <span style={countBadgeStyle}>{visit.engaged_people.length}</span>
+                    {engHighlighted && (
+                      <span style={{
+                        marginLeft: "auto", fontSize: 9.5, fontWeight: 800, padding: "2px 8px",
+                        borderRadius: 999, background: "var(--color-section-amber-border)",
+                        color: "#7C4A03", letterSpacing: "0.05em", whiteSpace: "nowrap",
+                      }}>📍 report source</span>
+                    )}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {visit.engaged_people.map((p, i) => (
+                    {visit.engaged_people.map((p, i) => {
+                      const trainings = p.trainings ?? [];
+                      const personText = [p.name, p.products, p.update_text, ...trainings.map((t) => t.response)].filter(Boolean).join(" ");
+                      const isQuoted = engHighlighted && !!quote && findQuoteRange(personText, quote) !== null;
+                      const showPerProduct = trainings.some((t) => t.response);
+                      return (
                       <div key={i} style={{
-                        padding: "9px 12px", background: "var(--color-ink-50)",
-                        border: "1px solid var(--color-border)", borderRadius: 10,
+                        padding: "9px 12px",
+                        background: isQuoted ? "#FEF3C7" : "var(--color-ink-50)",
+                        border: isQuoted ? "2px solid var(--color-section-amber-border)" : "1px solid var(--color-border)",
+                        borderRadius: 10,
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--color-ink-900)" }}>{p.name}</span>
@@ -259,14 +285,25 @@ export default function VisitDrawer({ visitId, highlight, quote, onClose, onOpen
                               background: "var(--color-section-green-bg)", color: "var(--color-tier-t2-fg)",
                             }}>trained</span>
                           )}
+                          {isQuoted && <span style={{ fontSize: 11 }}>📍</span>}
                         </div>
-                        {p.products && <div style={{ fontSize: 12, color: "var(--color-ink-500)", marginTop: 2 }}>{p.products}</div>}
+                        {/* Per-product training responses when recorded; else the flat product CSV */}
+                        {showPerProduct ? trainings.map((t, j) => (
+                          <div key={j} style={{ marginTop: j === 0 ? 4 : 6 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink-500)" }}>{t.product}</div>
+                            {t.response && <div style={{ fontSize: 12.5, color: "var(--color-ink-600)", marginTop: 1, lineHeight: 1.4 }}>{t.response}</div>}
+                          </div>
+                        )) : (
+                          p.products && <div style={{ fontSize: 12, color: "var(--color-ink-500)", marginTop: 2 }}>{p.products}</div>
+                        )}
                         {p.update_text && <div style={{ fontSize: 12.5, color: "var(--color-ink-600)", marginTop: 3, lineHeight: 1.4 }}>{p.update_text}</div>}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Follow-up items */}
               {visit.follow_up_items.length > 0 && (

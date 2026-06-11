@@ -6,6 +6,8 @@ export interface EngagedPersonItem {
   update_text: string | null; // the free-text note logged about this person
   was_trained: boolean;       // true if a product/training was recorded for them
   products: string | null;    // CSV of products they were trained on (if any)
+  /** Per-product training responses — populated only by getVisitDetail (VisitDrawer). */
+  trainings?: { product: string; response: string | null }[];
 }
 
 export interface FollowUpItem {
@@ -786,28 +788,29 @@ export async function getVisitDetail(visitId: string): Promise<VisitDetail | nul
     .eq("visit_id", visitId);
   type StaffLink = { id: string; person_name: string | null; update_text: string | null; was_trained: boolean | null; products_trained_on: string | null; staff: { id: string; name: string } | null };
   const vsIds = (staffRows ?? []).map((s) => (s as unknown as StaffLink).id);
-  const trainingsByPerson = new Map<string, string[]>();
+  const trainingsByPerson = new Map<string, { product: string; response: string | null }[]>();
   if (vsIds.length > 0) {
     const { data: etRows } = await supabase
       .from("engagement_trainings")
-      .select("visit_staff_id, product_name")
+      .select("visit_staff_id, product_name, response")
       .in("visit_staff_id", vsIds);
-    for (const t of (etRows ?? []) as { visit_staff_id: string; product_name: string }[]) {
+    for (const t of (etRows ?? []) as { visit_staff_id: string; product_name: string; response: string | null }[]) {
       const arr = trainingsByPerson.get(t.visit_staff_id) ?? [];
-      arr.push(t.product_name);
+      arr.push({ product: t.product_name, response: t.response ?? null });
       trainingsByPerson.set(t.visit_staff_id, arr);
     }
   }
   const engaged_people: EngagedPersonItem[] = (staffRows ?? []).map((s) => {
     const sr = s as unknown as StaffLink;
     const trainings = trainingsByPerson.get(sr.id) ?? [];
-    const products = trainings.length > 0 ? trainings.join(", ") : (sr.products_trained_on ?? null);
+    const products = trainings.length > 0 ? trainings.map((t) => t.product).join(", ") : (sr.products_trained_on ?? null);
     return {
       id: sr.staff?.id ?? "",
       name: sr.person_name ?? sr.staff?.name ?? "Unknown",
       update_text: sr.update_text ?? null,
       was_trained: Boolean(sr.was_trained) || trainings.length > 0 || Boolean(sr.products_trained_on),
       products,
+      trainings,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 
