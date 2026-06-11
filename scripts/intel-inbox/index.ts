@@ -26,5 +26,11 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 void bot.start({
-  onStart: (me) => console.log(`[intel-inbox] polling as @${me.username} — forward promoter updates, Ctrl-C to stop`),
+  onStart: async (me) => {
+    console.log(`[intel-inbox] polling as @${me.username} — forward promoter updates, Ctrl-C to stop`);
+    await bot.api.setMyCommands([
+      { command: 'recent', description: 'List last 10 captures to edit' },
+      { command: 'help', description: 'How this works' },
+    ]);
+  },
 });

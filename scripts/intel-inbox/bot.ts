@@ -297,12 +297,59 @@ export function buildBot(opts: InboxOptions): Bot {
     '👤 Promoter — defaults to the original sender’s name or the “Name/Store” header',
     '📅 Date · ⏰ Shift — default to the day the promoter sent the message',
     '',
+    'Forward as many as you like in a row — every forward gets its own card and they can be tagged in any order. ✅ Done cards keep an ✏️ Edit button, and /recent lists the last 10 captures so you can reopen and fix any of them.',
+    '',
     'Photos aren’t stored — text and captions only. Rows land in promotchi.intel_updates; the 7am routine extracts the customer-level insights later.',
     '',
     'I only need to be running when you forward — Telegram queues forwards for ~24h while I’m offline.',
   ].join('\n');
 
   bot.command(['start', 'help'], (ctx) => ctx.reply(HELP, { parse_mode: 'HTML' }));
+
+  bot.command('recent', async (ctx) => {
+    const { data } = await promotchi
+      .from('intel_updates')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10);
+    const rows = (data ?? []) as IntelUpdate[];
+    if (rows.length === 0) {
+      await ctx.reply('No captures yet — forward me a promoter update.');
+      return;
+    }
+    const storeIds = [...new Set(rows.map((r) => r.store_id).filter((v): v is string => v !== null))];
+    const storeNames = new Map<string, string>();
+    if (storeIds.length > 0) {
+      const { data: stores } = await sva.from('stores').select('id,name').in('id', storeIds);
+      for (const s of stores ?? []) storeNames.set(s.id, s.name);
+    }
+    const kb = new InlineKeyboard();
+    const lines = rows.map((r, i) => {
+      const store = (r.store_id && storeNames.get(r.store_id)) || (r.store_label ? `❓ “${r.store_label}”` : '❓');
+      const when = r.shift_date ? dateLabel(r.shift_date) : '❓';
+      kb.text(`✏️ ${i + 1}`, `er:${r.id}`);
+      if (i % 5 === 4) kb.row();
+      return `${i + 1}. ${when}${r.shift_type ? ` ${r.shift_type}` : ''} · ${escapeHtml(store)} · ${escapeHtml(r.promoter_name ?? '❓')}`;
+    });
+    await ctx.reply(`🗂 <b>Recent captures</b>\n\n${lines.join('\n')}\n\nTap a number to reopen it for editing.`, {
+      parse_mode: 'HTML',
+      reply_markup: kb,
+    });
+  });
+
+  // er = reopen from the /recent list: spawns a fresh card (the original may be far up the chat)
+  bot.callbackQuery(/^er:(.+)$/, async (ctx) => {
+    const id = (ctx.match as RegExpMatchArray)[1];
+    const u = await fetchUpdate(id);
+    if (!u) {
+      // Don't strip the /recent list's keyboard — other rows may still be valid
+      await ctx.answerCallbackQuery({ text: 'That one no longer exists.' });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const sent = await ctx.reply(await cardText(u), { parse_mode: 'HTML', reply_markup: cardKeyboard(id) });
+    sessions.set(id, { chatId: sent.chat.id, cardMessageId: sent.message_id });
+  });
 
   // ── Capture: any forwarded message ──────────────────────────────────────
 
@@ -497,7 +544,10 @@ export function buildBot(opts: InboxOptions): Bot {
     const u = await fetchUpdate(id);
     if (!u) return expired(ctx);
     await ctx.answerCallbackQuery({ text: '✓ Saved' });
-    await ctx.editMessageText(await cardText(u, '✅ <b>Promoter update saved</b>'), { parse_mode: 'HTML' });
+    await ctx.editMessageText(await cardText(u, '✅ <b>Promoter update saved</b>'), {
+      parse_mode: 'HTML',
+      reply_markup: new InlineKeyboard().text('✏️ Edit', `ed:${id}`),
+    });
     await deletePicker(id);
     sessions.delete(id);
   });
@@ -523,7 +573,8 @@ export function buildBot(opts: InboxOptions): Bot {
     sessions.delete(id);
   });
 
-  bot.callbackQuery(/^bk:(.+)$/, async (ctx) => {
+  // bk = Back from a sub-keyboard; ed = reopen a ✅-Done card for editing
+  bot.callbackQuery(/^(?:bk|ed):(.+)$/, async (ctx) => {
     const id = (ctx.match as RegExpMatchArray)[1];
     touchSession(id, ctx);
     const u = await fetchUpdate(id);

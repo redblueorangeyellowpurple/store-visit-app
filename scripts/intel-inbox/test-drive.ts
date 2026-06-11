@@ -86,9 +86,12 @@ function forward(text: string, senderName: string, sentAt: Date, fromUser = wils
 }
 
 function textMsg(text: string): Update {
+  const entities = text.startsWith('/')
+    ? [{ type: 'bot_command', offset: 0, length: text.split(' ')[0].length }]
+    : undefined;
   return {
     update_id: ++updateSeq,
-    message: { message_id: ++inMsgId, date: Math.floor(Date.now() / 1000), chat, from: wilson, text },
+    message: { message_id: ++inMsgId, date: Math.floor(Date.now() / 1000), chat, from: wilson, text, entities },
   } as Update;
 }
 
@@ -198,7 +201,20 @@ async function main(): Promise<void> {
 
   console.log('5. Done');
   await bot.handleUpdate(tap(`dn:${id}`, cardId));
-  check('card finalised', outbox.some((e) => e.method === 'editMessageText' && String(e.payload.text).includes('saved')));
+  const doneEdit = outbox.filter((e) => e.method === 'editMessageText').pop();
+  check('card finalised', String(doneEdit?.payload.text).includes('saved'));
+  check('done card keeps Edit button', JSON.stringify(doneEdit?.payload.reply_markup ?? {}).includes(`ed:${id}`));
+
+  console.log('5b. Edit after Done');
+  const beforeEd = outbox.length;
+  await bot.handleUpdate(tap(`ed:${id}`, cardId));
+  check(
+    'done card reopens with full keyboard',
+    outbox.slice(beforeEd).some((e) => e.method === 'editMessageText' && JSON.stringify(e.payload.reply_markup ?? {}).includes(`dn:${id}`)),
+  );
+  await bot.handleUpdate(tap(`sh:${id}`, cardId));
+  await bot.handleUpdate(tap(`sx:${id}:FD`, cardId));
+  check('shift edited after done', (await fetchRow(id))?.shift_type === 'FD');
 
   console.log('6. Second forward auto-resolves via learned alias');
   await bot.handleUpdate(forward(`TestPromoter/${LABEL}\nQuiet PM, mostly browsers`, 'Adena ✨', new Date()));
@@ -210,6 +226,17 @@ async function main(): Promise<void> {
   const row2 = rows2![0];
   check('second row inserted', rows2?.length === 2, `got ${rows2?.length}`);
   check('store auto-filled from alias', row2.store_id === afterPick?.store_id);
+
+  console.log('6b. /recent lists and reopens');
+  await bot.handleUpdate(textMsg('/recent'));
+  const recent = lastSend('Recent captures');
+  check('/recent lists captures', !!recent && String(recent.payload.text).includes('1.'));
+  const recentKb = (recent?.payload.reply_markup as { inline_keyboard?: { text: string; callback_data: string }[][] })?.inline_keyboard;
+  const firstEr = recentKb?.flat().find((b) => b.callback_data?.startsWith('er:'));
+  check('/recent has reopen buttons', !!firstEr);
+  await bot.handleUpdate(tap(firstEr!.callback_data, recent!.resultId!));
+  const reopened = lastSend('Promoter update logged');
+  check('reopened card sent fresh', (reopened?.resultId ?? 0) > (recent?.resultId ?? Infinity));
 
   console.log('7. Discard (two-step)');
   const card2 = lastSend('Promoter update logged')!;
