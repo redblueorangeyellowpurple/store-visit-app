@@ -18,7 +18,7 @@ const wkSanitize = { ...defaultSchema, tagNames: [...(defaultSchema.tagNames ?? 
 // Link interceptor for AI narrative chips:
 //   /visits/store/<store_id>                            → store drawer
 //   /visits/visit/<store_id>/<visit_id>?hl=<v>[&q=<f>]  → visit drawer (hl = source section, q = verbatim fragment to mark)
-function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string, hl?: string | null, quote?: string | null) => void) {
+function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string, hl?: string | null, quote?: string | null) => void, onOpenNote: (slug: string) => void) {
   return {
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
       const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
@@ -33,6 +33,12 @@ function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id
       const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
       if (storeMatch) {
         return <button className="wk-chip" onClick={() => onOpenStore(storeMatch[1])}>{children}</button>;
+      }
+      const noteMatch = href?.match(/^\/intelligence\/notes\/([^?#]+)/);
+      if (noteMatch) {
+        let slug = noteMatch[1];
+        try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
+        return <button className="wk-chip" onClick={() => onOpenNote(slug)}>{children}</button>;
       }
       return <a href={href}>{children}</a>;
     },
@@ -117,10 +123,12 @@ export function WeeklyView({
   report,
   onOpenStore,
   onOpenVisit,
+  onOpenNote,
 }: {
   report: WeeklyReport;
   onOpenStore: (storeId: string) => void;
   onOpenVisit?: (visitId: string, hl?: string | null, quote?: string | null) => void;
+  onOpenNote?: (slug: string) => void;
 }) {
   const { stats, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
 
@@ -520,7 +528,7 @@ export function WeeklyView({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
-                components={narrativeComponents(onOpenStore, onOpenVisit ?? (() => undefined))}
+                components={narrativeComponents(onOpenStore, onOpenVisit ?? (() => undefined), onOpenNote ?? (() => undefined))}
               >
                 {sec.body}
               </ReactMarkdown>
@@ -673,6 +681,15 @@ const WK_CSS = `
 .wk-narrative li ul li:last-child:has(.wk-chip){border-top:none;padding-top:4px;}
 .wk-narrative p{font-size:14px;margin:6px 0;}
 .wk-narrative strong{font-weight:700;}
+/* Markdown tables inside narrative cards (engagements rollup) */
+.wk-narrative table{width:100%;border-collapse:collapse;margin:4px 0;font-size:13px;}
+.wk-narrative th{text-align:left;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--wk-muted);padding:0 12px 7px 0;border-bottom:1px solid var(--wk-line);}
+.wk-narrative td{text-align:left;padding:9px 12px 9px 0;border-top:1px solid var(--wk-line);
+  vertical-align:top;line-height:1.55;}
+.wk-narrative tbody tr:first-child td{border-top:none;}
+.wk-narrative th:last-child,.wk-narrative td:last-child{padding-right:0;}
+.wk-narrative td .wk-chip{margin:1px 2px 1px 0;}
 .wk-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--wk-chip-ink);
   background:var(--wk-chip);border:1px solid transparent;padding:1px 9px;border-radius:20px;
   cursor:pointer;margin:0 2px;transition:.15s;line-height:1.4;vertical-align:baseline;}

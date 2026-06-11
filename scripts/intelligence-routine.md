@@ -142,12 +142,19 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
   - Sources: [<store name> · <D Mon>](/visits/visit/<store_id>/<visit_id>?hl=<section>&q=<fragment>)
 
 ## 🤝 Engagements
-- **<product or topic> — <n> trained · <overall reception: receptive / mixed / lukewarm>**
-  - <person> @ [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training&q=<fragment>) — <their response, named only where it stands out>
-  - Trained at: [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training) · [<store name>](/visits/visit/<store_id>/<visit_id>?hl=people_training)
+| Product | Trained | Stores | Reception | Sources |
+| --- | --- | --- | --- | --- |
+| <product or topic> | <n> | <e.g. 4 SG (3 Challenger + 1 HN)> | <receptive / mixed / lukewarm / unreadable> — <≤15-word read naming clearly-standout reactions> | [<store> · <D Mon>](/visits/visit/<store_id>/<visit_id>?hl=people_training&q=<fragment>) · [<store> · <D Mon>](/visits/visit/<store_id>/<visit_id>?hl=people_training) |
+- ◆ **Consensus** — <general sentiment/awareness read across today's engagements>
+- **Other engagements** — <non-training engagements that cleared no other section's bar>
+  - <person/manager> @ [<store> · <D Mon>](/visits/visit/<store_id>/<visit_id>?hl=people_training&q=<fragment>) — <what was discussed>
 ```
 
 **Section rules:**
+
+**Universal sourcing (every section).** Every item ends with a complete `Sources:` line (or Sources cell): one visit-level link per contributing visit PLUS one `[🧠 <note title>](/intelligence/notes/<slug>)` link per memory note that informed the item. Any persistence claim in the elaboration ("3rd week running", "first flagged 3 Jun") MUST be backed by a cited 🧠 note or a prior-brief date — no uncited multi-day claims; if nothing backs it, reword to today-only.
+
+**One-home rule.** A named person or win gets its full quote treatment in exactly ONE section — precedence Good News > Signals/Alerts > Engagements. Elsewhere they are part of a count or at most a brief cross-mention. Never repeat the same person+quote sub-bullet in two sections.
 
 **Good News** — concrete wins ONLY. Qualifies: closed sale or large order, won or expanded display space, new ally recruited, competitor displaced, **a standout training reception** (staff visibly enthusiastic, committing to push the product, or asking for sell-in — name the person). Does NOT qualify: routine positivity, vague momentum, a good conversation. **No count cap** — the bar is strict but the list is not: if five wins qualify, list five. **Omit the section entirely when no item qualifies** — do not include a placeholder or "none today" stub.
 
@@ -158,7 +165,11 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 
 **Alerts** — BAD / needs attention: risks, problems, deteriorations, broken follow-ups, competitor threats (e.g. conquering shelf/POS space), store staff/manager resisting our brand, stock-out or display defect at a T1/T2 store, silence alerts (a T1 store gone silent ≥7 days, from silence-as-signal). Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure and analyst discipline (full evidence set · quantified base · recurrence) as Signals.
 
-**Engagements** — yesterday's staff/ally engagements from the structured engagement-detail rows (never the legacy `people_training` text), **rolled up by product or training topic — never a flat person list**. Each bullet: product/topic headline with the count trained and an overall reception read (receptive / mixed / lukewarm), then sub-bullets ONLY for people whose response stands out — named, with their visit link (`?hl=people_training&q=`) and what made it notable (skeptical on price, asked for sell-in, pushed back on the pitch…). Routine "trained, no reaction noted" people stay in the count, not as bullets. Standout *positive* receptions go to Good News instead (and aren't repeated here). Every product bullet ends with a `Trained at:` sub-bullet listing ONE visit link per visit where that product was trained (`?hl=people_training`, no `&q=`) — this is the full evidence set even when nobody stood out. **Omit the section entirely when none exist.**
+**Engagements** — yesterday's staff/ally engagements from the structured engagement-detail rows (never the legacy `people_training` text), presented as a **markdown table rolled up by product or training topic — never a flat person list**. One row per product: `Trained` = people count; `Stores` = store count + market/chain mix ("4 SG (3 Challenger + 1 HN)"); `Reception` = one-word verdict (receptive / mixed / lukewarm / unreadable) + a ≤15-word read naming clearly-standout reactions, good or bad ("Sim & Venesa keen; Priya cooling"); `Sources` = ONE visit link per visit where the product was trained (`?hl=people_training`; add `&q=<fragment>` on links whose visit carries a quoted standout response). When a row has >6 source links, group the chips by chain with a plain-text prefix ("TechLife · [Telford · 3 Jun] [APM · 4 Jun] — AVLife · [Sogo · 3 Jun]"). After the table:
+- ≤3 `- ◆ **Consensus** — …` bullets — general sentiment/awareness reads across the day's engagements (no link required).
+- one `- **Other engagements**` bullet with sub-bullets for non-training engagements that cleared no other section's bar (manager talks, promo/roadshow chats, relationship touches) — each named with a visit link. Omit when none.
+
+**Routing:** market/competitor intel a staff member shares during an engagement is intelligence, not an engagement — it goes to Signals (good/neutral) or Alerts (bad), linked `?hl=people_training`. Standout-positive receptions that meet the Good News bar go there. Engagements holds only the training log and the leftovers. **Omit the section entirely when none exist.**
 
 **Link forms** (all render as click-to-open chips on the dashboard and the mini app):
 - `[<store name> · <D Mon>](/visits/visit/<store_id>/<visit_id>?hl=<section>&q=<fragment>)` — visit-level deep-link. Use for every item grounded in a specific visit. `<visit_id>` must come from the snapshot's `visit_ids` for day D (or a visit link reused verbatim from a memory note) — never fabricate one. Every visit-level link MUST append `?hl=<section>`, where `<section>` identifies which of the 5 visit sections the item primarily drew from: `good_news` | `people_training` | `competitors` | `display_stock` | `follow_up`. `&q=<fragment>` carries the evidence: a short fragment (≤12 words) copied **verbatim** from that section's text, URL-encoded (spaces → `%20`; never raw spaces, `)`, or `&` inside the link). The dashboard highlights that exact passage when the visit opens — paraphrased fragments won't match, so copy exactly. If an item drew from two sections of the same visit, emit two links to the same visit with different `?hl=`.

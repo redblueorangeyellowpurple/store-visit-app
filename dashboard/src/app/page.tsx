@@ -325,6 +325,16 @@ export default function HomePage() {
           </button>
         );
       }
+      const noteMatch = href?.match(/^\/intelligence\/notes\/([^?#]+)/);
+      if (noteMatch) {
+        let slug = noteMatch[1];
+        try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
+        return (
+          <button className="chip note" onClick={() => setDrawerNoteSlug(slug)}>
+            {children}
+          </button>
+        );
+      }
       return <a href={href} {...props}>{children}</a>;
     },
   });
@@ -454,6 +464,7 @@ export default function HomePage() {
                   report={weekReport}
                   onOpenStore={setDrawerStoreId}
                   onOpenVisit={openVisit}
+                  onOpenNote={setDrawerNoteSlug}
                 />
               )}
             </>
@@ -747,6 +758,14 @@ const INTEL_CSS = `
 .intel .chip:hover{border-color:var(--accent);}
 .intel .chip.emg{color:var(--red);background:var(--red-soft);}
 .intel .chip.emg:hover{border-color:var(--red);}
+.intel .chip.note::before{content:"🧠";opacity:1;font-size:11px;}
+/* Markdown tables inside narrative cards (engagements rollup) — left-aligned,
+   top-aligned cells; Sources cells hold wrapping chip rows */
+.intel .md table{margin:4px 0;font-size:13.5px;}
+.intel .md th{text-align:left;padding:0 12px 7px 0;}
+.intel .md td{text-align:left;padding:9px 12px 9px 0;vertical-align:top;line-height:1.55;}
+.intel .md th:last-child,.intel .md td:last-child{padding-right:0;}
+.intel .md td .chip{margin:1px 2px 1px 0;}
 .intel .editor{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
   padding:14px;border-radius:12px;border:1px solid var(--line);background:#FBFAF6;color:var(--ink);line-height:1.5;}
 .intel .editbar{display:flex;gap:8px;margin-top:10px;}

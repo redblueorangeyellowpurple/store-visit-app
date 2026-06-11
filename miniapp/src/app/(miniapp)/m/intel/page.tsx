@@ -103,20 +103,28 @@ function renderInline(
   onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
   keyPrefix: string,
 ): React.ReactNode[] {
-  const re = /\[([^\]]+)\]\(\/visits\/(store|visit)\/([^)]+)\)/g;
+  // Visit/store links become tappable chips; memory-note links (no notes route
+  // in the miniapp) render as inert reference pills so the title still reads.
+  const re = /\[([^\]]+)\]\((\/visits\/(?:store|visit)\/[^)]+|\/intelligence\/notes\/[^)]+)\)/g;
   const parts: React.ReactNode[] = [];
   let last = 0, m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
-    const kind = m[2] as "store" | "visit";
-    const [path, query = ""] = m[3].split("?");
-    const hl = new URLSearchParams(query).get("hl");
-    const id = kind === "visit" ? path.split("/").pop() ?? path : path;
-    parts.push(
-      <button key={`${keyPrefix}-c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id, hl)}>
-        {m[1]}
-      </button>,
-    );
+    const label = m[1], href = m[2];
+    if (href.startsWith("/intelligence/notes/")) {
+      parts.push(<span key={`${keyPrefix}-c${i++}`} className="memref">{label}</span>);
+    } else {
+      const vm = href.match(/^\/visits\/(store|visit)\/(.+)$/);
+      const kind = (vm?.[1] ?? "store") as "store" | "visit";
+      const [path, query = ""] = (vm?.[2] ?? "").split("?");
+      const hl = new URLSearchParams(query).get("hl");
+      const id = kind === "visit" ? path.split("/").pop() ?? path : path;
+      parts.push(
+        <button key={`${keyPrefix}-c${i++}`} className={`chip${alert ? " emg" : ""}${kind === "visit" ? " visit" : ""}`} onClick={() => onNav(kind, id, hl)}>
+          {label}
+        </button>,
+      );
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -243,6 +251,44 @@ function renderBullets(
     <ul className="bul">
       {tree.map((node, i) => renderBulletNode(node, alert, onNav, i))}
     </ul>
+  );
+}
+
+// Engagements card: the new format leads with a markdown table
+// (Product | Trained | Stores | Reception | Sources) followed by ◆ consensus /
+// "Other engagements" bullets. Tables don't fit a phone — render each row as a
+// stacked block (product · meta line · source chips), then the bullets as usual.
+function renderEngagements(
+  body: string,
+  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
+): React.ReactNode {
+  const table = parseTables(body)[0];
+  const bullets = renderBullets(body, false, onNav);
+  if (!table) return bullets;
+  const col = (re: RegExp, fallback: number) => {
+    const i = table.header.findIndex((h) => re.test(h));
+    return i === -1 ? fallback : i;
+  };
+  const cTrained = col(/trained/i, 1), cStores = col(/store/i, 2);
+  const cReception = col(/reception/i, 3), cSources = col(/source/i, 4);
+  return (
+    <>
+      {table.rows.map((r, i) => (
+        <div key={i} className="eng-row">
+          <div className="eng-prod">{renderRichInline(r[0] ?? "", false, onNav, `ep${i}`)}</div>
+          <div className="eng-meta">
+            {[r[cTrained] && `${r[cTrained]} trained`, r[cStores]].filter(Boolean).join(" · ")}
+          </div>
+          {r[cReception] && (
+            <div className="eng-read">{renderRichInline(r[cReception], false, onNav, `er${i}`)}</div>
+          )}
+          {r[cSources] && (
+            <div className="eng-src">{renderInline(r[cSources], false, onNav, `es${i}`)}</div>
+          )}
+        </div>
+      ))}
+      {bullets}
+    </>
   );
 }
 
@@ -434,7 +480,7 @@ export default function IntelPage() {
             {engagements?.body && (
               <div className="card card-eng">
                 <h2 className="eng-h">🤝 Engagements</h2>
-                {renderBullets(engagements.body, false, onNav) ?? <p className="calm">No engagement notes today.</p>}
+                {renderEngagements(engagements.body, onNav) ?? <p className="calm">No engagement notes today.</p>}
               </div>
             )}
           </>
@@ -506,6 +552,16 @@ const INTEL_CSS = `
 /* Engagements card */
 .intel .card-eng{background:#F4F9F4;border-color:#C8DEC8;}
 .intel .eng-h{color:#3A7040!important;}
+/* Engagements table rows, rendered as stacked blocks on phone */
+.intel .eng-row{padding:11px 0;border-top:1px solid var(--line);}
+.intel .eng-row:first-child{border-top:none;padding-top:2px;}
+.intel .eng-prod{font-size:14.5px;font-weight:600;color:#3a372f;line-height:1.4;}
+.intel .eng-meta{font-size:12px;color:var(--muted);margin-top:1px;}
+.intel .eng-read{font-size:13px;color:var(--muted);line-height:1.45;margin-top:4px;}
+.intel .eng-src{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px;}
+/* Memory-note reference — inert pill (no notes route in the miniapp) */
+.intel .memref{font-size:12px;font-weight:600;color:var(--muted);background:#EFEBE2;
+  border-radius:20px;padding:1px 9px;display:inline-flex;align-items:center;line-height:1.4;vertical-align:baseline;margin:1px 0;}
 
 /* Nested bullet list */
 .intel ul.bul li.bul-headline{padding-bottom:4px;}
