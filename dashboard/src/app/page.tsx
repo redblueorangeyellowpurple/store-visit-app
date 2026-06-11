@@ -782,6 +782,7 @@ const INTEL_CSS = `
 .intel .md td{text-align:left;padding:9px 12px 9px 0;vertical-align:top;line-height:1.55;}
 .intel .md th:last-child,.intel .md td:last-child{padding-right:0;}
 .intel .md td .chip{margin:1px 2px 1px 0;}
+.intel .md li ul li:has(details.srcfold){list-style:none;}
 .intel .md details.srcfold{margin:0;}
 .intel .md details.srcfold summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px;
   font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}

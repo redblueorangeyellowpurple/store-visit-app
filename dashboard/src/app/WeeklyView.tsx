@@ -707,6 +707,7 @@ const WK_CSS = `
 .wk-narrative th:last-child,.wk-narrative td:last-child{padding-right:0;}
 .wk-narrative td .wk-chip{margin:1px 2px 1px 0;}
 /* Counted "Sources (N):" sub-bullets fold into a tap-to-expand row */
+.wk-narrative li ul li:has(details.wk-srcfold){list-style:none;}
 .wk-narrative details.wk-srcfold{margin:0;}
 .wk-narrative details.wk-srcfold summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px;
   font-size:10.5px;font-weight:700;color:var(--wk-muted);text-transform:uppercase;letter-spacing:.04em;}
