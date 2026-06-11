@@ -25,3 +25,17 @@ export const supabase = createClient(
     global: { fetch: timeoutFetch },
   },
 );
+
+// Second client pinned to the shared `feedback` schema (the product-feedback
+// dashboard's source of truth). Same project + service-role key — the key is
+// cross-schema, so no new env var. Separate instance because supabase-js pins
+// the schema per client and `supabase` above is locked to `sva`.
+export const feedbackDb = createClient(
+  config.supabase.url,
+  config.supabase.serviceRoleKey,
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+    db: { schema: 'feedback' },
+    global: { fetch: timeoutFetch },
+  },
+);

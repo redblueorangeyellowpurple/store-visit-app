@@ -21,6 +21,7 @@ const USER_COMMANDS: Command[] = [
   { command: 'links', description: 'Store objective + asset links' },
   { command: 'nickname', description: 'Set your display name' },
   { command: 'myprofile', description: 'View your profile' },
+  { command: 'feedback', description: 'Send feedback or report a bug' },
   { command: 'cancel', description: 'Pause the current visit' },
   { command: 'help', description: 'Show all commands' },
 ];

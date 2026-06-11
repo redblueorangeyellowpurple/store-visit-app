@@ -24,8 +24,10 @@ import { handleResumeIntelligence } from './commands/admin/resumeintelligence.js
 import { handleTestRecap } from './commands/admin/testrecap.js';
 import { handleMorningPreview, handleMorningSend } from './commands/admin/morning.js';
 import { handleDashboard } from './commands/dashboard.js';
+import { handleFeedback } from './commands/feedback.js';
 import { visitFlow } from './conversations/visit-flow.js';
 import { joinRequestFlow } from './conversations/join-request.js';
+import { feedbackFlow } from './conversations/feedback-flow.js';
 import { initPhotoCollection, isCollecting, handleIncomingPhoto } from './photo-collection.js';
 import { startEditSession, isEditing, getEditSession, clearEditSession } from './edit-session.js';
 import { getVisitInfo, updateVisitSections, updateVisitGrade, updateVisitGradeComments, deleteVisit, getDraftVisit, purgeStaleDrafts } from '../db/queries/visits.js';
@@ -75,6 +77,7 @@ export function createBot(): Bot<BotContext> {
 
   bot.use(createConversation(visitFlow));
   bot.use(createConversation(joinRequestFlow));
+  bot.use(createConversation(feedbackFlow));
 
   bot.command('start', handleStart);
   bot.command('help', handleHelp);
@@ -90,6 +93,7 @@ export function createBot(): Bot<BotContext> {
   });
   bot.command('nickname', handleNickname);
   bot.command('myprofile', handleMyProfile);
+  bot.command('feedback', handleFeedback);
   bot.command('cancel', handleCancel);
 
   bot.command('dashboard', handleDashboard);

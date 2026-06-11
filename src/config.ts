@@ -49,4 +49,10 @@ export const config = {
     // (Wilson, 806982232). If unset, those admin DMs are skipped.
     chatId: optional('ADMIN_TELEGRAM_ID'),
   },
+  feedback: {
+    // Telegram ID that gets a one-line DM when a CM logs feedback via /feedback.
+    // Reuses ADMIN_TELEGRAM_ID, falling back to Wilson's id so the heads-up
+    // works out of the box. Override with FEEDBACK_NOTIFY_TG_ID.
+    notifyTgId: optional('FEEDBACK_NOTIFY_TG_ID') || optional('ADMIN_TELEGRAM_ID') || '806982232',
+  },
 } as const;
