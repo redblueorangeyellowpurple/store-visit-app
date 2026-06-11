@@ -177,13 +177,27 @@ interface BulletNode {
   children: BulletNode[];
 }
 
+// Counted "Sources (N): …" lines fold into a tap-to-expand row so long chip
+// walls (many contributing visits) stay one line until opened.
+function SourceFold({ count, children }: { count: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="bul-sources fold">
+      <button className="src-fold-toggle" onClick={() => setOpen((o) => !o)}>
+        <span className={`src-arrow${open ? " open" : ""}`}>▸</span> {count} sources
+      </button>
+      {open && <span className="src-fold-body">{children}</span>}
+    </li>
+  );
+}
+
 function parseBulletTree(lines: string[]): BulletNode[] {
   const roots: BulletNode[] = [];
   let current: BulletNode | null = null;
   for (const line of lines) {
     const isIndented = /^\s{2,}[-*]|\t[-*]/.test(line);
     const text = line.replace(/^[\s\t]*[-*]\s+/, "");
-    const isSource = /^sources?:/i.test(text);
+    const isSource = /^sources?(\s*\(\d+\))?:/i.test(text);
     if (!isIndented) {
       current = { text, isSource, children: [] };
       roots.push(current);
@@ -216,12 +230,15 @@ function renderBulletNode(
         <ul className="bul-sub">
           {node.children.map((child, ci) => {
             if (child.isSource) {
-              // Strip "Sources: " prefix, render remaining content as chips inline.
-              const srcText = child.text.replace(/^sources?:\s*/i, "");
+              // Strip "Sources:" / "Sources (N):" prefix, render the rest as chips.
+              const counted = child.text.match(/^sources?\s*\((\d+)\)\s*:/i);
+              const srcText = child.text.replace(/^sources?\s*(\(\d+\))?\s*:\s*/i, "");
+              const chips = renderInline(srcText, false, onNav, `r${key}-s${ci}`);
+              if (counted) return <SourceFold key={ci} count={counted[1]}>{chips}</SourceFold>;
               return (
                 <li key={ci} className="bul-sources">
                   <span className="src-label">Sources:</span>
-                  {renderInline(srcText, false, onNav, `r${key}-s${ci}`)}
+                  {chips}
                 </li>
               );
             }
@@ -251,44 +268,6 @@ function renderBullets(
     <ul className="bul">
       {tree.map((node, i) => renderBulletNode(node, alert, onNav, i))}
     </ul>
-  );
-}
-
-// Engagements card: the new format leads with a markdown table
-// (Product | Trained | Stores | Reception | Sources) followed by ◆ consensus /
-// "Other engagements" bullets. Tables don't fit a phone — render each row as a
-// stacked block (product · meta line · source chips), then the bullets as usual.
-function renderEngagements(
-  body: string,
-  onNav: (kind: "store" | "visit", id: string, hl?: string | null) => void,
-): React.ReactNode {
-  const table = parseTables(body)[0];
-  const bullets = renderBullets(body, false, onNav);
-  if (!table) return bullets;
-  const col = (re: RegExp, fallback: number) => {
-    const i = table.header.findIndex((h) => re.test(h));
-    return i === -1 ? fallback : i;
-  };
-  const cTrained = col(/trained/i, 1), cStores = col(/store/i, 2);
-  const cReception = col(/reception/i, 3), cSources = col(/source/i, 4);
-  return (
-    <>
-      {table.rows.map((r, i) => (
-        <div key={i} className="eng-row">
-          <div className="eng-prod">{renderRichInline(r[0] ?? "", false, onNav, `ep${i}`)}</div>
-          <div className="eng-meta">
-            {[r[cTrained] && `${r[cTrained]} trained`, r[cStores]].filter(Boolean).join(" · ")}
-          </div>
-          {r[cReception] && (
-            <div className="eng-read">{renderRichInline(r[cReception], false, onNav, `er${i}`)}</div>
-          )}
-          {r[cSources] && (
-            <div className="eng-src">{renderInline(r[cSources], false, onNav, `es${i}`)}</div>
-          )}
-        </div>
-      ))}
-      {bullets}
-    </>
   );
 }
 
@@ -480,7 +459,7 @@ export default function IntelPage() {
             {engagements?.body && (
               <div className="card card-eng">
                 <h2 className="eng-h">🤝 Engagements</h2>
-                {renderEngagements(engagements.body, onNav) ?? <p className="calm">No engagement notes today.</p>}
+                {renderBullets(engagements.body, false, onNav) ?? <p className="calm">No engagement notes today.</p>}
               </div>
             )}
           </>
@@ -553,12 +532,12 @@ const INTEL_CSS = `
 .intel .card-eng{background:#F4F9F4;border-color:#C8DEC8;}
 .intel .eng-h{color:#3A7040!important;}
 /* Engagements table rows, rendered as stacked blocks on phone */
-.intel .eng-row{padding:11px 0;border-top:1px solid var(--line);}
-.intel .eng-row:first-child{border-top:none;padding-top:2px;}
-.intel .eng-prod{font-size:14.5px;font-weight:600;color:#3a372f;line-height:1.4;}
-.intel .eng-meta{font-size:12px;color:var(--muted);margin-top:1px;}
-.intel .eng-read{font-size:13px;color:var(--muted);line-height:1.45;margin-top:4px;}
-.intel .eng-src{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px;}
+.intel ul.bul ul.bul-sub li.bul-sources.fold{display:block;}
+.intel .src-fold-toggle{display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:0;
+  font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.intel .src-arrow{display:inline-block;font-size:10px;transition:transform .15s ease;}
+.intel .src-arrow.open{transform:rotate(90deg);}
+.intel .src-fold-body{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px;}
 /* Memory-note reference — inert pill (no notes route in the miniapp) */
 .intel .memref{font-size:12px;font-weight:600;color:var(--muted);background:#EFEBE2;
   border-radius:20px;padding:1px 9px;display:inline-flex;align-items:center;line-height:1.4;vertical-align:baseline;margin:1px 0;}

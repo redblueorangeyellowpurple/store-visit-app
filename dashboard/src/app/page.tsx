@@ -337,6 +337,22 @@ export default function HomePage() {
       }
       return <a href={href} {...props}>{children}</a>;
     },
+    // "Sources (N): …" sub-bullets fold into a tap-to-expand row — long chip
+    // walls (many contributing visits) stay one line until opened.
+    li({ children }: { children?: React.ReactNode }) {
+      const arr = Array.isArray(children) ? children : [children];
+      const first = arr[0];
+      const m = typeof first === "string" ? first.match(/^Sources \((\d+)\):\s*/) : null;
+      if (!m) return <li>{children}</li>;
+      return (
+        <li>
+          <details className="srcfold">
+            <summary>{m[1]} sources</summary>
+            <span className="srcfold-body">{[first.slice(m[0].length), ...arr.slice(1)]}</span>
+          </details>
+        </li>
+      );
+    },
   });
 
   const goodNews = parsed?.sections.find((s) => s.kind === "good_news");
@@ -766,6 +782,13 @@ const INTEL_CSS = `
 .intel .md td{text-align:left;padding:9px 12px 9px 0;vertical-align:top;line-height:1.55;}
 .intel .md th:last-child,.intel .md td:last-child{padding-right:0;}
 .intel .md td .chip{margin:1px 2px 1px 0;}
+.intel .md details.srcfold{margin:0;}
+.intel .md details.srcfold summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px;
+  font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.intel .md details.srcfold summary::-webkit-details-marker{display:none;}
+.intel .md details.srcfold summary::before{content:"▸";font-size:10px;transition:transform .15s ease;}
+.intel .md details.srcfold[open] summary::before{transform:rotate(90deg);}
+.intel .md details.srcfold .srcfold-body{display:block;margin-top:6px;}
 .intel .editor{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
   padding:14px;border-radius:12px;border:1px solid var(--line);background:#FBFAF6;color:var(--ink);line-height:1.5;}
 .intel .editbar{display:flex;gap:8px;margin-top:10px;}

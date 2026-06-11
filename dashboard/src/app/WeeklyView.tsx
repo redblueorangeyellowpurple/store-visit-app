@@ -42,6 +42,22 @@ function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id
       }
       return <a href={href}>{children}</a>;
     },
+    // "Sources (N): …" sub-bullets fold into a tap-to-expand row — long chip
+    // walls (many contributing visits) stay one line until opened.
+    li({ children }: { children?: React.ReactNode }) {
+      const arr = Array.isArray(children) ? children : [children];
+      const first = arr[0];
+      const m = typeof first === "string" ? first.match(/^Sources \((\d+)\):\s*/) : null;
+      if (!m) return <li>{children}</li>;
+      return (
+        <li>
+          <details className="wk-srcfold">
+            <summary>{m[1]} sources</summary>
+            <span className="wk-srcfold-body">{[first.slice(m[0].length), ...arr.slice(1)]}</span>
+          </details>
+        </li>
+      );
+    },
   };
 }
 
@@ -690,6 +706,14 @@ const WK_CSS = `
 .wk-narrative tbody tr:first-child td{border-top:none;}
 .wk-narrative th:last-child,.wk-narrative td:last-child{padding-right:0;}
 .wk-narrative td .wk-chip{margin:1px 2px 1px 0;}
+/* Counted "Sources (N):" sub-bullets fold into a tap-to-expand row */
+.wk-narrative details.wk-srcfold{margin:0;}
+.wk-narrative details.wk-srcfold summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px;
+  font-size:10.5px;font-weight:700;color:var(--wk-muted);text-transform:uppercase;letter-spacing:.04em;}
+.wk-narrative details.wk-srcfold summary::-webkit-details-marker{display:none;}
+.wk-narrative details.wk-srcfold summary::before{content:"▸";font-size:10px;transition:transform .15s ease;}
+.wk-narrative details.wk-srcfold[open] summary::before{transform:rotate(90deg);}
+.wk-narrative details.wk-srcfold .wk-srcfold-body{display:block;margin-top:6px;}
 .wk-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--wk-chip-ink);
   background:var(--wk-chip);border:1px solid transparent;padding:1px 9px;border-radius:20px;
   cursor:pointer;margin:0 2px;transition:.15s;line-height:1.4;vertical-align:baseline;}
