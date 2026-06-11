@@ -16,16 +16,19 @@ const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH
 const wkSanitize = { ...defaultSchema, tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"] };
 
 // Link interceptor for AI narrative chips:
-//   /visits/store/<store_id>                     → store drawer
-//   /visits/visit/<store_id>/<visit_id>?hl=<v>   → visit drawer (hl = source section)
-function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string, hl?: string | null) => void) {
+//   /visits/store/<store_id>                            → store drawer
+//   /visits/visit/<store_id>/<visit_id>?hl=<v>[&q=<f>]  → visit drawer (hl = source section, q = verbatim fragment to mark)
+function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id: string, hl?: string | null, quote?: string | null) => void) {
   return {
     a({ href, children }: { href?: string; children?: React.ReactNode }) {
       const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
       if (visitMatch) {
         const visitId = visitMatch[2];
         const hl = href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
-        return <button className="wk-chip" onClick={() => onOpenVisit(visitId, hl)}>{children}</button>;
+        const rawQ = href?.match(/[?&]q=([^&#]+)/)?.[1];
+        let quote: string | null = null;
+        if (rawQ) { try { quote = decodeURIComponent(rawQ.replace(/\+/g, " ")); } catch { quote = null; } }
+        return <button className="wk-chip" onClick={() => onOpenVisit(visitId, hl, quote)}>{children}</button>;
       }
       const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
       if (storeMatch) {
@@ -117,7 +120,7 @@ export function WeeklyView({
 }: {
   report: WeeklyReport;
   onOpenStore: (storeId: string) => void;
-  onOpenVisit?: (visitId: string, hl?: string | null) => void;
+  onOpenVisit?: (visitId: string, hl?: string | null, quote?: string | null) => void;
 }) {
   const { stats, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
 

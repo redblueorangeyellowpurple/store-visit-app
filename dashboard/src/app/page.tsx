@@ -167,6 +167,7 @@ export default function HomePage() {
   const [drawerStoreId, setDrawerStoreId] = useState<string | null>(null);
   const [drawerVisitId, setDrawerVisitId] = useState<string | null>(null);
   const [drawerVisitHl, setDrawerVisitHl] = useState<string | null>(null);
+  const [drawerVisitQuote, setDrawerVisitQuote] = useState<string | null>(null);
   const [drawerNoteSlug, setDrawerNoteSlug] = useState<string | null>(null);
 
   // Top-level tab
@@ -287,16 +288,23 @@ export default function HomePage() {
   }
 
   // Open a visit drawer, optionally highlighting one of its 5 sections
-  // (good_news | people_training | competitors | display_stock | follow_up).
-  const openVisit = useCallback((visitId: string, hl?: string | null) => {
+  // (good_news | people_training | competitors | display_stock | follow_up)
+  // and marking the verbatim passage the report drew from.
+  const openVisit = useCallback((visitId: string, hl?: string | null, quote?: string | null) => {
     setDrawerVisitHl(hl ?? null);
+    setDrawerVisitQuote(quote ?? null);
     setDrawerVisitId(visitId);
   }, []);
 
   // ─── Link interceptor ─────────────────────────────────────────────────────
-  // /visits/store/<store_id>                      → StoreVisitDrawer
-  // /visits/visit/<store_id>/<visit_id>[?hl=...]  → VisitDrawer  (visit_id is the UUID)
+  // /visits/store/<store_id>                           → StoreVisitDrawer
+  // /visits/visit/<store_id>/<visit_id>[?hl=...&q=...] → VisitDrawer  (visit_id is the UUID)
   const extractHl = (href?: string): string | null => href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
+  const extractQuote = (href?: string): string | null => {
+    const raw = href?.match(/[?&]q=([^&#]+)/)?.[1];
+    if (!raw) return null;
+    try { return decodeURIComponent(raw.replace(/\+/g, " ")); } catch { return null; }
+  };
   const mdComponents = (alert: boolean) => ({
     a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
       const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
@@ -305,7 +313,7 @@ export default function HomePage() {
         const visitId = visitMatch[2];
         const hl = extractHl(href);
         return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openVisit(visitId, hl)}>
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openVisit(visitId, hl, extractQuote(href))}>
             {children}
           </button>
         );
@@ -627,17 +635,20 @@ export default function HomePage() {
       <VisitDrawer
         visitId={drawerVisitId}
         highlight={drawerVisitHl}
-        onClose={() => { setDrawerVisitId(null); setDrawerVisitHl(null); }}
+        quote={drawerVisitQuote}
+        onClose={() => { setDrawerVisitId(null); setDrawerVisitHl(null); setDrawerVisitQuote(null); }}
         onOpenStore={(storeId) => {
           // Visit → Store chain: close visit drawer, open store drawer.
           setDrawerVisitId(null);
           setDrawerVisitHl(null);
+          setDrawerVisitQuote(null);
           setDrawerStoreId(storeId);
         }}
         onOpenNote={(slug) => {
           // Visit → Memory chain: close visit drawer, open memory note drawer.
           setDrawerVisitId(null);
           setDrawerVisitHl(null);
+          setDrawerVisitQuote(null);
           setDrawerNoteSlug(slug);
         }}
       />

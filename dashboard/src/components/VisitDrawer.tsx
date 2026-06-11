@@ -8,6 +8,8 @@ interface Props {
   visitId: string | null;
   /** Visit section to highlight + scroll to: good_news | people_training | competitors | display_stock | follow_up. */
   highlight?: string | null;
+  /** Verbatim fragment the report drew from — marked inside the highlighted section when it matches. */
+  quote?: string | null;
   onClose: () => void;
   /** Called when the user clicks the store name; parent should open StoreVisitDrawer. */
   onOpenStore: (storeId: string) => void;
@@ -32,7 +34,27 @@ const VISIT_SECTIONS = [
 
 const TIER_FALLBACK = { bg: "var(--color-ink-100)", color: "var(--color-ink-500)" };
 
-export default function VisitDrawer({ visitId, highlight, onClose, onOpenStore, onOpenNote }: Props) {
+// Locate `quote` inside `text` ignoring case + whitespace differences (the report
+// may collapse newlines). Returns [start, end) in the ORIGINAL string, or null.
+function findQuoteRange(text: string, quote: string): [number, number] | null {
+  const target = quote.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!target) return null;
+  let norm = "";
+  const map: number[] = []; // norm index → original index
+  let lastWasSpace = true;
+  for (let i = 0; i < text.length; i++) {
+    if (/\s/.test(text[i])) {
+      if (!lastWasSpace) { norm += " "; map.push(i); lastWasSpace = true; }
+    } else {
+      norm += text[i].toLowerCase(); map.push(i); lastWasSpace = false;
+    }
+  }
+  const idx = norm.indexOf(target);
+  if (idx === -1) return null;
+  return [map[idx], map[Math.min(idx + target.length - 1, map.length - 1)] + 1];
+}
+
+export default function VisitDrawer({ visitId, highlight, quote, onClose, onOpenStore, onOpenNote }: Props) {
   const [visit, setVisit] = useState<VisitDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -80,6 +102,8 @@ export default function VisitDrawer({ visitId, highlight, onClose, onOpenStore, 
 
   return (
     <>
+      {/* Attention pulse for the report-source section — inline styles can't host keyframes */}
+      <style>{`@keyframes vdSourcePulse{0%{box-shadow:0 0 0 0 rgba(217,119,6,0.45)}70%{box-shadow:0 0 0 9px rgba(217,119,6,0)}100%{box-shadow:0 0 0 0 rgba(217,119,6,0)}}`}</style>
       <div
         style={{
           position: "fixed", top: 0, right: 0, bottom: 0, width: 520, zIndex: 260,
@@ -157,12 +181,14 @@ export default function VisitDrawer({ visitId, highlight, onClose, onOpenStore, 
                 const text = visit[key as keyof VisitDetail] as string | null;
                 if (!text) return null;
                 const isHighlighted = highlight === key;
+                const quoteRange = isHighlighted && quote ? findQuoteRange(text, quote) : null;
                 return (
                   <div key={key} ref={isHighlighted ? highlightRef : undefined} style={{
                     marginBottom: 14, padding: "12px 14px",
                     background: isHighlighted ? "var(--color-section-amber-bg)" : "var(--color-ink-50)",
-                    border: isHighlighted ? "1px solid var(--color-section-amber-border)" : "1px solid var(--color-border)",
+                    border: isHighlighted ? "2px solid var(--color-section-amber-border)" : "1px solid var(--color-border)",
                     borderRadius: 12,
+                    animation: isHighlighted ? "vdSourcePulse 1.3s ease-out 2" : undefined,
                   }}>
                     <div style={{
                       fontSize: 10.5, fontWeight: 700, textTransform: "uppercase",
@@ -170,9 +196,25 @@ export default function VisitDrawer({ visitId, highlight, onClose, onOpenStore, 
                       marginBottom: 6, display: "flex", alignItems: "center", gap: 5,
                     }}>
                       <span>{icon}</span> {label}
+                      {isHighlighted && (
+                        <span style={{
+                          marginLeft: "auto", fontSize: 9.5, fontWeight: 800, padding: "2px 8px",
+                          borderRadius: 999, background: "var(--color-section-amber-border)",
+                          color: "#7C4A03", letterSpacing: "0.05em", whiteSpace: "nowrap",
+                        }}>📍 report source</span>
+                      )}
                     </div>
                     <div style={{ fontSize: 13.5, color: "var(--color-ink-800)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                      {text}
+                      {quoteRange ? (
+                        <>
+                          {text.slice(0, quoteRange[0])}
+                          <mark style={{
+                            background: "#FDE047", color: "inherit", fontWeight: 600,
+                            padding: "1px 2px", borderRadius: 3, boxDecorationBreak: "clone",
+                          }}>{text.slice(quoteRange[0], quoteRange[1])}</mark>
+                          {text.slice(quoteRange[1])}
+                        </>
+                      ) : text}
                     </div>
                   </div>
                 );
