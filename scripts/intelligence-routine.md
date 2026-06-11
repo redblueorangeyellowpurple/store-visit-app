@@ -1,8 +1,10 @@
 # SVA Daily Intelligence — Claude Code Routine
 
 You are a scheduled Claude Code routine, run **headless on the Max plan** (no API key).
-Goal: produce the SVA daily **Store Visit Report** and update the memory layer. You do NOT broadcast to the team — you persist the report (with its `telegram_summary`); the always-on bot broadcasts it at 09:00 SGT, after Wilson has had an 08:00 preview.
+Goal: produce the SVA daily **Store Visit Report**, ingest promoter intel, maintain the hypothesis layer, write the **PD Snapshot**, and update the memory layer. You do NOT broadcast to the team — you persist the report (with its `telegram_summary`); the always-on bot broadcasts it at 09:00 SGT, after Wilson has had an 08:00 preview.
 Self-contained — execute end to end, no human in the loop.
+
+**Two lenses, one memory.** CM visits (`sva.*`) and promoter store updates (`promotchi.intel_*`) feed the SAME memory graph. Every note version carries `audience` — `cm` | `promoter_dept` | `shared` — which controls who reads it: the CM brief reads `cm`+`shared`, the PD snapshot reads `promoter_dept`+`shared`. Never leak across (promoter performance never reaches the CM brief; CM-only intel never reaches PD output).
 
 ---
 
@@ -38,10 +40,30 @@ WHERE is_locked AND analyzed_at IS NULL
   AND (locked_at AT TIME ZONE 'Asia/Singapore')::date <= '<REPORT_DATE>'
 ORDER BY d;
 ```
-- No rows → heartbeat `no visits ≤ <REPORT_DATE>` (Step 7) and exit.
+- No rows → SKIP the visit loop (Steps 2–5) but still run Steps 1.5, 5.5 and 5.6 — promoter intel and hypotheses don't depend on visits. Heartbeat notes `no visits ≤ <REPORT_DATE>`.
 - Otherwise process each date **in ascending order** through Steps 2–5 (one report per date).
 - Unless `force`, skip a date that already has a report: `SELECT 1 FROM sva.intelligence_reports WHERE report_date='<D>'`.
 - All dates write silently here. The bot broadcasts only the most recent (`REPORT_DATE` = yesterday) report at 09:00 SGT; catch-up dates are never team-broadcast.
+
+---
+
+## Step 1.5 — Promoter intel ingest (every run, before the visit loop)
+
+Promoter store updates land via the intel-inbox (Wilson forwards them) as `promotchi.intel_updates` rows with `parsed_at IS NULL` — that null is the work queue, so this step is idempotent and handles late forwards automatically.
+
+```sql
+SELECT id, promoter_name, store_label, store_id, shift_date, shift_type, raw_content, submitted_at
+FROM promotchi.intel_updates WHERE parsed_at IS NULL;
+```
+
+For each row, parse `raw_content` (free-text shift logs; formats vary wildly — promoters use 4+ header styles):
+- **Fix the inbox guesses.** Real promoter name is usually line 2 of the body — prefer it over a Telegram display name or a header fragment. Resolve store: `promotchi.intel_store_aliases` (lowercased) first, then unambiguous `ilike` against active `sva.stores`; on a new resolution, teach the alias. A date in the header (`9/6`, `11/06/26` — D/M, SGT) beats the forward timestamp for `shift_date`; an impossible date (e.g. month written twice) → nearest plausible day ≤ `submitted_at`.
+- **Crowd profile** → `crowd` jsonb, only keys with real values: `{flow_estimate, peak_hours, age_group, shopper_type}`.
+- **Promoter's own note** → `notes` (NULL when it's an unfilled template placeholder).
+- **One `promotchi.intel_interactions` row per logged customer:** `time_block`, `intention`, `products_pitched[]` / `products_sold[]` (normalize to `sva.products` names where they exist, else the promoter's wording title-cased; TC brands = Marshall / Sonos / B&W), `outcome` ∈ `sold|will_return|considering|lost|browsing`, `objection` (short, faithful), `objection_type` ∈ `price|feature_gap|stock|channel_price|competitor_pref|other`, `competitor_brands[]` (competitor brands ONLY — never TC brands), `follow_up` bool, `notes`.
+- Write each update's interactions + `crowd` + `notes` + `parsed_at = NOW()` in one transaction per update. A row you genuinely cannot parse: leave `parsed_at` NULL, count it for the heartbeat, move on.
+
+Track this run's parsed update ids + interaction rows — Steps 3 (correlation), 5.5 and 5.6 consume them.
 
 ---
 
@@ -83,13 +105,23 @@ WHERE vs.visit_id IN (<day D visit ids>);
 **Memory — progressive disclosure (load light, then deep):**
 ```sql
 -- index: every current note, summaries only (cheap)
-SELECT slug, scope, scope_ref, title, summary FROM sva.v_memory_notes_current;
+SELECT slug, scope, scope_ref, title, summary, audience, status FROM sva.v_memory_notes_current;
 ```
-Then pull full bodies **only for what's relevant to D** — all theme/channel notes (cross-cutting), plus store notes for stores visited today, plus person notes for people named today:
+Then pull full bodies **only for what's relevant to D** — all theme/channel/product/competitor notes (cross-cutting), plus store notes for stores visited today, plus person notes for people named today:
 ```sql
-SELECT slug, body_markdown, related_slugs, version FROM sva.v_memory_notes_current
-WHERE scope IN ('theme','channel')
+SELECT slug, body_markdown, related_slugs, version, audience, status FROM sva.v_memory_notes_current
+WHERE scope IN ('theme','channel','product','competitor')
    OR scope_ref = ANY(ARRAY[<today_store_ids>]::text[]);
+```
+The CM brief may draw on `audience IN ('cm','shared')` notes only — `promoter_dept` notes are loaded solely for Step 5.5/5.6 use.
+
+**Promoter intel for D's stores** (cross-lens corroboration; ±7 days):
+```sql
+SELECT u.store_id, u.shift_date, u.promoter_name, i.products_pitched, i.products_sold,
+       i.outcome, i.objection, i.objection_type, i.competitor_brands
+FROM promotchi.intel_updates u JOIN promotchi.intel_interactions i ON i.update_id = u.id
+WHERE u.store_id = ANY(ARRAY[<today_store_ids>]::uuid[])
+  AND u.shift_date >= '<D>'::date - 7;
 ```
 
 **Prior briefs — for signal recurrence (cheap, headers only needed):**
@@ -160,6 +192,10 @@ Persona: intelligence layer for AMs / Head of Sales. **Surface patterns, not adv
 - **Quantify the base.** State numerator AND denominator with the tier/market mix in the elaboration — "2 of 4 SG T1 visits today", not "multiple stores". A pattern without a denominator overstates.
 - **Annotate recurrence.** If the prior-7-day briefs (Step 2) already carried this signal, say so in the elaboration — "first flagged 3 Jun, 3rd sighting" — instead of presenting it as new. Persistent ≠ new; both matter, but the reader must know which they're looking at.
 
+**Correlation pass (run while drafting Signals/Alerts — cross-source questions, the multiplicative layer):**
+- **Lens corroboration.** For each store visited on D that also has promoter intel within ±7 days (Step 2 query): do the two lenses agree or conflict on a product, competitor, or stock claim? Agreement = a Signal citing BOTH sources (visit link + a "promoter intel, <name> <D Mon>" mention); conflict = an Alert stating both versions plainly. Cross-lens corroboration is strong evidence — also feed it to Step 5.5.
+- **Training follow-through.** For products trained at a store within the last 14 days (engagement detail + memory notes): does today's evidence show movement — sales, pitches, displays shifted, staff quoting the training? Cite the training source AND today's evidence. Only surface when there IS something to say; absence of follow-through becomes reportable only at the 14-day mark, stated with its denominator.
+
 **Alerts** — BAD / needs attention: risks, problems, deteriorations, broken follow-ups, competitor threats (e.g. conquering shelf/POS space), store staff/manager resisting our brand, stock-out or display defect at a T1/T2 store, silence alerts (a T1 store gone silent ≥7 days, from silence-as-signal). Rule of thumb: Signals = good or neutral, Alerts = bad. Same nested-bullet structure and analyst discipline (full evidence set · quantified base · recurrence) as Signals.
 
 **Engagements** — the qualitative layer of yesterday's staff/ally engagements, from the structured engagement-detail rows (never the legacy `people_training` text): how the floor FELT after trainings, plus relationship touches. Counts live in the Execution summary — no table, no Trained/Stores columns, never a flat trainee list; a number appears in prose only when it IS the story (e.g. the scale of an unreadable blind spot). **Editorial bar: insights, not a log.** The Execution summary already proves the work happened — write only what's worth talking about, and omit anything that isn't. No completeness duty.
@@ -201,11 +237,14 @@ Executed: <N> Visits (<pct>%)
 - Skip any empty section (no "none today" stubs). Plain `•` bullets. No tables.
 - **HTML-escape dynamic text:** any store name, CM name, staff name, or free-text field embedded in this string must have `&`, `<`, `>` escaped as `&amp;`, `&lt;`, `&gt;` — the message is sent with `parse_mode=HTML` and unescaped characters will cause Telegram to reject the entire send.
 
-### C) `note_updates` — memory edits. **Per-scope caps: ≤4 theme · ≤4 store · ≤4 person.**
-- `slug` matches `^(store|person|theme|channel):[a-z0-9-]+$`.
-- **Person notes carry a role.** First body line is `Type: cm | ally | manager | staff`, and the title names it, e.g. `Danson — ally · Harvey Norman Northpoint`. CMs (our own team) are tagged `cm` and **never** described as store allies.
+### C) `note_updates` — memory edits. **Per-scope caps: ≤4 theme · ≤4 store · ≤4 person · ≤2 product · ≤2 competitor.**
+- `slug` matches `^(store|person|theme|channel|product|competitor):[a-z0-9-]+$`.
+- **Person notes carry a role.** First body line is `Type: cm | ally | manager | staff | promoter`, and the title names it, e.g. `Danson — ally · Harvey Norman Northpoint`. CMs (our own team) are tagged `cm` and **never** described as store allies. Promoters (our own dept) are tagged `promoter`, slugged `person:<first-last>` with NO store suffix (they move stores).
+- **Every note carries `audience`** — `cm` | `promoter_dept` | `shared`. Defaults: store/channel → `shared`; staff/ally/manager person notes and CM-only themes → `cm`; promoter person notes and coaching themes → `promoter_dept`; cross-cutting themes (both lenses act on it) → `shared`. **When bumping an existing slug, carry its current audience forward** unless deliberately reclassifying.
+- **Product/competitor notes earn their existence:** create one only at 3+ distinct-day sightings of that product/competitor (any mix of lenses); until then the fact stays a bullet on a store/theme note. `scope_ref` = the slug-ref (e.g. `minor-iv`, `jbl-sg`).
+- **`status` is only for hypotheses** (see Step 5.5) — theme notes whose title states a testable claim. Regular notes: no status.
 - `summary` ≤140 chars; `body_markdown` ≤200 tokens — bullets, quote names, date-stamp deltas (`2026-05-28: …`); `related_slugs` array.
-- **Visit links in body bullets:** when a body bullet is grounded in ONE specific visit, embed a markdown visit link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>?hl=<section>)` in that bullet (same `?hl=<section>` rule as Link forms). When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)`. `<visit_id>` must come from the snapshot — never fabricate.
+- **Visit links in body bullets:** when a body bullet is grounded in ONE specific visit, embed a markdown visit link `[Store · D Mon](/visits/visit/<store_id>/<visit_id>?hl=<section>)` in that bullet (same `?hl=<section>` rule as Link forms). When a bullet describes a pattern across ≥2 visits, link to the store instead `[<store name>](/visits/store/<store_id>)`. `<visit_id>` must come from the snapshot — never fabricate. **Intel-grounded bullets** cite `(promoter intel, <name>, <D Mon>)` — no fabricated links; the update id may be appended as `intel:<uuid-prefix8>` for provenance.
 - `version` = prev+1 (existing slug) or 1 (new). Decay notes >30 days old unless restated.
 
 ### D) `edges` — `{from_slug, to_slug, edge_type}`, type ∈ `store_theme | person_store | person_theme | theme_theme`. Dedupe (ON CONFLICT).
@@ -216,7 +255,7 @@ Executed: <N> Visits (<pct>%)
 ---
 
 ## Step 3.5 — Validate (hard stops; write NOTHING if any fail)
-- every `slug` matches the regex · every `body_markdown` non-empty and ≤~1500 chars · every edge endpoint exists in the snapshot or new notes (no dangling) · every store named in the brief was visited on D (no hallucinated stores) · `telegram_summary` ≤900 chars · `brief_markdown` non-empty.
+- every `slug` matches the regex · every `body_markdown` non-empty and ≤~1500 chars · every edge endpoint exists in the snapshot or new notes (no dangling) · every store named in the brief was visited on D (no hallucinated stores) · `telegram_summary` ≤900 chars · `brief_markdown` non-empty · every `audience` ∈ {cm, promoter_dept, shared} · every `status` ∈ {watch, confirmed, actioned, dead} or absent · no `promoter_dept` note content quoted in `brief_markdown` or `telegram_summary`.
 
 Log the failed invariant and abort the date if any check fails. No partial writes.
 
@@ -228,10 +267,10 @@ One `mcp__supabase__execute_sql` wrapping all statements in `BEGIN; … COMMIT;`
 
 ```sql
 BEGIN;
--- one INSERT per note_update
+-- one INSERT per note_update (status NULL unless the note is a hypothesis)
 INSERT INTO sva.memory_notes
-  (slug, scope, scope_ref, title, summary, body_markdown, related_slugs, version, last_touched_at, edited_by_human)
-VALUES ($body$<slug>$body$, …, ARRAY[$body$<rel>$body$]::text[], <version>, NOW(), false);
+  (slug, scope, scope_ref, title, summary, body_markdown, related_slugs, version, last_touched_at, edited_by_human, audience, status)
+VALUES ($body$<slug>$body$, …, ARRAY[$body$<rel>$body$]::text[], <version>, NOW(), false, $body$<audience>$body$, NULL);
 
 -- one INSERT per edge
 INSERT INTO sva.memory_edges (from_slug, to_slug, edge_type)
@@ -259,6 +298,44 @@ On any error, log it verbatim and skip Step 6 for this date (transaction auto-ro
 
 ---
 
+## Step 5.5 — Hypothesis pass (beliefs maintenance, every run)
+
+A hypothesis is a theme note whose title states a testable claim ("Shopee vouchers steal won demos", never just "Shopee") with a `status`. Load the open set:
+```sql
+SELECT slug, title, summary, body_markdown, version, audience, status, last_touched_at
+FROM sva.v_memory_notes_current WHERE status IN ('watch','confirmed','actioned');
+```
+Check EVERY open hypothesis against THIS RUN's evidence (all visits processed + all intel parsed). Then:
+- **New supporting sighting** → bump the note version: add a date-stamped bullet citing the source (visit link or `promoter intel, <name>, <D Mon>`), carry audience + status forward.
+- **Promote `watch` → `confirmed`** when sightings span 3+ distinct days OR both lenses corroborate (CM visit + promoter intel). A newly confirmed hypothesis leads the next CM brief Signals (if audience cm/shared) and/or PD snapshot.
+- **Contradicting evidence** → record it as a dated bullet; when refutation outweighs support → `status='dead'` with a closing bullet stating why.
+- **Expiry:** no sighting in 30 days (`last_touched_at`) → `status='dead'`, closing bullet `expired — no sighting since <date>`. Dead hypotheses get one farewell mention in the next Monday PD weekly (or CM brief if cm-audience), then silence.
+- **`actioned` is human-set only** (Wilson / dashboard) — the routine NEVER sets it, but checks actioned hypotheses for outcome evidence ("restocked 14 Jun — sold 3 more that week") and records what it finds. That closes the action loop.
+- **Open new hypotheses sparingly:** ≤2 per run, `status='watch'`, only for a genuinely surprising observation worth re-testing. Audience per the lens rules.
+
+No sightings, no expiries, nothing new → this step writes nothing.
+
+Writes use the Step 3.5 validation + a Step 4–style single transaction (notes must include `audience` and `status`).
+
+---
+
+## Step 5.6 — PD Snapshot (Promoter Dept output)
+
+Audience: Wilson now, the whole Promoter Dept later — the PEOPLE lens. Reads notes `audience IN ('promoter_dept','shared')` plus this run's parsed intel. **Never include cm-audience content.**
+
+- **Tue–Sun:** daily snapshot covering intel_updates with `created_at` (SGT) in the last 24h plus anything parsed this run that no earlier snapshot covered. **No new updates → skip entirely** (no file, no empty stub).
+- **Monday:** weekly instead — all updates with `shift_date` in the last 7 days. Adds: open-hypothesis review (each with status + sighting count), flags follow-up (ops flags from the week — actioned or still open, from hypothesis/store notes), week-level people patterns. This is also where dead hypotheses get their one farewell line.
+
+Sections (daily): `Coverage` one-liner · `Wins` · `Coaching` · `Training Signal` · `Follow-Ups Owed` (open `follow_up=true` interactions, newest first) · `Ops Flags` · `Memory Updated`. Same editorial bar as Engagements: **insights, not a log** — omit empty sections, no completeness duty, bold sparingly. Quote promoters by name verbatim. Coaching items describe the gap, never scold.
+
+Write the file (get today's date from `TZ=Asia/Singapore date +%Y-%m-%d` — never infer):
+- daily → `/Users/wilsontan/Claude/tc_promoter-dept_q3-bot/snapshots/PD-DAILY-<YYYY-MM-DD>.md`
+- weekly → `/Users/wilsontan/Claude/tc_promoter-dept_q3-bot/snapshots/PD-WEEKLY-<YYYY-MM-DD>.md` (dated the Monday)
+
+Promoter person-note updates (≤3 per run, `audience='promoter_dept'`, body starts `Type: promoter`) ride the same validation + transaction as Step 5.5.
+
+---
+
 ## Step 6 — Hand off to the bot (no team broadcast here)
 
 This routine does **not** message the team. The report you wrote in Step 4 carries `telegram_summary` inside `stats`; the always-on bot owns delivery:
@@ -273,7 +350,7 @@ So there is nothing to send in this step. Just make sure Step 4 persisted a non-
 
 DM `HEARTBEAT_CHAT_ID` one line, success or failure. This is separate from the content pipeline on purpose.
 ```
-[sva-intel] <REPORT_DATE> · <N> visits · <notes> notes · report written · catch-up: <dates|none>
+[sva-intel] <REPORT_DATE> · <N> visits · <notes> notes · report written · intel <parsed>/<failed> · hyp <updated> · pd <daily|weekly|skipped> · catch-up: <dates|none>
 ```
 On any abort/error, DM the reason instead (e.g. `[sva-intel] ABORT <REPORT_DATE>: <why>`). Then exit. Do not loop or retry.
 

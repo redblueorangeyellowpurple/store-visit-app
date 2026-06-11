@@ -2,10 +2,15 @@ import { supabase } from '../client.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type MemoryScope =
+  | 'store' | 'person' | 'theme' | 'channel' | 'product' | 'competitor';
+export type MemoryAudience = 'cm' | 'promoter_dept' | 'shared';
+export type HypothesisStatus = 'watch' | 'confirmed' | 'actioned' | 'dead';
+
 export interface MemoryNote {
   id: string;
   slug: string;
-  scope: 'store' | 'person' | 'theme' | 'channel';
+  scope: MemoryScope;
   scope_ref: string;
   title: string;
   summary: string;
@@ -15,17 +20,22 @@ export interface MemoryNote {
   last_touched_at: string;
   edited_by_human: boolean;
   created_at: string;
+  audience: MemoryAudience;
+  status: HypothesisStatus | null;
   tier?: 'short' | 'long';
 }
 
 export interface MemoryNoteWrite {
   slug: string;
-  scope: 'store' | 'person' | 'theme' | 'channel';
+  scope: MemoryScope;
   scope_ref: string;
   title: string;
   summary: string;
   body_markdown: string;
   related_slugs: string[];
+  // Omitted → carried forward from the previous version (new slugs: 'cm' / null).
+  audience?: MemoryAudience;
+  status?: HypothesisStatus | null;
 }
 
 export interface MemoryEdgeWrite {
@@ -165,7 +175,7 @@ export async function insertMemoryNoteVersion(
 ): Promise<number | null> {
   const { data: existing, error: vErr } = await supabase
     .from('memory_notes')
-    .select('version')
+    .select('version, audience, status')
     .eq('slug', note.slug)
     .order('version', { ascending: false })
     .limit(1);
@@ -175,7 +185,8 @@ export async function insertMemoryNoteVersion(
     return null;
   }
 
-  const nextVersion = (existing?.[0]?.version ?? 0) + 1;
+  const prev = existing?.[0];
+  const nextVersion = (prev?.version ?? 0) + 1;
 
   const { error } = await supabase.from('memory_notes').insert({
     slug: note.slug,
@@ -188,6 +199,10 @@ export async function insertMemoryNoteVersion(
     version: nextVersion,
     last_touched_at: new Date().toISOString(),
     edited_by_human: options.edited_by_human ?? false,
+    // audience/status are per-version: carry forward unless explicitly set,
+    // so dashboard edits never silently reset a note to the 'cm' default.
+    audience: note.audience ?? prev?.audience ?? 'cm',
+    status: note.status !== undefined ? note.status : (prev?.status ?? null),
   });
 
   if (error) {

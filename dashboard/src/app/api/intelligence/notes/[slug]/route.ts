@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // Get existing
   const { data: existing, error: exErr } = await supabase
     .from("memory_notes")
-    .select("version, scope, scope_ref, title, summary, body_markdown, related_slugs")
+    .select("version, scope, scope_ref, title, summary, body_markdown, related_slugs, audience, status")
     .eq("slug", slug)
     .order("version", { ascending: false })
     .limit(1);
@@ -91,6 +91,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       version: nextVersion,
       last_touched_at: new Date().toISOString(),
       edited_by_human: true,
+      // audience/status are per-version — carry forward so a human edit
+      // never resets a note to the 'cm' default or drops hypothesis status
+      audience: prev.audience,
+      status: prev.status,
     })
     .select()
     .single();
