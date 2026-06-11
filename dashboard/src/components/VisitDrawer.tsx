@@ -333,7 +333,7 @@ export default function VisitDrawer({ visitId, highlight, quote, onClose, onOpen
               {visit.memory_notes.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
                   <div style={sectionHdStyle}>
-                    🧠 Memories
+                    Memories
                     <span style={countBadgeStyle}>{visit.memory_notes.length}</span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
