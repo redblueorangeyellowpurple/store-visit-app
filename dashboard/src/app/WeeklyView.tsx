@@ -9,7 +9,6 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { TrainingProductSummary, WeeklyReport } from "@/lib/weekly";
 import TrainingProductDrawer from "@/components/TrainingProductDrawer";
 import CMEngagementsDrawer from "@/components/CMEngagementsDrawer";
-import StorePhotosDrawer from "@/components/StorePhotosDrawer";
 
 const MARKET_FLAG: Record<string, string> = { SG: "🇸🇬", MY: "🇲🇾", TH: "🇹🇭", HK: "🇭🇰" };
 
@@ -107,8 +106,6 @@ function fmtWow(n: number | null): string | null {
   return n >= 0 ? `▲ +${n}% visits vs last wk` : `▼ ${Math.abs(n)}% visits vs last wk`;
 }
 
-type StoreGroupBy = "Market" | "Chain" | "Tier";
-
 type ExecView = "CMs" | "Products" | "Stores";
 type HeatOuter = "Country" | "Tier";
 const EXEC_VIEW_LABEL: Record<ExecView, string> = {
@@ -146,13 +143,11 @@ export function WeeklyView({
   onOpenVisit?: (visitId: string, hl?: string | null, quote?: string | null) => void;
   onOpenNote?: (slug: string) => void;
 }) {
-  const { stats, trainingProducts, byDay, storeDayMatrix, perCM, storesVisited } = report;
+  const { stats, trainingProducts, byDay, storeDayMatrix, perCM } = report;
 
   // Drawer + grouping state
   const [trainingProduct, setTrainingProduct] = useState<TrainingProductSummary | null>(null);
   const [cmDrawer, setCmDrawer] = useState<WeeklyReport["perCM"][number] | null>(null);
-  const [photoStore, setPhotoStore] = useState<{ id: string; name: string } | null>(null);
-  const [storeGroupBy, setStoreGroupBy] = useState<StoreGroupBy>("Market");
   const [execView, setExecView] = useState<ExecView>("CMs");
   const [heatOuter, setHeatOuter] = useState<HeatOuter>("Country");
   // Chains collapsed by default — track the expanded ones.
@@ -165,23 +160,6 @@ export function WeeklyView({
       else next.add(k);
       return next;
     });
-
-  // Store cards grouped by the selected dimension, small headers per group.
-  const storeGroups = useMemo(() => {
-    const keyOf = (s: WeeklyReport["storesVisited"][number]) =>
-      storeGroupBy === "Market" ? s.market : storeGroupBy === "Chain" ? s.chain : (s.tier ?? "Untiered");
-    const map = new Map<string, WeeklyReport["storesVisited"][number][]>();
-    for (const s of storesVisited) {
-      const k = keyOf(s) || "—";
-      const list = map.get(k) ?? [];
-      list.push(s);
-      map.set(k, list);
-    }
-    return Array.from(map.keys()).sort().map((key) => ({
-      key,
-      stores: map.get(key)!, // already sorted by store name from the payload
-    }));
-  }, [storesVisited, storeGroupBy]);
 
   // Stores heatmap: outer groups by Country or Tier (selectable), channel groups
   // within (always), stores alphabetical. Each level carries per-day totals so
@@ -557,52 +535,9 @@ export function WeeklyView({
         </div>
       )}
 
-      {/* Store Updates — every store visited this week, grouped by the selected
-          dimension. Click a card → photo-history drawer. */}
-      <section className="wk-section">
-        <h2 className="wk-sh2">🏪 Store Updates</h2>
-        <p className="wk-sec-note">Every store visited this week — tap a card for its photo history.</p>
-        <div className="wk-grp-row">
-          {(["Market", "Chain", "Tier"] as StoreGroupBy[]).map((g) => (
-            <button
-              key={g}
-              className={`wk-grp-chip${storeGroupBy === g ? " on" : ""}`}
-              onClick={() => setStoreGroupBy(g)}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-        {storeGroups.map((grp) => (
-          <div key={grp.key}>
-            <div className="wk-grp-hd">
-              <span>{storeGroupBy === "Market" ? `${MARKET_FLAG[grp.key] ?? ""} ${grp.key}` : grp.key}</span>
-              <span className="ct">{grp.stores.length}</span>
-            </div>
-            {grp.stores.map((s) => (
-              <button
-                key={s.storeId}
-                className="wk-store-card"
-                onClick={() => setPhotoStore({ id: s.storeId, name: s.store })}
-              >
-                <span className="wk-store-main">
-                  <span className="wk-store-name">{s.store}</span>
-                  <span className="wk-store-meta">{s.chain} · {s.market} · {s.tier ?? "—"}</span>
-                </span>
-                <span className="wk-store-cam">📷 {s.photos} ›</span>
-              </button>
-            ))}
-          </div>
-        ))}
-        {storesVisited.length === 0 && (
-          <p className="wk-sec-note">No stores visited this week.</p>
-        )}
-      </section>
-
       {/* Drawers */}
       <TrainingProductDrawer product={trainingProduct} onClose={() => setTrainingProduct(null)} />
       <CMEngagementsDrawer cm={cmDrawer} onClose={() => setCmDrawer(null)} />
-      <StorePhotosDrawer store={photoStore} onClose={() => setPhotoStore(null)} />
     </div>
   );
 }
@@ -743,14 +678,6 @@ const WK_CSS = `
 .wk-grp-hd{font-size:10.5px;font-weight:700;color:var(--wk-chip-ink);text-transform:uppercase;
   letter-spacing:.4px;margin:14px 2px 4px;display:flex;justify-content:space-between;align-items:baseline;}
 .wk-grp-hd .ct{color:var(--wk-faint);font-weight:600;}
-.wk-store-card{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;
-  text-align:left;background:#fff;border:1px solid var(--wk-line);border-radius:10px;
-  padding:10px 14px;margin:6px 0;cursor:pointer;font-family:inherit;transition:background .12s,border-color .12s;}
-.wk-store-card:hover{background:#f4f1ea;border-color:#d8d3c8;}
-.wk-store-main{min-width:0;}
-.wk-store-name{font-size:13.5px;font-weight:600;color:var(--wk-ink);display:block;}
-.wk-store-meta{font-size:11.5px;color:var(--wk-muted);display:block;margin-top:1px;}
-.wk-store-cam{font-size:11.5px;color:var(--wk-faint);font-weight:500;white-space:nowrap;flex-shrink:0;}
 
 /* stores heatmap (Execution Summary → Stores view) */
 .wk-hm{margin-top:14px;}

@@ -103,15 +103,6 @@ export interface WeeklyReport {
   // Per-store × per-day visit counts (Mon..Sun) for the Execution Summary "Stores" heatmap.
   storeDayMatrix: { storeId: string; store: string; chain: string; market: string; tier: string | null; counts: number[]; total: number }[];
   perCM: { cm: string; market: string; visited: number; engagements: number; engagementDetails: CMEngagementDetail[] }[];
-  // Flat list of every store visited this week (Store Updates cards).
-  storesVisited: {
-    storeId: string;
-    store: string;
-    chain: string;
-    market: string;
-    tier: string | null;
-    photos: number;
-  }[];
 }
 
 // ─── listWeeks ─────────────────────────────────────────────────────────────────
@@ -541,41 +532,6 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     return { cm: v.cm, market: v.market, visited: v.visitIds.size, engagements: engCount, engagementDetails: detailsByCm.get(cmId) ?? [] };
   }).sort((a, b) => b.visited - a.visited || a.cm.localeCompare(b.cm));
 
-  // ── storesVisited ─────────────────────────────────────────────────────────
-  // Flat list of every store visited this week, with its photo count.
-
-  // Photos per store (from visits this week)
-  const photosPerStore = new Map<string, number>();
-  if (visitIds.length > 0) {
-    const { data: photoRows } = await supabase
-      .from("visit_photos")
-      .select("id, visit_id")
-      .in("visit_id", visitIds);
-    const visitToStore = new Map<string, string>();
-    for (const v of visits) visitToStore.set(v.id as string, v.store_id as string);
-    for (const p of (photoRows ?? []) as { id: string; visit_id: string }[]) {
-      const sid = visitToStore.get(p.visit_id);
-      if (sid) photosPerStore.set(sid, (photosPerStore.get(sid) ?? 0) + 1);
-    }
-  }
-
-  const storesVisitedMap = new Map<string, WeeklyReport["storesVisited"][number]>();
-  for (const v of visits) {
-    const sid = v.store_id as string;
-    if (storesVisitedMap.has(sid)) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const store = v.stores as any;
-    storesVisitedMap.set(sid, {
-      storeId: sid,
-      store: (store?.name as string) ?? "Unknown",
-      chain: (store?.chain as string) ?? "",
-      market: (store?.market as string) ?? "",
-      tier: (store?.tier as string | null) ?? null,
-      photos: photosPerStore.get(sid) ?? 0,
-    });
-  }
-  const storesVisited = Array.from(storesVisitedMap.values()).sort((a, b) => a.store.localeCompare(b.store));
-
   // ── Stored AI narrative (latest version for this week), if generated ────────
   const { data: narrRow } = await supabase
     .from("v_weekly_reports_current")
@@ -605,6 +561,5 @@ export async function getWeeklyReport(weekStartISO?: string): Promise<WeeklyRepo
     byDay,
     storeDayMatrix,
     perCM,
-    storesVisited,
   };
 }
