@@ -112,7 +112,8 @@ function renderInline(
     if (m.index > last) parts.push(text.slice(last, m.index));
     const label = m[1], href = m[2];
     if (href.startsWith("/intelligence/notes/")) {
-      parts.push(<span key={`${keyPrefix}-c${i++}`} className="memref">{label}</span>);
+      // Older stored briefs embed a 🧠 prefix in the note label — strip at render.
+      parts.push(<span key={`${keyPrefix}-c${i++}`} className="memref">{label.replace(/^🧠\s*/, "")}</span>);
     } else {
       const vm = href.match(/^\/visits\/(store|visit)\/(.+)$/);
       const kind = (vm?.[1] ?? "store") as "store" | "visit";

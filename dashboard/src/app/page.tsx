@@ -329,9 +329,12 @@ export default function HomePage() {
       if (noteMatch) {
         let slug = noteMatch[1];
         try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
+        // Older stored briefs embed a 🧠 prefix in the note label — strip at render.
+        const arr = Array.isArray(children) ? children : [children];
+        const label = arr.map((c) => (typeof c === "string" ? c.replace(/^🧠\s*/, "") : c));
         return (
-          <button className="chip note" onClick={() => setDrawerNoteSlug(slug)}>
-            {children}
+          <button className="chip notechip" onClick={() => setDrawerNoteSlug(slug)}>
+            {label}
           </button>
         );
       }
@@ -774,7 +777,8 @@ const INTEL_CSS = `
 .intel .chip:hover{border-color:var(--accent);}
 .intel .chip.emg{color:var(--red);background:var(--red-soft);}
 .intel .chip.emg:hover{border-color:var(--red);}
-.intel .chip.note::before{content:"🧠";opacity:1;font-size:11px;}
+/* Memory-note chip — same shape as visit chips, muted tint to tell them apart */
+.intel .chip.notechip{color:var(--muted);background:#EFEBE2;}
 /* Markdown tables inside narrative cards (engagements rollup) — left-aligned,
    top-aligned cells; Sources cells hold wrapping chip rows */
 .intel .md table{margin:4px 0;font-size:13.5px;}

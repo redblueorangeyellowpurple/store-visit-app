@@ -37,7 +37,10 @@ function narrativeComponents(onOpenStore: (id: string) => void, onOpenVisit: (id
       if (noteMatch) {
         let slug = noteMatch[1];
         try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
-        return <button className="wk-chip" onClick={() => onOpenNote(slug)}>{children}</button>;
+        // Older stored narratives embed a 🧠 prefix in the note label — strip at render.
+        const arr = Array.isArray(children) ? children : [children];
+        const label = arr.map((c) => (typeof c === "string" ? c.replace(/^🧠\s*/, "") : c));
+        return <button className="wk-chip" onClick={() => onOpenNote(slug)}>{label}</button>;
       }
       return <a href={href}>{children}</a>;
     },
