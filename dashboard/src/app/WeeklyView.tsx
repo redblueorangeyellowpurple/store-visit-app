@@ -164,6 +164,13 @@ export function WeeklyView({
       return next;
     });
 
+  // Stable markdown renderers — memoized so opening a drawer doesn't remount the
+  // narrative subtree (which would collapse any Sources folds the user expanded).
+  const mdComps = useMemo(
+    () => narrativeComponents(onOpenStore, onOpenVisit ?? (() => undefined), onOpenNote ?? (() => undefined)),
+    [onOpenStore, onOpenVisit, onOpenNote],
+  );
+
   // Stores heatmap: outer groups by Country or Tier (selectable), channel groups
   // within (always), stores alphabetical. Each level carries per-day totals so
   // group headers double as aggregate heat rows.
@@ -525,7 +532,7 @@ export function WeeklyView({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, wkSanitize]]}
-                components={narrativeComponents(onOpenStore, onOpenVisit ?? (() => undefined), onOpenNote ?? (() => undefined))}
+                components={mdComps}
               >
                 {sec.body}
               </ReactMarkdown>

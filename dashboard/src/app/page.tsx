@@ -21,6 +21,80 @@ const sanitizeSchema = {
   tagNames: [...(defaultSchema.tagNames ?? []), "details", "summary"],
 };
 
+// ─── Link interceptor helpers ──────────────────────────────────────────────
+// /visits/store/<store_id>                           → StoreVisitDrawer
+// /visits/visit/<store_id>/<visit_id>[?hl=...&q=...] → VisitDrawer (visit_id is the UUID)
+const extractHl = (href?: string): string | null => href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
+const extractQuote = (href?: string): string | null => {
+  const raw = href?.match(/[?&]q=([^&#]+)/)?.[1];
+  if (!raw) return null;
+  try { return decodeURIComponent(raw.replace(/\+/g, " ")); } catch { return null; }
+};
+
+// Custom react-markdown renderers for the report briefs. Kept module-level and
+// memoized at the call site (see mdComponents below) so the component identity is
+// stable across re-renders — otherwise opening a drawer remounts the whole markdown
+// subtree, which collapses any Sources folds the user had expanded.
+function makeMdComponents(
+  alert: boolean,
+  openVisit: (visitId: string, hl?: string | null, quote?: string | null) => void,
+  openStore: (storeId: string) => void,
+  openNote: (slug: string) => void,
+) {
+  return {
+    a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
+      const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
+      const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
+      if (visitMatch) {
+        const visitId = visitMatch[2];
+        const hl = extractHl(href);
+        return (
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openVisit(visitId, hl, extractQuote(href))}>
+            {children}
+          </button>
+        );
+      }
+      if (storeMatch) {
+        return (
+          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openStore(storeMatch[1])}>
+            {children}
+          </button>
+        );
+      }
+      const noteMatch = href?.match(/^\/intelligence\/notes\/([^?#]+)/);
+      if (noteMatch) {
+        let slug = noteMatch[1];
+        try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
+        // Older stored briefs embed a 🧠 prefix in the note label — strip at render.
+        const arr = Array.isArray(children) ? children : [children];
+        const label = arr.map((c) => (typeof c === "string" ? c.replace(/^🧠\s*/, "") : c));
+        return (
+          <button className="chip notechip" onClick={() => openNote(slug)}>
+            {label}
+          </button>
+        );
+      }
+      return <a href={href} {...props}>{children}</a>;
+    },
+    // "Sources (N): …" sub-bullets fold into a tap-to-expand row — long chip
+    // walls (many contributing visits) stay one line until opened.
+    li({ children }: { children?: React.ReactNode }) {
+      const arr = Array.isArray(children) ? children : [children];
+      const first = arr[0];
+      const m = typeof first === "string" ? first.match(/^Sources \((\d+)\):\s*/) : null;
+      if (!m) return <li>{children}</li>;
+      return (
+        <li>
+          <details className="srcfold">
+            <summary>{m[1]} sources</summary>
+            <span className="srcfold-body">{[first.slice(m[0].length), ...arr.slice(1)]}</span>
+          </details>
+        </li>
+      );
+    },
+  };
+}
+
 interface User { first_name: string; username?: string }
 
 interface ReportSummary {
@@ -287,76 +361,36 @@ export default function HomePage() {
     } finally { setSaving(false); }
   }
 
-  // Open a visit drawer, optionally highlighting one of its 5 sections
-  // (good_news | people_training | competitors | display_stock | follow_up)
-  // and marking the verbatim passage the report drew from.
+  // Drawer open helpers. Each clears the other two drawer types so only one is
+  // ever visible — a new drawer always lands in front, never behind whatever was
+  // already open (the 3 drawers are always mounted with fixed z-index).
   const openVisit = useCallback((visitId: string, hl?: string | null, quote?: string | null) => {
+    setDrawerStoreId(null);
+    setDrawerNoteSlug(null);
     setDrawerVisitHl(hl ?? null);
     setDrawerVisitQuote(quote ?? null);
     setDrawerVisitId(visitId);
   }, []);
+  const openStore = useCallback((storeId: string) => {
+    setDrawerVisitId(null);
+    setDrawerVisitHl(null);
+    setDrawerVisitQuote(null);
+    setDrawerNoteSlug(null);
+    setDrawerStoreId(storeId);
+  }, []);
+  const openNote = useCallback((slug: string) => {
+    setDrawerVisitId(null);
+    setDrawerVisitHl(null);
+    setDrawerVisitQuote(null);
+    setDrawerStoreId(null);
+    setDrawerNoteSlug(slug);
+  }, []);
 
-  // ─── Link interceptor ─────────────────────────────────────────────────────
-  // /visits/store/<store_id>                           → StoreVisitDrawer
-  // /visits/visit/<store_id>/<visit_id>[?hl=...&q=...] → VisitDrawer  (visit_id is the UUID)
-  const extractHl = (href?: string): string | null => href?.match(/[?&]hl=([^&#]+)/)?.[1] ?? null;
-  const extractQuote = (href?: string): string | null => {
-    const raw = href?.match(/[?&]q=([^&#]+)/)?.[1];
-    if (!raw) return null;
-    try { return decodeURIComponent(raw.replace(/\+/g, " ")); } catch { return null; }
-  };
-  const mdComponents = (alert: boolean) => ({
-    a({ href, children, ...props }: { href?: string; children?: React.ReactNode }) {
-      const storeMatch = href?.match(/^\/visits\/store\/([^/?#]+)/);
-      const visitMatch = href?.match(/^\/visits\/visit\/([^/?#]+)\/([^/?#]+)/);
-      if (visitMatch) {
-        const visitId = visitMatch[2];
-        const hl = extractHl(href);
-        return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => openVisit(visitId, hl, extractQuote(href))}>
-            {children}
-          </button>
-        );
-      }
-      if (storeMatch) {
-        return (
-          <button className={`chip${alert ? " emg" : ""}`} onClick={() => setDrawerStoreId(storeMatch[1])}>
-            {children}
-          </button>
-        );
-      }
-      const noteMatch = href?.match(/^\/intelligence\/notes\/([^?#]+)/);
-      if (noteMatch) {
-        let slug = noteMatch[1];
-        try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
-        // Older stored briefs embed a 🧠 prefix in the note label — strip at render.
-        const arr = Array.isArray(children) ? children : [children];
-        const label = arr.map((c) => (typeof c === "string" ? c.replace(/^🧠\s*/, "") : c));
-        return (
-          <button className="chip notechip" onClick={() => setDrawerNoteSlug(slug)}>
-            {label}
-          </button>
-        );
-      }
-      return <a href={href} {...props}>{children}</a>;
-    },
-    // "Sources (N): …" sub-bullets fold into a tap-to-expand row — long chip
-    // walls (many contributing visits) stay one line until opened.
-    li({ children }: { children?: React.ReactNode }) {
-      const arr = Array.isArray(children) ? children : [children];
-      const first = arr[0];
-      const m = typeof first === "string" ? first.match(/^Sources \((\d+)\):\s*/) : null;
-      if (!m) return <li>{children}</li>;
-      return (
-        <li>
-          <details className="srcfold">
-            <summary>{m[1]} sources</summary>
-            <span className="srcfold-body">{[first.slice(m[0].length), ...arr.slice(1)]}</span>
-          </details>
-        </li>
-      );
-    },
-  });
+  // Stable renderer objects (one per alert/non-alert variant). Memoized so the
+  // markdown subtree isn't remounted on every drawer toggle — see makeMdComponents.
+  const mdFalse = useMemo(() => makeMdComponents(false, openVisit, openStore, openNote), [openVisit, openStore, openNote]);
+  const mdTrue = useMemo(() => makeMdComponents(true, openVisit, openStore, openNote), [openVisit, openStore, openNote]);
+  const mdComponents = (alert: boolean) => (alert ? mdTrue : mdFalse);
 
   const goodNews = parsed?.sections.find((s) => s.kind === "good_news");
   const signals = parsed?.sections.find((s) => s.kind === "signals");
@@ -481,9 +515,9 @@ export default function HomePage() {
               {!loadingWeekReport && weekReport && (
                 <WeeklyView
                   report={weekReport}
-                  onOpenStore={setDrawerStoreId}
+                  onOpenStore={openStore}
                   onOpenVisit={openVisit}
-                  onOpenNote={setDrawerNoteSlug}
+                  onOpenNote={openNote}
                 />
               )}
             </>
@@ -643,7 +677,7 @@ export default function HomePage() {
               />
               <div className="notes">
                 {filteredNotes.map((n) => (
-                  <button key={n.slug} className="note" onClick={() => setDrawerNoteSlug(n.slug)}>
+                  <button key={n.slug} className="note" onClick={() => openNote(n.slug)}>
                     <div className="note-top">
                       <span className={`scopetag s-${n.scope}`}>{n.scope}</span>
                       <span className="note-title">{n.title}</span>
@@ -661,35 +695,23 @@ export default function HomePage() {
       </div>
 
       {/* ── Drawer stack ─────────────────────────────────────────────────────── */}
-      {/* Visit drawer: zIndex 260 — must sit above MemoryNoteDrawer (250), since memory notes can open visit links */}
+      {/* All 3 drawers are always mounted with fixed z-index (Visit 260 > Memory 250 >
+          Store 200). The open* helpers clear the other two types, so only one drawer is
+          ever visible and a freshly-opened one always lands in front of whatever was open. */}
       <VisitDrawer
         visitId={drawerVisitId}
         highlight={drawerVisitHl}
         quote={drawerVisitQuote}
         onClose={() => { setDrawerVisitId(null); setDrawerVisitHl(null); setDrawerVisitQuote(null); }}
-        onOpenStore={(storeId) => {
-          // Visit → Store chain: close visit drawer, open store drawer.
-          setDrawerVisitId(null);
-          setDrawerVisitHl(null);
-          setDrawerVisitQuote(null);
-          setDrawerStoreId(storeId);
-        }}
-        onOpenNote={(slug) => {
-          // Visit → Memory chain: close visit drawer, open memory note drawer.
-          setDrawerVisitId(null);
-          setDrawerVisitHl(null);
-          setDrawerVisitQuote(null);
-          setDrawerNoteSlug(slug);
-        }}
+        onOpenStore={openStore}
+        onOpenNote={openNote}
       />
-      {/* Store drawer: zIndex 200, but when opened from a visit it stacks on top because
-          VisitDrawer calls onClose() first so both are never visually open simultaneously. */}
-      <StoreVisitDrawer storeId={drawerStoreId} onClose={() => setDrawerStoreId(null)} onOpenNote={(s) => setDrawerNoteSlug(s)} />
+      <StoreVisitDrawer storeId={drawerStoreId} onClose={() => setDrawerStoreId(null)} onOpenNote={openNote} />
       <MemoryNoteDrawer
         slug={drawerNoteSlug}
         onClose={() => setDrawerNoteSlug(null)}
-        onOpenStore={(id) => { setDrawerNoteSlug(null); setDrawerStoreId(id); }}
-        onOpenVisit={(id, hl) => { setDrawerNoteSlug(null); openVisit(id, hl); }}
+        onOpenStore={openStore}
+        onOpenVisit={openVisit}
       />
     </>
   );
