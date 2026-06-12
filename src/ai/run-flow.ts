@@ -307,3 +307,20 @@ export function sgtYesterdayISO(): string {
   const sgt = new Date(Date.now() + 8 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000);
   return sgt.toISOString().slice(0, 10);
 }
+
+// The last *completed* Mon–Sun week in SGT (the week whose Sunday is before
+// today). Mirrors weekly-routine.md's target so the Monday broadcast names the
+// same week the routine just wrote. Run on a Monday, this is the week that
+// ended yesterday.
+export function lastCompletedWeekSGT(): { weekStart: string; weekEnd: string } {
+  const sgtMs = Date.now() + 8 * 60 * 60 * 1000;
+  const dow = new Date(sgtMs).getUTCDay();        // 0=Sun … 6=Sat (in SGT)
+  const sinceMonday = (dow + 6) % 7;              // Mon→0 … Sun→6
+  const thisMonday = sgtMs - sinceMonday * 86_400_000;
+  const lastMonday = new Date(thisMonday - 7 * 86_400_000);
+  const lastSunday = new Date(thisMonday - 1 * 86_400_000);
+  return {
+    weekStart: lastMonday.toISOString().slice(0, 10),
+    weekEnd: lastSunday.toISOString().slice(0, 10),
+  };
+}

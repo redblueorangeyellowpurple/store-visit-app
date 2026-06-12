@@ -44,6 +44,7 @@ export const PRODUCT_CATALOGUE: Record<string, string[]> = {
     "Marshall Motif II",
     "Marshall Monitor III A.N.C",
     "Marshall Milton A.N.C.",
+    "Marshall Heston 120",
   ],
   "B&W": [
     "B&W Px7 S2e",

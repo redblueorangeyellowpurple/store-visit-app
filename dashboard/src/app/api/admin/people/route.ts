@@ -66,6 +66,9 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.is_intelligence_recipient === "boolean") {
     patch.is_intelligence_recipient = body.is_intelligence_recipient;
   }
+  if (typeof body.is_weekly_recipient === "boolean") {
+    patch.is_weekly_recipient = body.is_weekly_recipient;
+  }
   if (typeof body.is_join_request_admin === "boolean") {
     patch.is_join_request_admin = body.is_join_request_admin;
   }

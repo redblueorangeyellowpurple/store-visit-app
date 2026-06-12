@@ -22,6 +22,8 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
       `/resumeintelligence — re-enable intelligence after a pause\n` +
       `/morningpreview — preview the morning brief + daily-brief recipient list (DMs only you)\n` +
       `/morningsend — 📢 manually fire the 9am team send now (needs \`confirm\`)\n` +
+      `/weeklypreview — preview the Monday weekly-report ping (DMs only you)\n` +
+      `/weeklysend — 📅 manually ping weekly recipients now (needs \`confirm\`)\n` +
       `/topicid — run inside a group topic to get its chat + thread IDs for the dashboard\n` +
       `_(per-market alert groups are configured in the dashboard Admin tab)_\n`
     : '';

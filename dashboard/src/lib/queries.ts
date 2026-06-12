@@ -1519,6 +1519,7 @@ export interface ActivePersonRow {
   am_name: string | null;
   is_active: boolean;
   is_intelligence_recipient: boolean;
+  is_weekly_recipient: boolean;
   is_join_request_admin: boolean;
   is_recap_recipient: boolean;
 }
@@ -1532,7 +1533,7 @@ export interface PendingPersonRow {
 export async function getActivePeople(): Promise<ActivePersonRow[]> {
   const { data, error } = await supabase
     .from('cms')
-    .select('telegram_id, full_name, nickname, role, market, am_telegram_id, is_active, is_intelligence_recipient, is_join_request_admin, is_recap_recipient')
+    .select('telegram_id, full_name, nickname, role, market, am_telegram_id, is_active, is_intelligence_recipient, is_weekly_recipient, is_join_request_admin, is_recap_recipient')
     .eq('is_active', true)
     .order('full_name');
   if (error || !data) {
@@ -1592,6 +1593,7 @@ export interface UpdatePersonPatch {
   am_telegram_id?: number | null;
   is_active?: boolean;
   is_intelligence_recipient?: boolean;
+  is_weekly_recipient?: boolean;
   is_join_request_admin?: boolean;
   is_recap_recipient?: boolean;
 }

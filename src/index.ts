@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { createBot } from './bot/bot.js';
 import { getJoinRequestAdmins, listAlertGroups } from './db/queries/alert-groups.js';
 import { registerMorningCrons } from './cron/morning-cron.js';
+import { registerWeeklyCron } from './cron/weekly-cron.js';
 import { registerBotCommands } from './bot/set-commands.js';
 
 const bot = createBot();
@@ -14,6 +15,11 @@ const bot = createBot();
 // sends through is ready. Replaces the former standalone recap cron — the 9am
 // send now handles the recaps.
 registerMorningCrons();
+// Monday weekly broadcast scheduler: 09:30 SGT Monday pings weekly recipients
+// (cms.is_weekly_recipient) with a dashboard Week-view link. No-op unless
+// WEEKLY_SEND_ENABLED=true, and skips if the weekly routine hasn't written the
+// report yet. Independent of the daily MORNING_CRON_ENABLED gate.
+registerWeeklyCron();
 const app = express();
 
 async function startupHealthCheck(): Promise<void> {

@@ -21,6 +21,7 @@ interface ActivePerson {
   am_name: string | null;
   is_active: boolean;
   is_intelligence_recipient: boolean;
+  is_weekly_recipient: boolean;
   is_join_request_admin: boolean;
   is_recap_recipient: boolean;
 }
@@ -629,7 +630,10 @@ export default function AdminPage() {
                     <th>Market</th>
                     <th>AM</th>
                     <th>
-                      <span title="Telegram DM for daily intelligence brief">Intel brief</span>
+                      <span title="Telegram DM with the daily intelligence brief (every morning)">Daily</span>
+                    </th>
+                    <th>
+                      <span title="Telegram ping with the weekly report link (Monday only)">Weekly</span>
                     </th>
                     <th>
                       <span title="Telegram DM when a new join request arrives">Join req DM</span>
@@ -698,6 +702,17 @@ export default function AdminPage() {
                           <label className="admin-switch">
                             <input
                               type="checkbox"
+                              checked={p.is_weekly_recipient}
+                              disabled={saving}
+                              onChange={(e) => patchPerson(p.telegram_id, { is_weekly_recipient: e.target.checked })}
+                            />
+                            <span className="admin-switch-slider" />
+                          </label>
+                        </td>
+                        <td className="admin-toggle-cell">
+                          <label className="admin-switch">
+                            <input
+                              type="checkbox"
                               checked={p.is_join_request_admin}
                               disabled={saving}
                               onChange={(e) => patchPerson(p.telegram_id, { is_join_request_admin: e.target.checked })}
@@ -739,7 +754,8 @@ export default function AdminPage() {
         </section>
 
         <p className="admin-footnote">
-          <strong>Intel brief</strong> = receives the daily intelligence digest via Telegram DM.
+          <strong>Daily</strong> = receives the daily intelligence brief via Telegram DM every morning.
+          <strong> Weekly</strong> = receives a Monday-only ping linking to the weekly report — set Weekly on and Daily off for someone who should only get the weekly digest. The two are independent.
           <strong> Join req DM</strong> = receives a Telegram DM when a new join request arrives.
           <strong> Recap</strong> = receives the daily 9am recap of their own visits (only sends when the master switch below is on).
           These are intentionally separate from the role above — admins manage who-can-edit,

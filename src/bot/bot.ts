@@ -23,6 +23,7 @@ import { handleStopIntelligence } from './commands/admin/stopintelligence.js';
 import { handleResumeIntelligence } from './commands/admin/resumeintelligence.js';
 import { handleTestRecap } from './commands/admin/testrecap.js';
 import { handleMorningPreview, handleMorningSend } from './commands/admin/morning.js';
+import { handleWeeklyPreview, handleWeeklySend } from './commands/admin/weekly.js';
 import { handleDashboard } from './commands/dashboard.js';
 import { handleFeedback } from './commands/feedback.js';
 import { visitFlow } from './conversations/visit-flow.js';
@@ -569,6 +570,8 @@ export function createBot(): Bot<BotContext> {
   bot.command('testrecap', handleTestRecap);
   bot.command('morningpreview', handleMorningPreview);
   bot.command('morningsend', handleMorningSend);
+  bot.command('weeklypreview', handleWeeklyPreview);
+  bot.command('weeklysend', handleWeeklySend);
 
   bot.catch((err) => {
     const ctx = err.ctx;

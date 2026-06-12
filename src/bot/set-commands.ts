@@ -35,6 +35,8 @@ const ADMIN_EXTRA: Command[] = [
   { command: 'testrecap', description: "Preview a CM's daily recap (DM to you)" },
   { command: 'morningpreview', description: 'Preview the morning brief + recipients' },
   { command: 'morningsend', description: 'Fire the 9am team send now' },
+  { command: 'weeklypreview', description: 'Preview the Monday weekly ping (DMs you)' },
+  { command: 'weeklysend', description: 'Fire the weekly recipient ping now' },
   { command: 'runintelligence', description: "Generate today's daily brief" },
   { command: 'stopintelligence', description: 'Pause all intelligence (kill switch)' },
   { command: 'resumeintelligence', description: 'Resume intelligence after a pause' },

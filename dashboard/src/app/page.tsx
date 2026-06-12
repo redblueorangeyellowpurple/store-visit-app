@@ -258,6 +258,13 @@ export default function HomePage() {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setUser(d));
   }, []);
 
+  // Honour ?tab=weekly|daily|memories deep-link (the Monday weekly ping links here).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "weekly" || t === "daily" || t === "memories") setMainTab(t);
+  }, []);
+
   useEffect(() => {
     fetch("/api/intelligence/reports").then((r) => r.json()).then((d) => {
       const list: ReportSummary[] = d.reports ?? [];
